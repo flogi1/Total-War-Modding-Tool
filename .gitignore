@@ -1,0 +1,14 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# Local IDE settings
+.vs/
+.idea/
+
+# Git worktrees for isolated feature work
+/.worktrees/
+
+# Brainstorming mockups (local only)
+/.superpowers/

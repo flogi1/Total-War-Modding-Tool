@@ -1,0 +1,71 @@
+Backlog Total War Modding Tool
+Stand: 2026-10-02
+
+Alles, was nicht jetzt gebaut wird. Reihenfolge der Teile wie in docs/specs/2026-10-02-fundament.md, Abschnitt 1.2.
+
+== Teile mit eigener Spec ==
+
+Teil 2: Arbeitsordner, Import bestehender Packs, Tabellen bearbeiten, Pack bauen
+  - Schreibgrenze, Vorschau, Snapshot, Undo
+  - Text-Format der Tabellen im Arbeitsordner; verlustfreie Umwandlung Tabelle <-> Text (zu messen)
+  - Stabile IDs (GUID) für Mod-Projekte
+
+Teil 3: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
+  - Referenzgraph aus dem Schema (5825 Referenzfelder); Eignung zu messen
+  - Katalog aller Einstellmöglichkeiten (Effekte, Boni) mit Suche und Kategorien, auch aus Mods
+  - Kategorien: Gebäude, Lords, Traits und Ancillaries, Skripte, AI, Fähigkeiten, Fraktionsmechaniken, Misc
+  - Maske als zweite Ansicht auf dasselbe Objektmodell
+
+Teil 4: Lua-Editor
+  - Editor-Komponente wählen (NuGet nur nach Rückfrage)
+  - Skript-Dokumentation einbinden (Konzept Zeile 112 bricht mitten im Satz ab, Quelle klären)
+  - Suchen und Ersetzen, Hotkeys nach Notepad++-Vorbild
+
+Teil 5: Vanilla-Tracking, Diff, Merge, Kompatibilität
+  - Ursprüngliche Vanilla-Zeilen der überschriebenen Einträge sichern, nach Patch vergleichen
+  - Zwei Mods gegen Vanilla vergleichen, 3-Wege-Merge, Konflikte zeigen
+
+Teil 6: Versionsmanager
+  - Entwicklungs- und Release-Stand, Teile verschieben, Einfrieren, Zip-Snapshot
+
+Teil 7: Error-Log und Spielstart
+  - Zu messen: welche Logdateien auf Dateien oder Tabellen verweisen (crash_report war am 2026-10-02 leer,
+    logs enthielt kein Skript-Log)
+  - Spiel starten, Debug-Startoption (Quelle klären), Option für Absturz bei Loading Resources
+    (Verweis im Konzept auf das EU-V-Wiki stammt aus PMT, für Total War unbelegt)
+
+Teil 8: Workshop, GitHub, Steam
+  - Workshop-Titel der abonnierten Mods anzeigen
+  - GitHub-Sync über vorhandene Tools (gh, Git Credential Manager)
+  - Workshop-Upload (Steamworks, neue Abhängigkeit, zu messen)
+
+Teil 9: Bug-Reports
+  - Discord-Threads und Steam-Kommentare einlesen, mit Datei oder Zeile verknüpfen
+
+Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
+  - Knopf "Fehler melden" im Crash-Dialog, sobald ein öffentliches Ziel existiert
+  - CI (Build und Test bei jedem Push), sobald das Repo-Ziel feststeht
+
+== Aus dem Fundament zurückgestellt ==
+
+- LZMA-Dekompression (11 relevante Einträge in 397 Workshop-Packs, 0 in Vanilla)
+- Schema-Download auf Knopfdruck (HTTP, Bestätigung, Hash-Prüfung; Hash-Quelle klären)
+- Verschlüsselte Packs
+- Profile für weitere Spiele. Gemessen: Rome II und Attila nutzen PFH4, Index lesbar,
+  Tabellen nur zu 85 % bzw. 69 % dekodierbar
+- Suche über alle Packs
+- Raster: Sortieren und Filtern mit eigenem Vergleich, Spaltenreihenfolge wie im Assembly Kit (ca_order),
+  Farbspalten als eine Spalte, schnellere Anzeige breiter Tabellen
+- Schema-Patches aus patches.ron (Pflichtfelder, Defaults, Erklärungen)
+- Vorschau für Bilder, Modelle, Audio
+- Vollständige Anzeige sehr großer Textdateien (über 5 MB)
+- Mehrere Instanzen gleichzeitig, Single-Instance-Handoff
+- Automatisches Erkennen geänderter Packs per FileSystemWatcher
+- Index- oder Schema-Cache auf Platte (gemessen nicht nötig; neu bewerten, wenn Teil 3 alle Tabellen braucht)
+- Kompakte Speicherform für dekodierte Tabellen (naiv 373 MB für alle Vanilla-Tabellen)
+
+== Wartet auf ein öffentliches Remote ==
+
+- Remote für das lokale Repo festlegen (bisher nur lokal)
+- CI und "Fehler melden" (siehe oben)
+- Bereinigte öffentliche Historie wie bei PMT prüfen (Wissensbasis und docs enthalten lokale Pfade)

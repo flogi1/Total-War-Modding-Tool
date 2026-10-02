@@ -1,0 +1,138 @@
+Du bist Programmier Experte und sollst ein Tool zum leichteren Modding von Spielen der Total War Reihe entwerfen. Ich denke, es sollte eine Desktop App sein.
+Du kannst gucken, ob es für verschiedene Total War Spiele verschiedene Modi braucht wenn du den Rusted Pack File Manager durch guckst. Der unterstützt ab einem gewissen Punkt alle Total War Spiele.
+Die grundsätzliche Architektur für alle Spiele sollte ungefähr die gleiche sein, da sie alle unterschiedliche Versionen der
+gleichen Engine benutzen.
+Das Programm sollte wahrscheinlich in C oder C++ geschrieben werden. Notepad ++ und der Rusted Pack File Manager
+sind als Basis gute Ansätze was ich mir vorstelle, sowie das von dir bereits umgesetzte PMT. Im Grunde soll das Programm ein intelligenter und besser damit zu
+arbeitender Manager sein, der ähnlich wie RPFM ist, aber viel mehr Quality of Life Funktionen hat.
+
+Ich möchte für die Grundfeatures, Architektur und quality of life Dinge PMT als Grundlage haben. Ich habe von dir bereits ein Dokument mit den wesentlichen Designentscheidungen, die wir dort getroffen haben angehängt.
+
+1) Hauptsächliche Dateibearbeitung
+Die Total War Reihe hat ihre Hauptdateien in pack files zusammengefasst. Diese sind von RPFM zu offnen, damit man an
+die eigentlichen Dateien heran kommt.
+Die eigentlichen Dateien sind in Tabellenform aufgebaut, dabei sind Einträge, die beispielsweise die Kosten zu Gebäuden
+regeln alle in einer Tabelle aufgelistet. Die Effekte der Gebäude sind dann wieder in einer anderen Datei abgelegt, die
+Beschreibung wieder in einer anderen, die Frage, welche Voraussetzungen es gibt, das Gebäude zu bauen und so weiter.
+Ich stelle mir vor, dass mir das Programm ermöglicht alle relevanten Daten zu den modifizierenden oder erstellenden
+Objekten (z.B. Gebäude, Charaktere, Traits, Ancilleries, Einheiten, besonderen Mechaniken usw.) in einer Maske oder in einem Codeblock vereint. (Ich glaube der Codeblock könnte mehr Vorteile haben, lass uns hierzu brainstormen)
+Ich möchte also in der Lage sein in einer Maske alle relevanten Daten für die Erstellung eines neuen Gebäudes
+einzugeben oder eben ein bestehendes Gebäude modifizieren können.
+Dabei könnte der ausgegebene Code so ähnlich sein, wie der von Paradox aussieht, aber er muss es auch nicht. Es soll einfach nur gut verständlich und übersichtlich sein.
+Das ganze könnte man Bearbeitungsmaske nennen.
+Ich denke es sollte für dich relativ einfach möglich sein durch Durchsuchung der Tabelle zu erkennen, welche Tabellen
+am Ende einen Eintrag ergeben. Ich kann dir kleinere oder größere Pack files mit ausreichend Beispielen zur Verfügung
+stellen. 
+
+a) Für die Funktionen, die ich für ein Textverarbeitungsprogramm gerne hätte (Suchen, Ersetzen etc) kannst du dich an der PMT Architektur orientieren, auch am Interface.
+
+b) Es solite eine Funktion im Programm geben, die es mir ermöglicht elne Übersicht über alle Einstellungsmöglichkeiten
+zu haben. Das heißt belspielsweise im Bereich von Gebäude- und Charakterboni gibt es sehr viele denkbare Boni.
+Entsprechend muss der Modder eine Datenbank haben, aus der er diese Boni rauslesen kann.
+In diese Datenbank sollten auch neue Boni, die ev. Vom Modder erstellt werden oder von anderen Mods reingeladen
+werden können. Ich müsste dort auch über eine Suchleiste suchen können und es müsste Kategorien geben, wie ich es leichter sortieren kann.
+
+c) Bel dem Programm sollte auch eln Überarbeitungsbereich angezelgt werden können, ähnlich wie bel Notepad++,
+Man sollte auch mehrere selner Mods in den Überarbeitungsbereich laden können um dlese zu verändern. Ich schlage je
+nach den Modding Möglichkeiten dann mehrere Kategorlen vor, wo man auf die Themengeblete, die man verändern
+will, zugreifen kann. Diese Kategorien sollten z.B. sein Gebäude, Lords, Tralts & Ancilleries, Skripte, Al, Fähigkeiten,
+Fraktionsmechaniken, Misc (dle Kategorlen sind nicht abschlleßend, mehr fällt mir aus dem Stehgreif nicht ein.) Wenn
+du die Datelen durchgehst, kannst du weitere Kategorlen vorschlagen.
+
+
+d) Das Programm sollte eine Verknüpfung von Steam abonnierten Mods veröffentlichen und es ermöglichen diese leicht
+in dem Programm zu öffnen.
+
+e) Für wiederkehrende Formulierung und Befehle soll es eine automatische Komplettierungsfunktion geben, die ähnlich
+wie bei Notepad vorschlägt, was gemeint sein könnte.
+
+f) Hotkeys für verschiedene Werkzeugfunktionen sollten vorgesehen werden. Im Prinzip kannst du dich hier an Notepad
+orientieren.
+
+2) Versionsmanager
+Es sollte einen Versions Manager geben. Veröffentlicht man eine Mod, ist es für den Ersteller meist notwendig einen
+Development Branch zu haben. Er kann natürlich auch entscheiden den Development Branch hochzuladen, aber es
+sollte die Möglichkeit geben, entsprechend verschiedene Versionen des Mods zu haben und zwischen den Versionen
+Teile hin und her zu schieben.
+Es sollte eine Einfrierungsoption geben, oder einen Versionslock, sodass für den Moment keine weiteren Dateien in die
+Version verschoben werden können. Das würde sich anbieten, wenn das Spiel einen neuen Patch erhält.
+Es sollte auch eine Version für einen Snapshot geben, wo man die Moddateien des gegenwärtigen Bearbeitungsstandes
+in einer Zip Datei speichert.
+
+3) Spieldateien Versionsmanager
+Mods mussen oft Vanilla Spieldateien direkt verändern. Wird das Spiel geupdatet muss auch der Mod geupdatet
+werden. Bei den Total War teilen besteht die Besonderheit, dass man auch nur eine einzelne Codeteile überschreiben
+kann (der Vorteil des Tabellensystems, das ist sehr modular). Allerdings wird man regelmäßig händisch gucken müssen,
+was sich in Vanilla verändert hat. Das Tool sollte vergleichen, welche Vanilla Dateien durch die Mod direkt geändert
+werden und, per Option eine Versionshistorie dieser Vanilladateien speichern. Nach dem Update kann man dann
+vergleichen, was sich in der Vanilla Datei verändert hat und wie sich das auf die Mod auswirkt.
+Bzw. hier wäre es nur notwendig die ursprünglichen Vanillaeinträge zu speichern und nicht die ganze Tabelle. Dann
+lassen sich im Anschluss nach Updates Diskrepanzen leicht auffinden.
+
+4) Bei dem Punkt vergleichen von Dateien und dem Merge/Kompatibilitätsfunktion von Mods kannst du dich an PMT orientieren.
+
+5) Es soll auch ein Tool entwickelt werden, mit dem zwel Mods verglichen werden können, um deren Kompatibilität zu
+überprüfen. Dabei sollte anhand der bekannten Vanilla Dateien untersucht werden, welche Dateien von beiden Mods
+angepasst werden. Diese sollten übersichtlich gelistet werden. Dann sollte es die Möglichkeit geben, einen parallelen
+Vergleich mit den Vanilladateien durchlaufen zu lassen, sodass aufgezeigt werden kann, inwiefern die Moddateien
+jeweils von den Vanilladateien abweichen.
+
+Da wäre es super, wenn man mittels eines Algorithmus die Dateien zusammenfügen könnte, sodass die Änderungen
+beider Mods berücksichtigt werden. Ideal wäre es, wenn das Tool Codezeilen erkennt, die nicht miteinander kompatibel
+sind, oder ob in den Mods jeweils eine andere Entscheidung bezüglich einer Einstellung getroffen wurde. In diesem Fall
+sollte das Tool diese Stelle markieren und den Nutzer darauf hinweisen.
+Meine Vorstellung Ist, dass man Mods so zu einem gewissen Maß automatisch kompatibel machen kann, bzw. Im Fall
+der Tabellen jeweils einen Wert aussuchen kann oder einen Wert, der nicht mehr benötigt wird zu löschen.
+
+6) Das Programm sollte auch die Möglichkelt haben das Error log, das von den Totalwar Splelen produziert wird
+auszulesen. In dem Error Log verwelsen die Einträge In der Regel auch auf eine bestimmte Datel. Wenn das der Fall ist,
+wäre es gut, wenn diese Informationen aus dem Log gefiltert werden und dann, wenn die Datel offen ist, dazu parallel
+dargestellt wird.
+Jedenfalls sollte man mit der Auswahl eines Werkzeugs in der Lage sein das Error log (allgemein) oder bezogen auf die
+gerade bearbeitete Datel aufzurufen.
+
+7) Github und Steam Integration. Ermögliche die relevanten Moddateien direkt bei Github hochzuladen und zu synchronisieren.
+
+Eine direkte Steam Workshop Integration zur Aktualisierung/Veröffentlichung des Mods wäre auch super, falls das
+möglich ist. Ich habe dies schon bei einem Mod Manager für Warhammer III Total War gesehen. Es sollte also gehen.
+
+8) Es wäre super, wenn man das Spiel direkt aus dem Programm starten könnte. Dieser Button sollte auch in der
+Werkzeugliste sein. Eine weitere Option sollte sein, das Spiel direkt im Debug Mode zu starten (siehe wiki für die laucnh
+option). Integriere auch die Option das Spiel weiter mit Mods zu starten, wenn es bei Loading Resources crasht (siehe EU
+V wiki)
+
+9) Das Programm sollte eine Session generieren, die sich wie Notepad++ merken kann, welche Dateien offen waren.
+Wird das Programm neugestartet, sollte die letzte Session automatisch geladen werden. Das hat mich gerade bei RPFM
+immer gestört, dass man nicht einfach da weiter machen kann, wo man aufgehört hat.
+Auch verschiedene Tabs, um verschiedene Dateien zu öffnen, und anzugucken, wäre ähncih ein Browser Tehr hilfreich.
+
+10) Das Programm sollte auch Textverarbietungsmöglichkeit haben. Da man für Total War auch viel mit eigens
+geschriebenen Scripten arbeiten kann, wäre ein entsprechender Texteditor, der direkt in das Programm integriert ist,
+sehr gut. Orientiere dich hier an Notepad ++. Die Sprache ist lua. Greife auf die offizielle Warhammer Scriot
+Dokumentation zurück und
+
+11) 
+Wichtig ist mir auch auf jeden Fall die Performance. Da viele Dateien gleichzeitig bearbeitet und genutzt werden, ist es
+wichtig, dass die zur Verfügung stehenden Ressourcen des Computers möglichst effizient genutzt werden.
+
+12) Eine weitere Funktion ist eine Report Bug Funktion. Idealerweise sollte diese Funktion mit Discrod verknüpft sein und
+mit entsprechenden Channeln. Der Developper kann sagen, wo es in diesem Discord Channel Threads für Bugreports
+gibt und diese Bugreports könnten dann direkt in das Programm eingelesen werden. Idealerweise können sie dann
+automatisch oder händisch zu einer Datei oder sogar theoretisch zu einer Codezeile verknüpft werden (meist wird dies
+händisch geschehen müssen, weil die Reports die von Usern gestellt werden selten so detailliert sind, aber so wäre das
+ein geniales Feature).
+Genial wäre es auch wenn das Programm einen Steam Thread einer Modseite durchsuchen könnte dann aus den
+Kommentaren verschieden Reports generiert.
+
+13) Ich habe eine Wissensbasis für dich.
+Hier liegt der Rusted Pack File Manager für dich zur Inspektion. D:\Modding\Warhammer III\RPFM
+
+Allgemeine Modding Informationen findest du in der Modding Wiki: https://tw-modding.com/wiki/Main_Page
+
+Die Error logs für die Total War Spiele: C:\Users\flori\AppData\Roaming\The Creative Assembly\Warhammer3\crash_report
+und: C:\Users\flori\AppData\Roaming\The Creative Assembly\Warhammer3\logs
+(Exemplarisch für Warhammer Total War 3)
+
+
+Das ist mein grobes Konzept. Schau es dir an und lass uns brainstormen, ob du Unklarheiten oder Verbesserungsmöglichkeiten siehst.
+
