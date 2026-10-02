@@ -842,10 +842,12 @@ public static class StartupSanitizer
     public static bool FixLanguage(GlobalSettings settings, IReadOnlyList<UiLanguageOption> available);
 }
 
-public sealed class SettingsAutoSaver   // saves 500 ms after the last settings.Changed (DispatcherTimer); Flush() saves now
+// Saves 500 ms after the last settings.Changed (DispatcherTimer), only when there are unsaved changes.
+// Never writes in a session whose load status was NewerVersion or Unreadable (logs one warning instead).
+public sealed class SettingsAutoSaver
 {
-    public SettingsAutoSaver(GlobalSettings settings, GlobalSettingsStore store, IAppLog log);
-    public void Flush();
+    public SettingsAutoSaver(GlobalSettings settings, GlobalSettingsStore store, IAppLog log, LoadStatus loadStatus);
+    public void Flush();   // saves now if there are unsaved changes
 }
 
 public sealed class MainViewModel : ObservableObject
@@ -897,11 +899,12 @@ Festlegungen:
 - Startreihenfolge in `App.OnStartup` (kein `StartupUri`):
   1. `AppPaths.Default()`
   2. `FileLog` (Profilpfad aus `Environment.SpecialFolder.UserProfile`), `Info` mit Version
-  3. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status und `.bad`-Pfad
-  4. `LanguageCatalog.Find`, `StartupSanitizer.FixLanguage`, `UiText.Load(settings.Language)`, `AppTexts`
-  5. `ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme)` – vor dem ersten Fenster
-  6. `SettingsAutoSaver`; `OnExit` ruft `Flush()`
-  7. `MainViewModel`, `MainWindow`, `WindowPlacementTracker`, `Show()`
+  3. `UiText` und `AppTexts` anlegen; bis zum `Load` in Schritt 6 liefern sie die Inline-Fallbacks
+  4. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status und `.bad`-Pfad
+  5. `SettingsAutoSaver` wird direkt nach Schritt 4 erzeugt (vor `FixLanguage`), damit die Reparatur der Sprache gespeichert wird; `OnExit` ruft `Flush()`
+  6. `LanguageCatalog.Find`, `StartupSanitizer.FixLanguage`, `UiText.Load(settings.Language)`
+  7. `ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme)` – vor dem ersten Fenster
+  8. `MainViewModel`, `MainWindow`, `WindowPlacementTracker`, `Show()`
 - `openFolder` im Composition Root: legt den Ordner an und startet ihn mit `Process.Start` und `UseShellExecute = true`.
 - `SettingsAutoSaver`: `IOException` und `UnauthorizedAccessException` beim Speichern ergeben ein `Warn`, keinen Absturz.
 

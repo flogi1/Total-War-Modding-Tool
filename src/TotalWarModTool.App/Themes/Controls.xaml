@@ -429,7 +429,7 @@
         </Setter>
     </Style>
 
-    <!-- ========== ListView / GridView (Spaltenkopf, Zeilen) ========== -->
+    <!-- ========== ListView / GridView (column header, rows) ========== -->
     <Style TargetType="ListView">
         <Setter Property="Background" Value="{DynamicResource Theme.PanelBackground}" />
         <Setter Property="Foreground" Value="{DynamicResource Theme.Text}" />

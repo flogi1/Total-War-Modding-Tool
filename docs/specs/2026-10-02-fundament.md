@@ -480,6 +480,7 @@ Nie Spielordner, Workshop-Ordner, RPFM-Ordner oder Programmordner.
 | Ausgeliefertes Schema fehlt oder ist kaputt | Tabellen sind nicht dekodierbar, der Rest funktioniert. Meldung mit Hinweis auf den Schema-Ordner. |
 | Textdatei größer als 5 MB | Die ersten 5 MB werden gezeigt, dazu ein Hinweis. |
 | Einstellungen oder Session kaputt | Kopie nach `.bad`, Defaults, Log-Eintrag. Der Start wird nie blockiert. |
+| `settings.json` stammt von einer neueren Version oder ist beim Start nicht lesbar (gesperrt) | Die App läuft mit den gelesenen Werten bzw. mit Standardwerten. In dieser Sitzung wird `settings.json` nicht geschrieben, damit nichts überschrieben wird. Das Log enthält eine Warnung. |
 | Session verweist auf fehlendes Pack oder fehlenden Eintrag | Der Tab wird still entfernt, Log-Eintrag. |
 | Abbruch durch den Nutzer | Kein Tab, kein Teilzustand. Das Hauptfenster ist wieder frei. |
 | Unerwartete Exception in einer Operation | `ProgressRunner` schließt das Fenster und meldet den Fehler. Log-Eintrag. |

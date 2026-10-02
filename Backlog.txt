@@ -78,6 +78,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Changelog in der App anzeigen
 - Migrationskette für gespeicherte Dateien (kommt mit der ersten echten Formatänderung, samt Regressionstest)
 - Eigene Themes und Theme-Editor
+- Einstellungsfenster zeigt einen Hinweis, wenn Einstellungen in dieser Sitzung nicht gespeichert werden (bisher nur Log-Warnung)
 
 == Wartet auf ein öffentliches Remote ==
 
