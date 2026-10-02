@@ -72,20 +72,49 @@ public class FileLogTests
         for (var i = from; i < to; i++) log.Info("line " + i.ToString("D3") + new string('x', 40));
     }
 
+    private static List<string> ArchiveSnapshot(string directory) =>
+        Directory.GetFiles(directory, "twmt.*.log").Select(f => Path.GetFileName(f) + "=" + File.ReadAllText(f)).Order().ToList();
+
     [Fact] public void Failed_rotation_keeps_existing_archives()
     {
         using var dir = new TempDir();
         var log = new FileLog(dir.Path, new FakeTimeProvider(T0), null, maxFileBytes: 200, maxFiles: 3);
         WriteLines(log, 0, 6);                                       // current + twmt.1.log + twmt.2.log, current is nearly full
         var archive1 = File.ReadAllText(dir.File("twmt.1.log"));
-        var archive2 = File.ReadAllText(dir.File("twmt.2.log"));
 
         // A viewer that keeps the current file open without delete sharing: every rotation attempt fails.
+        // The first attempt may lose the oldest archive (a successful rotation would have dropped it anyway) ...
+        List<string> afterFirstAttempt;
         using (new FileStream(log.CurrentFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            Assert.Null(Record.Exception(() => WriteLines(log, 6, 12)));
+        {
+            Assert.Null(Record.Exception(() => WriteLines(log, 6, 7)));
+            afterFirstAttempt = ArchiveSnapshot(dir.Path);
 
-        Assert.Equal(archive1, File.ReadAllText(dir.File("twmt.1.log")));
-        Assert.Equal(archive2, File.ReadAllText(dir.File("twmt.2.log")));
+            // ... but every further attempt must not delete or change anything.
+            Assert.Null(Record.Exception(() => WriteLines(log, 7, 13)));
+        }
+
+        Assert.Equal(afterFirstAttempt, ArchiveSnapshot(dir.Path));
+        Assert.Contains(afterFirstAttempt, a => a.EndsWith("=" + archive1, StringComparison.Ordinal));
+    }
+
+    [Fact] public void Rotation_succeeds_while_a_reader_with_delete_sharing_holds_the_file()
+    {
+        using var dir = new TempDir();
+        var log = new FileLog(dir.Path, new FakeTimeProvider(T0), null, maxFileBytes: 200, maxFiles: 3);
+        WriteLines(log, 0, 6);                                       // current + twmt.1.log + twmt.2.log, current is nearly full
+        var archive1 = File.ReadAllText(dir.File("twmt.1.log"));
+        var current = File.ReadAllText(log.CurrentFilePath);
+
+        // A reader that allows renaming the file it holds open: the rotation must go through.
+        using (new FileStream(log.CurrentFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            WriteLines(log, 6, 7);
+
+        Assert.Equal(current, File.ReadAllText(dir.File("twmt.1.log")));
+        Assert.Equal(archive1, File.ReadAllText(dir.File("twmt.2.log")));
+        var text = File.ReadAllText(log.CurrentFilePath);
+        Assert.Contains("line 006", text);
+        Assert.DoesNotContain("line 005", text);
     }
 
     [Fact] public void Failed_rotation_keeps_archives_when_an_archive_is_locked()

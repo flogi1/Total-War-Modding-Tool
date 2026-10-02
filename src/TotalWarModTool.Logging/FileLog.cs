@@ -91,21 +91,13 @@ public sealed class FileLog : IAppLog
 
     /// <summary>
     /// Shifts the files one index up (<c>twmt.log</c> becomes <c>twmt.1.log</c>, <c>twmt.1.log</c> becomes <c>twmt.2.log</c>, ...),
-    /// starting at the top so nothing is overwritten. Index 0 is the current file. Every failure point is ordered so that a failed
-    /// rotation, repeated on every following write, never destroys more than the one file that would have fallen out anyway:
-    /// <list type="bullet">
-    /// <item>The current file is the one most likely to be held open by a viewer or virus scanner. Exclusive access is what a rename
-    /// needs, so it is requested first; if it is not available nothing has been touched yet.</item>
-    /// <item>The last file is only deleted when every slot is taken. After a half-finished shift there is a gap, and the files
-    /// below the gap are the only ones that have to move.</item>
-    /// </list>
+    /// starting at the top so nothing is overwritten. Index 0 is the current file. The last file is only deleted when every slot
+    /// is taken. If the shift then fails half way (a viewer or virus scanner holds a file open without delete sharing), there is a
+    /// gap, and the next attempt only moves the files below the gap. A failed rotation that is retried on every following write
+    /// therefore loses at most the one file that a successful rotation would have dropped anyway.
     /// </summary>
     private void Rotate()
     {
-        using (new FileStream(CurrentFilePath, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-        }
-
         var lastIndex = _maxFiles - 1;
         var freeSlot = FirstFreeArchiveSlot(lastIndex);
         if (freeSlot < 0)
