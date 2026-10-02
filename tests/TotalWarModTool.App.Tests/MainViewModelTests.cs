@@ -22,9 +22,9 @@ public class MainViewModelTests
     }
 
     // Waits for the effect, no fixed sleep. The Sta.RunAsync timeout is the outer guard.
-    private static async Task WaitUntil(Func<bool> condition)
+    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 8000)
     {
-        var deadline = Environment.TickCount64 + 8000;
+        var deadline = Environment.TickCount64 + timeoutMs;
         while (!condition() && Environment.TickCount64 < deadline)
         {
             await Task.Delay(10);
@@ -63,7 +63,8 @@ public class MainViewModelTests
         Assert.Empty(shown);
     });
 
-    // Progress arrives as "n / 100", and Cancel ends the run quickly and without an error report.
+    // Progress arrives as "n / 100", and Cancel ends the run quickly and without an error report. "Quickly" has to be clearly below the five
+    // seconds the work takes on its own: if the work ignored the token, the lock would only be released after about five seconds.
     [Fact] public void DebugSlow_reports_progress_and_ends_quickly_on_cancel() => Sta.RunAsync(async () =>
     {
         var (vm, main, reported, shown) = CreateWithRunner(TimeSpan.FromMilliseconds(10));
@@ -74,8 +75,14 @@ public class MainViewModelTests
         var window = Assert.Single(shown);
         Assert.Equal("Run slow operation", window.Title);
 
+        var cancelledAt = Environment.TickCount64;
         window.RequestCancel();
-        await WaitUntil(() => main.IsHitTestVisible);
+        await WaitUntil(() => main.IsHitTestVisible, timeoutMs: 2000);
+        var endedAfterMs = Environment.TickCount64 - cancelledAt;
+
+        Assert.True(endedAfterMs < 2000, $"The run took {endedAfterMs} ms to end after Cancel; the work does not honour the token.");
+        var lastCount = int.Parse(window.CountText.Split(' ')[0], System.Globalization.CultureInfo.InvariantCulture);
+        Assert.InRange(lastCount, 1, 99);
         Assert.Empty(reported);
         Assert.False(window.IsVisible);
     });
