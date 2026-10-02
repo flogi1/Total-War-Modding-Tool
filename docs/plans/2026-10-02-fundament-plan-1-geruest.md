@@ -1106,7 +1106,8 @@ Ablauf von `RunAsync` (verbindlich, weil Signatur und Tests ihn nicht eindeutig 
                                                   -- so Close() can never run before ShowDialog()
 6. evaluate task:
        returned normally          -> cts cancelled ? Cancelled(value) : Completed(value)
-       OperationCanceledException -> Cancelled(default)
+       OperationCanceledException while cts is cancelled -> Cancelled(default)
+       OperationCanceledException without a cancel request -> treated like any other exception (Failed)
        any other exception        -> log.Error(...), reportError(title, ex), Failed(default, ex)
 7. finally: lock.Dispose(); cts.Dispose(); mark runner idle
 ```

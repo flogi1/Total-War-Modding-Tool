@@ -4,8 +4,6 @@ using TotalWarModTool.Localization;
 
 namespace TotalWarModTool.App.Tests;
 
-// Runs one after another with the other classes that create windows or load XAML: see WpfCollection.
-[Collection(WpfCollection.Name)]
 public class ProgressRunnerTests
 {
     private static readonly TimeSpan Never = TimeSpan.FromSeconds(30);
@@ -75,6 +73,17 @@ public class ProgressRunnerTests
         var outcome = await runner.RunAsync<int>("t", (_, ct) => { ct.WaitHandle.WaitOne(); ct.ThrowIfCancellationRequested(); return 0; });
         Assert.Equal(OperationStatus.Cancelled, outcome.Status);
         Assert.Empty(reported); Assert.Empty(log.Errors);
+    });
+
+    // A cancellation the user did not ask for (HttpClient timeout, a foreign token) is an error: logged once, reported once.
+    [Fact] public void Cancellation_without_a_cancel_request_is_a_failure() => Sta.RunAsync(async () =>
+    {
+        var (runner, log, reported, shown) = Create(Never);
+        var outcome = await runner.RunAsync<int>("fetch", (_, _) => throw new OperationCanceledException("not requested by the user"));
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.IsType<OperationCanceledException>(outcome.Error);
+        Assert.Equal("fetch", Assert.Single(reported).Title); Assert.Single(log.Errors);
+        Assert.Empty(shown);
     });
 
     [Fact] public void Closing_the_window_requests_cancel_and_window_stays_until_work_ends() => Sta.RunAsync(async () =>

@@ -115,7 +115,9 @@ public sealed class ProgressRunner
             var value = await task;
             return new OperationOutcome<T>(cts.IsCancellationRequested ? OperationStatus.Cancelled : OperationStatus.Completed, value, null);
         }
-        catch (OperationCanceledException)
+        // Only a cancel the user asked for counts as cancelled. Any other cancellation (HttpClient timeout, a foreign token) is an error
+        // and falls through to the generic catch below, which logs and reports it.
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             return new OperationOutcome<T>(OperationStatus.Cancelled, default, null);
         }

@@ -9,7 +9,6 @@ namespace TotalWarModTool.App.Tests;
 /// The ProgressBar style of Themes/Controls.xaml. WPF stretches the indicator over the whole track as soon as IsIndeterminate is set, so the
 /// template itself has to show a state that cannot be mistaken for a finished bar.
 /// </summary>
-[Collection(WpfCollection.Name)]
 public class ProgressBarStyleTests
 {
     private const double TrackWidth = 400;
