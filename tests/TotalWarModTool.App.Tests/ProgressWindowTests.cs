@@ -48,6 +48,16 @@ public class ProgressWindowTests
         Assert.Equal("3 %", w.PercentText);
     });
 
+    // Like the item line, the percent is frozen by a cancel request; bar and count may still follow the work (see the test below).
+    [Fact] public void Percent_stays_as_it_was_when_progress_arrives_after_the_cancel_request() => Sta.Run(() =>
+    {
+        var w = new ProgressWindow("t", new AppTexts(new UiText(@"X:\none")), new LatestProgress(), () => { });
+        w.Apply(new(10, 100, "a"));
+        w.RequestCancel();
+        w.Apply(new(50, 100, "b"));
+        Assert.Equal(("10 %", "Cancelling"), (w.PercentText, w.ItemText));
+    });
+
     [Fact] public void RequestCancel_calls_back_once_and_disables_the_button() => Sta.Run(() =>
     {
         var calls = 0;

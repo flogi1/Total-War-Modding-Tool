@@ -20,6 +20,19 @@ public class StartupGuardTests
         Assert.Equal([1], exitCodes);
     }
 
+    // The dialog is modal: the handler returns when the user closed it. Only then may the shutdown be requested, so the user can read
+    // that the app closes, and the exit code is the one of the failed start-up.
+    [Fact] public void Shutdown_is_requested_after_the_handler_has_returned_with_exit_code_1()
+    {
+        var events = new List<string>();
+        var handler = new CrashHandler(new FakeAppLog(), new FakeTimeProvider(DateTimeOffset.UnixEpoch), "0.1.0", null,
+            (_, _) => { events.Add("dialog shown"); events.Add("dialog closed"); });
+
+        StartupGuard.Run(() => throw new InvalidOperationException("window failed"), handler, code => events.Add($"shutdown {code}"));
+
+        Assert.Equal(["dialog shown", "dialog closed", "shutdown 1"], events);
+    }
+
     [Fact] public void Successful_composition_neither_shows_a_dialog_nor_requests_shutdown()
     {
         var log = new FakeAppLog(); var dialogs = new List<(string Details, bool Fatal)>(); var exitCodes = new List<int>();

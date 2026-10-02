@@ -15,6 +15,11 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // During the start-up only an explicit Shutdown ends the app. With the default mode (OnLastWindowClose), closing the crash dialog of a
+        // failed start-up would be the last window closing, WPF would start its own shutdown with exit code 0, and the Shutdown(1) of the
+        // guard would be ignored. Compose sets the default back once the main window is shown.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
         base.OnStartup(e);
 
         var paths = AppPaths.Default();
@@ -37,7 +42,7 @@ public partial class App : Application
         StartupGuard.Run(() => Compose(paths, log, ui, texts), crashHandler, Shutdown);
     }
 
-    /// <summary>Everything after the log and the crash handler exist, up to the visible main window.</summary>
+    /// <summary>Everything after the log and the crash handler exist, up to the visible main window. Restores the normal shutdown mode at the end.</summary>
     private void Compose(AppPaths paths, IAppLog log, UiText ui, AppTexts texts)
     {
         var store = new GlobalSettingsStore(paths.RoamingRoot);
@@ -86,6 +91,9 @@ public partial class App : Application
         mainWindow = window;
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
+
+        // The start-up worked: from here on the app ends when its last window is closed, as usual.
+        ShutdownMode = ShutdownMode.OnLastWindowClose;
     }
 
     protected override void OnExit(ExitEventArgs e)

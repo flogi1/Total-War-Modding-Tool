@@ -77,29 +77,32 @@ public sealed partial class ProgressWindow : Window
 
     /// <summary>
     /// A known total (greater than 0) gives a determinate bar, a count text and the percent (rounded down, between 0 and 100);
-    /// otherwise the bar is indeterminate and count and percent are empty.
+    /// otherwise the bar is indeterminate and count and percent are empty. After a cancel request the bar and the count still follow the
+    /// work, but the item line and the percent stay as they were.
     /// </summary>
     public void Apply(OperationProgress progress)
     {
+        string percent;
         if (progress.Total is long total && total > 0)
         {
             Bar.IsIndeterminate = false;
             Bar.Maximum = total;
             Bar.Value = progress.Done;
             CountBlock.Text = _texts.ProgressCount(progress.Done, total);
-            PercentBlock.Text = _texts.ProgressPercent((int)(Math.Clamp(progress.Done, 0, total) * 100 / total));
+            percent = _texts.ProgressPercent((int)(Math.Clamp(progress.Done, 0, total) * 100 / total));
         }
         else
         {
             Bar.IsIndeterminate = true;
             CountBlock.Text = string.Empty;
-            PercentBlock.Text = string.Empty;
+            percent = string.Empty;
         }
 
-        // After a cancel request the item line keeps saying so; the next poll must not overwrite it.
+        // After a cancel request the item line keeps saying so, and the percent stays as it was; the next poll must not overwrite them.
         if (!_cancelRequested)
         {
             ItemBlock.Text = progress.Item ?? string.Empty;
+            PercentBlock.Text = percent;
         }
     }
 

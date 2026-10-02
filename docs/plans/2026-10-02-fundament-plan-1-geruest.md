@@ -21,6 +21,8 @@
 
 **Branch:** `feature/fundament-geruest` (von `master`). Baseline: Das Repo enthält noch keinen Code, es gibt keinen früheren Build- oder Teststand.
 
+**Stand nach dem Abschluss-Review (2026-10-03):** Die Interface-Blöcke und Festlegungen in diesem Plan sind an den Code angeglichen. Die Test-Snippets zeigen den Stand zur Planzeit; maßgeblich sind die Tests im Repo.
+
 ## Global Constraints
 
 - Code, Bezeichner und Code-Kommentare Englisch. Commit-Messages Englisch.
@@ -842,6 +844,22 @@ public static class StartupSanitizer
     public static bool FixLanguage(GlobalSettings settings, IReadOnlyList<UiLanguageOption> available);
 }
 
+// Lädt eine Sprache und hinterlässt eine Spur im Log (UiText.LoadError wird sonst von niemandem gelesen).
+public static class LanguageLoader
+{
+    // ui.Load; bei LoadError genau ein log.Warn mit Sprachcode (ui.Language), Zeile, Position, Meldung.
+    public static void Load(UiText ui, string? language, IAppLog log);
+    // Start: FixLanguage (Reparatur: log.Info mit altem und neuem Code), dann Load.
+    public static void LoadAtStartup(GlobalSettings settings, IReadOnlyList<UiLanguageOption> available, UiText ui, IAppLog log);
+}
+
+public static class SettingsLoadMessage
+{
+    // Warn-Text für Corrupt (mit Kopie: Pfad; ohne Kopie: "No backup copy ... could be created ... overwritten on the first change"),
+    // Unreadable, NewerVersion; null für Loaded und Missing.
+    public static string? Build(string filePath, LoadStatus status, string? badCopyPath);
+}
+
 // Saves 500 ms after the last settings.Changed (DispatcherTimer), only when there are unsaved changes.
 // Never writes in a session whose load status was NewerVersion or Unreadable (logs one warning instead).
 public sealed class SettingsAutoSaver
@@ -902,18 +920,19 @@ Festlegungen:
 - `WindowPlacementTracker(Window, GlobalSettings)`: wendet beim `SourceInitialized` die gespeicherte Position an, wenn `WindowBoundsCheck.IsUsable` gegen `SystemParameters.VirtualScreen*` mit 400 × 300 zustimmt, und schreibt beim `Closing` `RestoreBounds` plus Maximiert-Zustand nach `settings.MainWindow`.
 - Startreihenfolge in `App.OnStartup` (kein `StartupUri`):
   1. `AppPaths.Default()`
+     - Davor, als erste Anweisung von `OnStartup`: `ShutdownMode = ShutdownMode.OnExplicitShutdown`. Sonst wäre das Schließen des Crash-Dialogs bei einem fehlgeschlagenen Start das Schließen des letzten Fensters, WPF risse selbst mit Exit-Code 0 ab, und das `Shutdown(1)` aus Schritt 4 würde ignoriert. Schritt 12 stellt `OnLastWindowClose` wieder ein.
   2. `FileLog` (Profilpfad aus `Environment.SpecialFolder.UserProfile`), `Info` mit Version
   3. `UiText` und `AppTexts` anlegen; bis zum `Load` in Schritt 7 liefern sie die Inline-Fallbacks
   4. `CrashHandler(...).Install(this)` – so früh wie möglich, der Dialog braucht die Texte
-     - Die Schritte 5 bis 12 laufen in einem `try` / `catch` (`StartupGuard.Run(composition, crashHandler, shutdown)`). Wirft ein Schritt, ruft der `catch` `crashHandler.Handle(ex, CrashHandler.SourceStartup, fatal: true)` auf (Log-Eintrag, Crash-Dialog mit `CrashFatalMessage`) und danach `Shutdown(1)`. Sonst bliebe die App ohne Hauptfenster am Leben. Ein Fehler in den Schritten 1 bis 4 hat nichts, womit er sich zeigen könnte, und wird nicht abgefangen.
-  5. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status und `.bad`-Pfad
+     - Die Schritte 5 bis 12 laufen in einem `try` / `catch` (`StartupGuard.Run(composition, crashHandler, shutdown)`). Wirft ein Schritt, ruft der `catch` `crashHandler.Handle(ex, CrashHandler.SourceStartup, fatal: true)` auf (Log-Eintrag, Crash-Dialog mit `CrashFatalMessage`, kehrt zurück, wenn der Dialog geschlossen ist) und danach `Shutdown(1)`. Wegen `OnExplicitShutdown` (siehe Schritt 1) endet der Prozess dann mit Exit-Code 1. Sonst bliebe die App ohne Hauptfenster am Leben. Ein Fehler in den Schritten 1 bis 4 hat nichts, womit er sich zeigen könnte, und wird nicht abgefangen.
+  5. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status (Text aus `SettingsLoadMessage.Build`): bei `Corrupt` mit `.bad`-Pfad, bei `Corrupt` ohne Kopie mit dem Hinweis, dass keine Sicherungskopie erstellt werden konnte und die Datei bei der ersten Änderung überschrieben wird
   6. `SettingsAutoSaver` wird direkt nach Schritt 5 erzeugt (vor `FixLanguage`), damit die Reparatur der Sprache gespeichert wird; `OnExit` ruft `Flush()`
-  7. `LanguageCatalog.Find` (einmal, dieselbe Liste geht später an das `SettingsViewModel`), `StartupSanitizer.FixLanguage`, `UiText.Load(settings.Language)`
+  7. `LanguageCatalog.Find` (einmal, dieselbe Liste geht später an das `SettingsViewModel`), dann `LanguageLoader.LoadAtStartup(settings, languages, ui, log)`: `StartupSanitizer.FixLanguage` (eine Reparatur steht mit altem und neuem Code als `Info` im Log), `UiText.Load(settings.Language)`, bei einer kaputten Sprachdatei ein `Warn` mit Sprache, Zeile, Position und Meldung
   8. `ThemeManager(Resources, new RegistrySystemThemeSource())` anlegen und behalten, `Apply(settings.Theme)` – vor dem ersten Fenster
-  9. `SettingsApplier(settings, ui, theme)` – nach den Startwerten; ab hier wirken Änderungen von Sprache und Theme sofort
+  9. `SettingsApplier(settings, ui, theme, log)` – nach den Startwerten; ab hier wirken Änderungen von Sprache und Theme sofort (eine kaputte Sprachdatei wird dabei über `LanguageLoader.Load` geloggt)
   10. `ProgressRunner`
   11. `SettingsViewModel` (ein Exemplar für den ganzen Lauf), `SettingsWindowService` (Besitzer des Einstellungsfensters ist das Hauptfenster)
-  12. `MainViewModel`, `MainWindow`, `WindowPlacementTracker`, `Show()`
+  12. `MainViewModel`, `MainWindow`, `WindowPlacementTracker`, `Show()`, danach `ShutdownMode = ShutdownMode.OnLastWindowClose`
 - `openFolder` im Composition Root: legt den Ordner an und startet ihn mit `Process.Start` und `UseShellExecute = true`.
 - `SettingsAutoSaver`: `IOException` und `UnauthorizedAccessException` beim Speichern ergeben ein `Warn`, keinen Absturz.
 
@@ -1106,7 +1125,7 @@ Ablauf von `RunAsync` (verbindlich, weil Signatur und Tests ihn nicht eindeutig 
 3. task = Task.Run(() => work(progress, cts.Token))   -- starts immediately
 4. await Task.WhenAny(task, Task.Delay(showDelay, time))
 5. if (!task.IsCompleted):
-       window = new ProgressWindow(title, texts, progress, cts.Cancel) { Owner = active window or null }
+       window = new ProgressWindow(title, texts, progress, cts.Cancel) { Owner = active window, else first visible window, else null }
        window.Loaded += (_, _) =>
        {
            task.ContinueWith(_ => window.CloseByRunner(), TaskScheduler.FromCurrentSynchronizationContext());
@@ -1127,7 +1146,7 @@ Ablauf von `RunAsync` (verbindlich, weil Signatur und Tests ihn nicht eindeutig 
 Festlegungen:
 - `InputLock` setzt pro Fenster `IsHitTestVisible = false` und markiert `PreviewKeyDown`, `PreviewKeyUp`, `PreviewTextInput` als behandelt. `Dispose` stellt den vorherigen Wert wieder her und entfernt die Handler. Kein `IsEnabled = false`, damit nichts grau aufblitzt.
 - `ProgressWindow`: modal, 460 breit, Höhe nach Inhalt, nicht in der Taskleiste, Titel und fette Titelzeile, Balken, Elementtext, Zähltext, Prozenttext, Knopf `Cancel`. Ein `DispatcherTimer` mit 50 ms ruft `TryTake` und `Apply`.
-- `Apply`: `Total > 0` → bestimmter Balken (`Maximum = Total`, `Value = Done`), Zähltext aus `ProgressCount(done, total)`, Prozenttext aus `ProgressPercent((int)(Done * 100 / Total))` (`Done` auf 0 bis `Total` begrenzt, also 0 bis 100 %). Sonst unbestimmter Balken, leerer Zähltext und leerer Prozenttext. Elementtext ist `Item` oder leer.
+- `Apply`: `Total > 0` → bestimmter Balken (`Maximum = Total`, `Value = Done`), Zähltext aus `ProgressCount(done, total)`, Prozenttext aus `ProgressPercent((int)(Done * 100 / Total))` (`Done` auf 0 bis `Total` begrenzt, also 0 bis 100 %). Sonst unbestimmter Balken, leerer Zähltext und leerer Prozenttext. Elementtext ist `Item` oder leer. Nach einer Abbruchanforderung bleibt der Prozenttext, wie er war (wie der Elementtext, der bei `ProgressCancelling` bleibt); Balken und Zähltext folgen der Arbeit weiter.
 - Abbrechen (Knopf oder X): ruft `requestCancel`, deaktiviert den Knopf, Elementtext wird `ProgressCancelling`. Das Fenster bleibt offen, bis der Runner es schließt. Schließen durch den Nutzer wird dafür mit `e.Cancel = true` abgewiesen.
 - Composition Root: `openWindows` = `Application.Current.Windows`, `reportError` zeigt `MessageBox` mit `OperationFailedTitle` und `OperationFailedMessage(title, ex.Message)`.
 
@@ -1337,6 +1356,19 @@ public sealed partial class CrashDialog : Window
 {
     public CrashDialog(AppTexts texts, string details, Action openLogFolder, bool fatal = false);   // fatal: shows CrashFatalMessage
 }
+
+public static class CrashDialogOwner
+{
+    // Aktives Fenster, außer es ist ein ProgressWindow; sonst das Hauptfenster, wenn es angezeigt wurde (IsVisible); sonst null.
+    public static Window? Choose(Window? active, Window? mainWindow);
+}
+
+public static class StartupGuard
+{
+    public const int FailureExitCode = 1;
+    // composition() im try; bei einer Exception: crashHandler.Handle(ex, SourceStartup, fatal: true) (kehrt zurück, wenn der Dialog zu ist), danach shutdown(1).
+    public static void Run(Action composition, CrashHandler crashHandler, Action<int> shutdown);
+}
 ```
 
 `MainViewModel` bekommt einen vierten Konstruktorparameter und drei Befehle, die nur im Debug-Build im Menü erscheinen:
@@ -1350,8 +1382,8 @@ public ICommand DebugFailCommand { get; }      // progress.RunAsync: waits 1 s, 
 
 Festlegungen:
 - `Handle` loggt immer (`log.Error` mit Quelle und Exception). Ist kein Dialog offen, ruft es `showDialog(CrashReport.Build(...))`. Während `showDialog` läuft, lösen weitere Aufrufe nur den Log-Eintrag aus. Wirft `showDialog` selbst, wird das geloggt und nicht weitergereicht.
-- `Install`: `DispatcherUnhandledException` → `Handle(…, SourceUi)`, `Handled = true`. `AppDomain.CurrentDomain.UnhandledException` → `Handle(…, SourceAppDomain)`. `TaskScheduler.UnobservedTaskException` → `Handle(…, SourceTask)`, `SetObserved()`.
-- `showDialog` im Composition Root: wechselt auf den UI-Thread (`Dispatcher.Invoke`) und zeigt `CrashDialog` modal. `Install` wird direkt nach dem Anlegen der Texte aufgerufen (Schritt 4 der Startreihenfolge in Task 5; davor gibt es nur Pfade, Log und Texte), der Dialog nutzt die Texte, sobald sie geladen sind, vorher die Inline-Fallbacks. `DispatcherUnhandledException` setzt `Handled = true`: die App läuft nach dem Dialog weiter (der `ProgressRunner` verlässt sich darauf, weil die Ausnahme eines `WindowShown`-Abonnenten über diesen Weg läuft).
+- `Install`: `DispatcherUnhandledException` → `Handle(…, SourceUi)`, `Handled = true`. `AppDomain.CurrentDomain.UnhandledException` → `Handle(…, SourceAppDomain, fatal: e.IsTerminating)`. `TaskScheduler.UnobservedTaskException` → `Handle(…, SourceTask)`, `SetObserved()`.
+- `showDialog` im Composition Root: wechselt auf den UI-Thread (`Dispatcher.Invoke`) und zeigt `CrashDialog` modal (mit `fatal` aus dem Delegate; Besitzer laut `CrashDialogOwner.Choose`, also nie ein `ProgressWindow`). `Install` wird direkt nach dem Anlegen der Texte aufgerufen (Schritt 4 der Startreihenfolge in Task 5; davor gibt es nur Pfade, Log und Texte), der Dialog nutzt die Texte, sobald sie geladen sind, vorher die Inline-Fallbacks. `DispatcherUnhandledException` setzt `Handled = true`: die App läuft nach dem Dialog weiter (der `ProgressRunner` verlässt sich darauf, weil die Ausnahme eines `WindowShown`-Abonnenten über diesen Weg läuft).
 - `CrashDialog`: Meldungstext, schreibgeschütztes Textfeld mit den Details, Knöpfe `Open log`, `Copy details` (Zwischenablage), `Close`. Der Knopf „Fehler melden“ fehlt bewusst (Spec 4.6).
 - Menü `Debug` in `MainWindow.xaml` nur im Debug-Build sichtbar (`#if DEBUG` setzt eine Eigenschaft `IsDebugBuild` im ViewModel, das Menü bindet seine Sichtbarkeit daran). Die Befehle selbst gibt es in jedem Build; als Titel der beiden Operationen dienen die Menütexte `MenuDebugSlow` und `MenuDebugFail`.
 
