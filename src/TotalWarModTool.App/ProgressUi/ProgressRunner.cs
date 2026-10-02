@@ -94,7 +94,9 @@ public sealed class ProgressRunner
     // continuation is posted to the UI thread, so it runs after this handler has returned.
     private void ShowModal(string title, LatestProgress progress, CancellationTokenSource cts, Task work, IReadOnlyList<Window> windows)
     {
-        var owner = windows.FirstOrDefault(window => window.IsActive);
+        // The active window; if the app lost activation during the delay, the first visible one, so the modal window is never left without
+        // an owner (it could end up behind other windows with Cancel out of reach). Only a shown window can be an owner.
+        var owner = windows.FirstOrDefault(window => window.IsActive) ?? windows.FirstOrDefault(window => window.IsVisible);
         var window = new ProgressWindow(title, _texts, progress, cts.Cancel)
         {
             Owner = owner,

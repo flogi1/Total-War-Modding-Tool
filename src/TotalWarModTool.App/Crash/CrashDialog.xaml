@@ -13,7 +13,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <TextBlock Text="{Binding CrashMessage}" TextWrapping="Wrap" Margin="0,0,0,12" />
+        <TextBlock x:Name="MessageBlock" Text="{Binding CrashMessage}" TextWrapping="Wrap" Margin="0,0,0,12" />
         <TextBox x:Name="DetailsBox" Grid.Row="1" IsReadOnly="True" FontFamily="Consolas" TextWrapping="NoWrap"
                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" />
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">

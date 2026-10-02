@@ -14,9 +14,11 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="ItemBlock" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="CountBlock" Grid.Column="1" Margin="12,0,0,0" />
+            <TextBlock x:Name="PercentBlock" Grid.Column="2" Margin="12,0,0,0" MinWidth="40" TextAlignment="Right" />
         </Grid>
         <Button x:Name="CancelButton" Content="{Binding ProgressCancel}" HorizontalAlignment="Right" MinWidth="80" Padding="12,3"
                 Click="OnCancelClick" />

@@ -406,9 +406,10 @@ warten (ungeprüft, und der Stack ist auf .NET 8 festgelegt).
     Tab nur die ersten 5 MB und einen Hinweis mit der vollen Größe (eine Konstante).
   - Nicht dekodierbar und nicht unterstützt: Grund im Klartext, Typ, Größen, Schema-Quelle.
 - **`ProgressRunner`.** Eine Komponente nach den Regeln in `CLAUDE.md` (Verzögerung 150 ms als eine
-  Konstante, modal, Abbrechen, kein Fenster bei schneller Operation, Fehler werden gemeldet). Über
-  sie laufen: Pack-Liste auf Nutzerwunsch aktualisieren, Pack öffnen, Eintrag öffnen. Der Scan beim
-  Start läuft still im Hintergrund.
+  Konstante, modal, Abbrechen, kein Fenster bei schneller Operation, Fehler werden gemeldet). Ist die
+  Gesamtmenge bekannt, zeigt das Fenster Prozent, Balken und Zählstand (z. B. „120 / 4000“), sonst
+  einen unbestimmten Balken. Über sie laufen: Pack-Liste auf Nutzerwunsch aktualisieren, Pack
+  öffnen, Eintrag öffnen. Der Scan beim Start läuft still im Hintergrund.
 - **Theme** über Tokens und `DynamicResource`, angewendet vor dem ersten Fenster.
 - **UI-Texte** nur über `UiText.Get(key, fallback)` mit englischem Fallback. `locales/en.json` und
   `locales/de.json`. Standardsprache ist Englisch.
@@ -481,10 +482,12 @@ Nie Spielordner, Workshop-Ordner, RPFM-Ordner oder Programmordner.
 | Textdatei größer als 5 MB | Die ersten 5 MB werden gezeigt, dazu ein Hinweis. |
 | Einstellungen oder Session kaputt | Kopie nach `.bad`, Defaults, Log-Eintrag. Der Start wird nie blockiert. |
 | `settings.json` stammt von einer neueren Version oder ist beim Start nicht lesbar (gesperrt) | Die App läuft mit den gelesenen Werten bzw. mit Standardwerten. In dieser Sitzung wird `settings.json` nicht geschrieben, damit nichts überschrieben wird. Das Log enthält eine Warnung. |
+| Sprachdatei ist kein gültiges JSON oder nicht UTF-8 | Die App nutzt Englisch. Das Log enthält eine Warnung mit Sprache, Zeile und Position. |
 | Session verweist auf fehlendes Pack oder fehlenden Eintrag | Der Tab wird still entfernt, Log-Eintrag. |
 | Abbruch durch den Nutzer | Kein Tab, kein Teilzustand. Das Hauptfenster ist wieder frei. |
 | Unerwartete Exception in einer Operation | `ProgressRunner` schließt das Fenster und meldet den Fehler. Log-Eintrag. |
 | Unbehandelte Exception | Crash-Dialog, Log-Eintrag. |
+| Fehler beim Start, bevor das Hauptfenster existiert | Log-Eintrag, Crash-Dialog mit dem Hinweis, dass die App beendet wird, danach Prozessende mit Exit-Code 1. |
 
 ---
 

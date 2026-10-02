@@ -79,9 +79,35 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Migrationskette für gespeicherte Dateien (kommt mit der ersten echten Formatänderung, samt Regressionstest)
 - Eigene Themes und Theme-Editor
 - Einstellungsfenster zeigt einen Hinweis, wenn Einstellungen in dieser Sitzung nicht gespeichert werden (bisher nur Log-Warnung)
+- Sprachliste wird nur beim Start gelesen; eine neue Sprachdatei braucht einen Neustart
+- Bildschirmleser lesen in den Auswahlfeldern der Einstellungen den technischen Namen der Einträge statt des Anzeigenamens
+- Crash-Dialog: Knopf "Anwendung beenden" für Fehler, die sich ständig wiederholen; Zeitlimit beim Wechsel auf den UI-Thread
+- Crash-Dialog: Fehlschlag von "Details kopieren" sichtbar melden
+- Schwärzung von Pfaden: Schreibweisen mit Schrägstrich und file:///, umgeleitete AppData-Ordner, Quellpfade des Build-Rechners in Stack-Traces (vor der ersten Veröffentlichung)
+- Einstellungen und Session nicht im UI-Thread speichern (ein fehlgeschlagenes Speichern blockiert sonst rund 1 s)
+- Kurzer Wiederholversuch beim Lesen von settings.json, bevor die Sitzung ohne Speichern läuft
+- Sichtbarer Hinweis in den Einstellungen, wenn eine Sprachdatei fehlerhaft, gesperrt oder nicht lesbar ist (bisher nur Log-Warnung)
+- Log: Zeile nicht verwerfen, wenn nur die Rotation scheitert
+- Fenster: Maximiert-Zustand merken, wenn minimiert geschlossen wird; Positionsdrift bei 125 % Skalierung
+- Log-Ordner öffnen: Fehler abfangen und verständlich melden
+- ProgressRunner: laufende Arbeit abbrechen, wenn das Fortschrittsfenster nicht geöffnet werden kann (vor Teil 2, bevor Schreiboperationen dazukommen)
+- Fortschrittsfenster: Darstellungslogik aus dem Code-behind in ein ViewModel verlegen (bewusste Ausnahme von "keine Logik in Code-behind" in Plan 1)
+- Debug-Menü, Befehle und Texte aus dem Release-Build entfernen
+- GlobalSettingsStore: Round-Trip-Test über alle Eigenschaften, bevor neue Felder dazukommen
+- Tests: WindowPlacementTracker; alle Vorlagen aus Controls.xaml einmal instanziieren (zu Beginn von Plan 3)
+
+== Hinweise für Plan 2 und 3 (aus dem Abschluss-Review von Plan 1) ==
+
+- Plan 2: Arbeitsfunktionen müssen das CancellationToken häufig prüfen. Sonst bleibt das Fortschrittsfenster auf "Wird abgebrochen" stehen.
+- Plan 2: festlegen, wie UI-freie Libraries loggen (Diagnosen zurückgeben oder Referenz auf Logging). Die Spec sagt bei GameProfiles "übersprungen und geloggt", die Modultabelle nennt keine Referenz.
+- Plan 3: ProgressRunner.RunAsync lehnt einen zweiten Lauf mit InvalidOperationException ab. Zeit- oder sessiongesteuerte Aufrufer brauchen eine Abfrage, ob ein Lauf aktiv ist.
+- Plan 3: entscheiden, ob ViewModels weiter den konkreten ProgressRunner bekommen (Tests brauchen dann Sta und ein echtes Fenster) oder eine kleine Schnittstelle mit Fake.
+- Plan 3: Controls.xaml hat keinen Stil für DataGrid. Die Tabellen-Tabs brauchen einen.
+- Tests der App brauchen einen interaktiven Desktop und dauern rund 30 s. Für CI einplanen.
 
 == Wartet auf ein öffentliches Remote ==
 
 - Remote für das lokale Repo festlegen (bisher nur lokal)
 - CI und "Fehler melden" (siehe oben)
 - Bereinigte öffentliche Historie wie bei PMT prüfen (Wissensbasis und docs enthalten lokale Pfade)
+- .gitattributes für *.bat (Zeilenenden)

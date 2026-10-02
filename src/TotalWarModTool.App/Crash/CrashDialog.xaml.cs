@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
 
 namespace TotalWarModTool.App;
 
@@ -12,7 +14,8 @@ public sealed partial class CrashDialog : Window
     private readonly string _details;
     private readonly Action _openLogFolder;
 
-    public CrashDialog(AppTexts texts, string details, Action openLogFolder)
+    /// <param name="fatal">The app closes after this dialog: it shows <see cref="AppTexts.CrashFatalMessage"/> instead of <see cref="AppTexts.CrashMessage"/>.</param>
+    public CrashDialog(AppTexts texts, string details, Action openLogFolder, bool fatal = false)
     {
         _details = details;
         _openLogFolder = openLogFolder;
@@ -20,6 +23,12 @@ public sealed partial class CrashDialog : Window
         InitializeComponent();
         DataContext = texts;
         DetailsBox.Text = details;
+
+        // Another binding path, not a copied string, so that the message still follows a language change while the dialog is open.
+        if (fatal)
+        {
+            MessageBlock.SetBinding(TextBlock.TextProperty, new Binding(nameof(AppTexts.CrashFatalMessage)));
+        }
     }
 
     private void OnOpenLogClick(object sender, RoutedEventArgs e) => _openLogFolder();

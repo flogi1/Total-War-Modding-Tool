@@ -61,7 +61,8 @@ internal static class Sta
     /// Installs a <see cref="DispatcherSynchronizationContext"/> on a fresh STA thread, starts <paramref name="action"/>, and pumps a
     /// <see cref="DispatcherFrame"/> until the returned task ends, so awaits inside the action continue on the dispatcher thread and
     /// dispatcher timers tick. Rethrows the exception of the task. Throws <see cref="TimeoutException"/> if the task is not done
-    /// after <paramref name="timeoutSeconds"/>. The timeout also ends nested frames, such as a <c>ShowDialog</c> that nobody closes (also one
+    /// after <paramref name="timeoutSeconds"/>, and also when the timeout fired but the body then finished anyway because its frames were
+    /// exited. The timeout also ends nested frames, such as a <c>ShowDialog</c> that nobody closes (also one
     /// that the action itself enters before it has returned its task), and its timer starts before the action does, so that even this cannot hang.
     /// </summary>
     public static void RunAsync(Func<Task> action, int timeoutSeconds = 10)
@@ -73,9 +74,12 @@ internal static class Sta
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
 
             var frame = new DispatcherFrame();
+            var timedOut = false;
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(timeoutSeconds) };
             timer.Tick += (_, _) =>
             {
+                // Recorded, because exiting the frames can let the body run to its end a moment later. That is no success: it stalled.
+                timedOut = true;
                 frame.Continue = false;
                 Dispatcher.ExitAllFrames();
             };
@@ -88,7 +92,7 @@ internal static class Sta
 
                 Dispatcher.PushFrame(frame);
 
-                if (!task.IsCompleted)
+                if (timedOut || !task.IsCompleted)
                 {
                     throw new TimeoutException($"The task did not finish within {timeoutSeconds} seconds.");
                 }

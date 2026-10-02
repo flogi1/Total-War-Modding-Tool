@@ -45,6 +45,16 @@ public class FileLogTests
         }));
     }
 
+    // CrashHandler.Handle and ProgressRunner call the log outside any try block and rely on it never throwing, whatever the failure is.
+    // An empty directory string makes Directory.CreateDirectory throw ArgumentException, which is neither an IOException nor an UnauthorizedAccessException.
+    [Fact] public void Does_not_throw_when_the_directory_is_unusable_in_any_way()
+    {
+        var log = new FileLog("", new FakeTimeProvider(T0), null);
+        Assert.Null(Record.Exception(() => log.Info("x")));
+        Assert.Null(Record.Exception(() => log.Warn("y")));
+        Assert.Null(Record.Exception(() => log.Error("z", new Exception("boom"))));
+    }
+
     [Fact] public void Does_not_throw_when_log_file_is_locked()
     {
         using var dir = new TempDir();

@@ -49,30 +49,33 @@ public sealed class FileLog : IAppLog
 
     private void Write(string level, string message, Exception? exception)
     {
-        var timestamp = _time.GetLocalNow().ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-        var builder = new StringBuilder()
-            .Append(timestamp).Append(" [").Append(level).Append("] ")
-            .Append(PathRedactor.Redact(message, _userProfilePath));
-        if (exception is not null)
+        // Callers (the crash handler, the progress runner) call the log outside any try block and rely on this method never throwing,
+        // whatever goes wrong: an unusable folder, a locked file, a bad path string, an exception whose ToString fails.
+        try
         {
-            builder.Append(Environment.NewLine).Append(PathRedactor.Redact(exception.ToString(), _userProfilePath));
-        }
+            var timestamp = _time.GetLocalNow().ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            var builder = new StringBuilder()
+                .Append(timestamp).Append(" [").Append(level).Append("] ")
+                .Append(PathRedactor.Redact(message, _userProfilePath));
+            if (exception is not null)
+            {
+                builder.Append(Environment.NewLine).Append(PathRedactor.Redact(exception.ToString(), _userProfilePath));
+            }
 
-        builder.Append(Environment.NewLine);
-        var line = builder.ToString();
+            builder.Append(Environment.NewLine);
+            var line = builder.ToString();
 
-        lock (_gate)
-        {
-            try
+            lock (_gate)
             {
                 System.IO.Directory.CreateDirectory(Directory);
                 RotateIfNeeded(Utf8NoBom.GetByteCount(line));
                 File.AppendAllText(CurrentFilePath, line, Utf8NoBom);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Dropping the line is the only option: the log cannot log its own failure.
-            }
+        }
+        catch (Exception)
+        {
+            // The one place where a catch without a log entry is justified: the log cannot log its own failure, so dropping the line is
+            // the only option. Every kind of exception is caught on purpose, because this method is the last link of every error path.
         }
     }
 

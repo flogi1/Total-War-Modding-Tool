@@ -905,6 +905,7 @@ Festlegungen:
   2. `FileLog` (Profilpfad aus `Environment.SpecialFolder.UserProfile`), `Info` mit Version
   3. `UiText` und `AppTexts` anlegen; bis zum `Load` in Schritt 7 liefern sie die Inline-Fallbacks
   4. `CrashHandler(...).Install(this)` – so früh wie möglich, der Dialog braucht die Texte
+     - Die Schritte 5 bis 12 laufen in einem `try` / `catch` (`StartupGuard.Run(composition, crashHandler, shutdown)`). Wirft ein Schritt, ruft der `catch` `crashHandler.Handle(ex, CrashHandler.SourceStartup, fatal: true)` auf (Log-Eintrag, Crash-Dialog mit `CrashFatalMessage`) und danach `Shutdown(1)`. Sonst bliebe die App ohne Hauptfenster am Leben. Ein Fehler in den Schritten 1 bis 4 hat nichts, womit er sich zeigen könnte, und wird nicht abgefangen.
   5. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status und `.bad`-Pfad
   6. `SettingsAutoSaver` wird direkt nach Schritt 5 erzeugt (vor `FixLanguage`), damit die Reparatur der Sprache gespeichert wird; `OnExit` ruft `Flush()`
   7. `LanguageCatalog.Find` (einmal, dieselbe Liste geht später an das `SettingsViewModel`), `StartupSanitizer.FixLanguage`, `UiText.Load(settings.Language)`
@@ -1076,12 +1077,13 @@ public sealed partial class ProgressWindow : Window
     public ProgressWindow(string title, AppTexts texts, LatestProgress progress, Action requestCancel);
     public void RequestCancel();                        // same as clicking Cancel
     public void CloseByRunner();                        // the only way the window really closes
-    public void Apply(OperationProgress progress);      // updates bar and texts
+    public void Apply(OperationProgress progress);      // updates bar, texts and percent
     public bool IsIndeterminate { get; }
     public double BarMaximum { get; }
     public double BarValue { get; }
     public string ItemText { get; }
     public string CountText { get; }
+    public string PercentText { get; }                  // "3 %" when the total is known, otherwise empty
     public bool CancelEnabled { get; }
 }
 
@@ -1124,8 +1126,8 @@ Ablauf von `RunAsync` (verbindlich, weil Signatur und Tests ihn nicht eindeutig 
 
 Festlegungen:
 - `InputLock` setzt pro Fenster `IsHitTestVisible = false` und markiert `PreviewKeyDown`, `PreviewKeyUp`, `PreviewTextInput` als behandelt. `Dispose` stellt den vorherigen Wert wieder her und entfernt die Handler. Kein `IsEnabled = false`, damit nichts grau aufblitzt.
-- `ProgressWindow`: modal, 460 breit, Höhe nach Inhalt, nicht in der Taskleiste, Titel und fette Titelzeile, Balken, Elementtext, Zähltext, Knopf `Cancel`. Ein `DispatcherTimer` mit 50 ms ruft `TryTake` und `Apply`.
-- `Apply`: `Total > 0` → bestimmter Balken (`Maximum = Total`, `Value = Done`), Zähltext aus `ProgressCount(done, total)`. Sonst unbestimmter Balken und leerer Zähltext. Elementtext ist `Item` oder leer.
+- `ProgressWindow`: modal, 460 breit, Höhe nach Inhalt, nicht in der Taskleiste, Titel und fette Titelzeile, Balken, Elementtext, Zähltext, Prozenttext, Knopf `Cancel`. Ein `DispatcherTimer` mit 50 ms ruft `TryTake` und `Apply`.
+- `Apply`: `Total > 0` → bestimmter Balken (`Maximum = Total`, `Value = Done`), Zähltext aus `ProgressCount(done, total)`, Prozenttext aus `ProgressPercent((int)(Done * 100 / Total))` (`Done` auf 0 bis `Total` begrenzt, also 0 bis 100 %). Sonst unbestimmter Balken, leerer Zähltext und leerer Prozenttext. Elementtext ist `Item` oder leer.
 - Abbrechen (Knopf oder X): ruft `requestCancel`, deaktiviert den Knopf, Elementtext wird `ProgressCancelling`. Das Fenster bleibt offen, bis der Runner es schließt. Schließen durch den Nutzer wird dafür mit `e.Cancel = true` abgewiesen.
 - Composition Root: `openWindows` = `Application.Current.Windows`, `reportError` zeigt `MessageBox` mit `OperationFailedTitle` und `OperationFailedMessage(title, ex.Message)`.
 
@@ -1136,6 +1138,7 @@ Texte dieser Task:
 | `ProgressCancel` | `progress.cancel` | Cancel | Abbrechen |
 | `ProgressCancelling` | `progress.cancelling` | Cancelling | Wird abgebrochen |
 | `ProgressCount(long done, long total)` | `progress.count` | {0} / {1} | {0} / {1} |
+| `ProgressPercent(int percent)` | `progress.percent` | {0} % | {0} % |
 | `OperationFailedTitle` | `error.operationFailed.title` | Operation failed | Vorgang fehlgeschlagen |
 | `OperationFailedMessage(string operation, string reason)` | `error.operationFailed.message` | "{0}" could not be completed: {1} The log contains details (Tools, Open log folder). | „{0}“ konnte nicht abgeschlossen werden: {1} Details stehen im Log (Werkzeuge, Log-Ordner öffnen). |
 
@@ -1323,15 +1326,16 @@ public static class CrashReport
 
 public sealed class CrashHandler
 {
-    public const string SourceUi = "ui", SourceAppDomain = "appdomain", SourceTask = "task";
-    public CrashHandler(IAppLog log, TimeProvider time, string appVersion, string? userProfilePath, Action<string> showDialog);
-    public void Install(Application app);              // hooks the three global handlers
-    public void Handle(Exception exception, string source);
+    public const string SourceUi = "ui", SourceAppDomain = "appdomain", SourceTask = "task", SourceStartup = "startup";
+    // showDialog(details, fatal): fatal = the app has to close, the dialog then shows CrashFatalMessage instead of CrashMessage
+    public CrashHandler(IAppLog log, TimeProvider time, string appVersion, string? userProfilePath, Action<string, bool> showDialog);
+    public void Install(Application app);              // hooks the three global handlers; AppDomain.UnhandledException passes fatal: e.IsTerminating
+    public void Handle(Exception exception, string source, bool fatal = false);
 }
 
 public sealed partial class CrashDialog : Window
 {
-    public CrashDialog(AppTexts texts, string details, Action openLogFolder);
+    public CrashDialog(AppTexts texts, string details, Action openLogFolder, bool fatal = false);   // fatal: shows CrashFatalMessage
 }
 ```
 
@@ -1347,7 +1351,7 @@ public ICommand DebugFailCommand { get; }      // progress.RunAsync: waits 1 s, 
 Festlegungen:
 - `Handle` loggt immer (`log.Error` mit Quelle und Exception). Ist kein Dialog offen, ruft es `showDialog(CrashReport.Build(...))`. Während `showDialog` läuft, lösen weitere Aufrufe nur den Log-Eintrag aus. Wirft `showDialog` selbst, wird das geloggt und nicht weitergereicht.
 - `Install`: `DispatcherUnhandledException` → `Handle(…, SourceUi)`, `Handled = true`. `AppDomain.CurrentDomain.UnhandledException` → `Handle(…, SourceAppDomain)`. `TaskScheduler.UnobservedTaskException` → `Handle(…, SourceTask)`, `SetObserved()`.
-- `showDialog` im Composition Root: wechselt auf den UI-Thread (`Dispatcher.Invoke`) und zeigt `CrashDialog` modal. `Install` wird direkt nach dem Anlegen der Texte aufgerufen (zwischen Schritt 3 und 4 der Startreihenfolge; davor gibt es nur Pfade und Log), der Dialog nutzt die Texte, sobald sie geladen sind, vorher die Inline-Fallbacks. `DispatcherUnhandledException` setzt `Handled = true`: die App läuft nach dem Dialog weiter (der `ProgressRunner` verlässt sich darauf, weil die Ausnahme eines `WindowShown`-Abonnenten über diesen Weg läuft).
+- `showDialog` im Composition Root: wechselt auf den UI-Thread (`Dispatcher.Invoke`) und zeigt `CrashDialog` modal. `Install` wird direkt nach dem Anlegen der Texte aufgerufen (Schritt 4 der Startreihenfolge in Task 5; davor gibt es nur Pfade, Log und Texte), der Dialog nutzt die Texte, sobald sie geladen sind, vorher die Inline-Fallbacks. `DispatcherUnhandledException` setzt `Handled = true`: die App läuft nach dem Dialog weiter (der `ProgressRunner` verlässt sich darauf, weil die Ausnahme eines `WindowShown`-Abonnenten über diesen Weg läuft).
 - `CrashDialog`: Meldungstext, schreibgeschütztes Textfeld mit den Details, Knöpfe `Open log`, `Copy details` (Zwischenablage), `Close`. Der Knopf „Fehler melden“ fehlt bewusst (Spec 4.6).
 - Menü `Debug` in `MainWindow.xaml` nur im Debug-Build sichtbar (`#if DEBUG` setzt eine Eigenschaft `IsDebugBuild` im ViewModel, das Menü bindet seine Sichtbarkeit daran). Die Befehle selbst gibt es in jedem Build; als Titel der beiden Operationen dienen die Menütexte `MenuDebugSlow` und `MenuDebugFail`.
 
@@ -1357,6 +1361,7 @@ Texte dieser Task:
 |---|---|---|---|
 | `CrashTitle` | `crash.title` | Unexpected error | Unerwarteter Fehler |
 | `CrashMessage` | `crash.message` | Total War Modding Tool ran into an unexpected error. Your settings are safe. You can keep working, but restarting the app is safer. | Total War Modding Tool ist auf einen unerwarteten Fehler gestoßen. Deine Einstellungen sind sicher. Du kannst weiterarbeiten, ein Neustart der App ist aber sicherer. |
+| `CrashFatalMessage` | `crash.fatalMessage` | Total War Modding Tool ran into an unexpected error and has to close. The log contains details. | Total War Modding Tool ist auf einen unerwarteten Fehler gestoßen und muss beendet werden. Details stehen im Log. |
 | `CrashOpenLog` | `crash.openLog` | Open log | Log öffnen |
 | `CrashCopyDetails` | `crash.copyDetails` | Copy details | Details kopieren |
 | `CrashClose` | `crash.close` | Close | Schließen |
@@ -1454,7 +1459,7 @@ public sealed class SettingsViewModel : ObservableObject
 
 public sealed class SettingsApplier    // applies setting changes at once
 {
-    public SettingsApplier(GlobalSettings settings, UiText ui, ThemeManager theme);   // Language -> ui.Load, Theme -> theme.Apply
+    public SettingsApplier(GlobalSettings settings, UiText ui, ThemeManager theme, IAppLog log);   // Language -> ui.Load (a broken language file is logged as a warning), Theme -> theme.Apply
 }
 
 public sealed class SettingsWindowService(Func<SettingsWindow> create)
@@ -1550,8 +1555,10 @@ public class SettingsApplierTests
   4. Theme auf `Dunkel`, dann `Hell`, dann `Wie Windows`. Erwartet: Beide Fenster wechseln sofort, alle Texte bleiben lesbar.
   5. App schließen und neu starten. Erwartet: Sprache, Theme und Fensterposition sind erhalten.
   6. `settings.json` mit `kaputt` überschreiben, App starten. Erwartet: App startet mit Standardwerten, `settings.json.bad` existiert, das Log enthält eine Warnung.
-  7. In `locales` eine Kopie `fr.json` von `en.json` anlegen (im Ausgabeordner). Erwartet: Die Sprachliste zeigt „Français“, Auswahl funktioniert. Datei löschen und neu starten. Erwartet: Sprache fällt auf Englisch zurück.
+  7. In `locales` eine Kopie `fr.json` von `en.json` anlegen (im Ausgabeordner). App neu starten. Erwartet: Die Sprachliste zeigt „Français“, Auswahl funktioniert. Datei löschen und neu starten. Erwartet: Sprache fällt auf Englisch zurück.
   8. Fenster auf einen zweiten Monitor schieben, App schließen, Monitor abstecken, App starten. Erwartet: Fenster erscheint auf dem verbliebenen Bildschirm.
   9. Die drei Debug-Einträge aus Task 7 erneut prüfen, einmal im dunklen Theme und in Deutsch.
+  10. `Debug` → `Run slow operation` starten und abbrechen. Danach im Task-Manager prüfen: Die App verbraucht im Leerlauf keine CPU.
+  11. Datei `%APPDATA%\TotalWarModTool\settings.json` mit `"schemaVersion": 2` und einem zusätzlichen Feld anlegen, App starten, Sprache ändern, App schließen. Erwartet: Die Datei ist unverändert, das Log enthält den Hinweis, dass in dieser Sitzung nicht gespeichert wird.
 
 - [ ] **Step 6: Commit** – `git commit -m "feat: add settings window with live language and theme switch"`

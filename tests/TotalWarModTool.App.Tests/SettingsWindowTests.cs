@@ -22,7 +22,7 @@ public class SettingsWindowTests
         var texts = new AppTexts(ui);
         var theme = new ThemeManager(new ResourceDictionary(), new FakeSystemTheme());
         theme.Apply(settings.Theme);
-        _ = new SettingsApplier(settings, ui, theme);
+        _ = new SettingsApplier(settings, ui, theme, new FakeAppLog());
 
         var viewModel = new SettingsViewModel(settings, texts, Languages);
         var window = new SettingsWindow(viewModel);

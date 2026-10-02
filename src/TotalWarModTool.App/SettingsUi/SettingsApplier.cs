@@ -1,4 +1,5 @@
 using TotalWarModTool.Localization;
+using TotalWarModTool.Logging;
 using TotalWarModTool.Settings;
 
 namespace TotalWarModTool.App;
@@ -12,12 +13,14 @@ public sealed class SettingsApplier
     private readonly GlobalSettings _settings;
     private readonly UiText _ui;
     private readonly ThemeManager _theme;
+    private readonly IAppLog _log;
 
-    public SettingsApplier(GlobalSettings settings, UiText ui, ThemeManager theme)
+    public SettingsApplier(GlobalSettings settings, UiText ui, ThemeManager theme, IAppLog log)
     {
         _settings = settings;
         _ui = ui;
         _theme = theme;
+        _log = log;
         settings.Changed += OnChanged;
     }
 
@@ -26,7 +29,7 @@ public sealed class SettingsApplier
         switch (property)
         {
             case nameof(GlobalSettings.Language):
-                _ui.Load(_settings.Language);
+                LanguageLoader.Load(_ui, _settings.Language, _log);
                 break;
             case nameof(GlobalSettings.Theme):
                 _theme.Apply(_settings.Theme);

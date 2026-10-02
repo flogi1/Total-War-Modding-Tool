@@ -6,7 +6,7 @@ using TotalWarModTool.Operations;
 namespace TotalWarModTool.App;
 
 /// <summary>
-/// The modal progress window of <see cref="ProgressRunner"/>: bar, current element, count and a Cancel button. It cannot be closed by the
+/// The modal progress window of <see cref="ProgressRunner"/>: bar, current element, count, percent and a Cancel button. It cannot be closed by the
 /// user; closing (X) or Cancel only asks the operation to stop, and the runner closes the window with <see cref="CloseByRunner"/> once the work ended.
 /// </summary>
 public sealed partial class ProgressWindow : Window
@@ -50,6 +50,8 @@ public sealed partial class ProgressWindow : Window
 
     public string CountText => CountBlock.Text;
 
+    public string PercentText => PercentBlock.Text;
+
     public bool CancelEnabled => CancelButton.IsEnabled;
 
     /// <summary>Same as clicking Cancel: asks the operation to stop (once), disables the button and shows the cancelling text.</summary>
@@ -73,7 +75,10 @@ public sealed partial class ProgressWindow : Window
         Close();
     }
 
-    /// <summary>A known total (greater than 0) gives a determinate bar and a count text; otherwise the bar is indeterminate and the count empty.</summary>
+    /// <summary>
+    /// A known total (greater than 0) gives a determinate bar, a count text and the percent (rounded down, between 0 and 100);
+    /// otherwise the bar is indeterminate and count and percent are empty.
+    /// </summary>
     public void Apply(OperationProgress progress)
     {
         if (progress.Total is long total && total > 0)
@@ -82,11 +87,13 @@ public sealed partial class ProgressWindow : Window
             Bar.Maximum = total;
             Bar.Value = progress.Done;
             CountBlock.Text = _texts.ProgressCount(progress.Done, total);
+            PercentBlock.Text = _texts.ProgressPercent((int)(Math.Clamp(progress.Done, 0, total) * 100 / total));
         }
         else
         {
             Bar.IsIndeterminate = true;
             CountBlock.Text = string.Empty;
+            PercentBlock.Text = string.Empty;
         }
 
         // After a cancel request the item line keeps saying so; the next poll must not overwrite it.

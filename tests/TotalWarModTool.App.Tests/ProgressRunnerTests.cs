@@ -107,8 +107,9 @@ public class ProgressRunnerTests
         var unhandled = new List<Exception>();
         Dispatcher.CurrentDispatcher.UnhandledException += (_, e) => { unhandled.Add(e.Exception); e.Handled = true; };
 
-        // Only a closed window ends the modal loop, and the outer timeout of Sta.RunAsync cannot stop it. Without the fix nothing closes the
-        // window, so this guard does and the test fails on the assertion below instead of hanging.
+        // Without the fix nothing closes the window. The outer timeout of Sta.RunAsync would end the modal loop too, but only after 10 seconds
+        // and with a generic TimeoutException. This guard closes the window after 3 seconds, so the test fails fast on the assertion below
+        // with a message that names the cause.
         var stuck = false;
         var watchdog = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         watchdog.Tick += (_, _) => { stuck = true; shown.ForEach(w => w.CloseByRunner()); };
@@ -123,6 +124,21 @@ public class ProgressRunnerTests
         Assert.False(Assert.Single(shown).IsVisible);
         Assert.Equal("subscriber failed", Assert.Single(unhandled).Message);
         Assert.Empty(reported);
+    });
+
+    // The app can lose activation during the show delay (alt-tab, a dialog of another program). The modal window must still have an owner,
+    // or it can end up behind other windows with Cancel out of reach.
+    [Fact] public void Progress_window_is_owned_by_a_visible_window_when_no_window_is_active() => Sta.RunAsync(async () =>
+    {
+        var main = new Window { ShowActivated = false };
+        main.Show();
+        Assert.False(main.IsActive);
+        var (runner, _, _, _) = Create(Soon, main);
+        using var gate = new ManualResetEventSlim();
+        Window? owner = null;
+        runner.WindowShown += (_, w) => { owner = w.Owner; gate.Set(); };
+        await runner.RunAsync("slow", (_, _) => { gate.Wait(); return 0; });
+        Assert.Same(main, owner);
     });
 
     [Fact] public void Input_is_locked_while_running_and_restored_in_every_case() => Sta.RunAsync(async () =>

@@ -2,13 +2,13 @@ namespace TotalWarModTool.App.Tests;
 
 public class CrashHandlerTests
 {
-    private static CrashHandler Create(FakeAppLog log, Action<string> show) =>
+    private static CrashHandler Create(FakeAppLog log, Action<string, bool> show) =>
         new(log, new FakeTimeProvider(DateTimeOffset.UnixEpoch), "0.1.0", null, show);
 
     [Fact] public void Handle_logs_and_shows_dialog_with_details()
     {
         var log = new FakeAppLog(); var shown = new List<string>();
-        Create(log, shown.Add).Handle(new IOException("disk"), CrashHandler.SourceTask);
+        Create(log, (details, _) => shown.Add(details)).Handle(new IOException("disk"), CrashHandler.SourceTask);
         Assert.Single(log.Errors);
         Assert.Contains("Source: task", Assert.Single(shown)); Assert.Contains("System.IO.IOException: disk", shown[0]);
     }
@@ -16,7 +16,7 @@ public class CrashHandlerTests
     [Fact] public void Handle_while_dialog_open_only_logs()
     {
         var log = new FakeAppLog(); var shows = 0; CrashHandler? handler = null;
-        handler = Create(log, _ => { shows++; handler!.Handle(new Exception("second"), CrashHandler.SourceUi); });
+        handler = Create(log, (_, _) => { shows++; handler!.Handle(new Exception("second"), CrashHandler.SourceUi); });
         handler.Handle(new Exception("first"), CrashHandler.SourceUi);
         Assert.Equal((1, 2), (shows, log.Errors.Count));
         handler.Handle(new Exception("third"), CrashHandler.SourceUi);      // dialog closed again -> shown again
@@ -26,7 +26,22 @@ public class CrashHandlerTests
     [Fact] public void Handle_survives_a_failing_dialog()
     {
         var log = new FakeAppLog();
-        Create(log, _ => throw new InvalidOperationException("no ui")).Handle(new Exception("x"), CrashHandler.SourceAppDomain);
+        Create(log, (_, _) => throw new InvalidOperationException("no ui")).Handle(new Exception("x"), CrashHandler.SourceAppDomain);
         Assert.Equal(2, log.Errors.Count);        // the crash itself and the dialog failure
+    }
+
+    // A fatal error (start-up failure, terminating exception) must not tell the user that they can keep working.
+    [Fact] public void Handle_tells_the_dialog_when_the_error_is_fatal()
+    {
+        var log = new FakeAppLog(); var fatalFlags = new List<bool>();
+        Create(log, (_, fatal) => fatalFlags.Add(fatal)).Handle(new Exception("x"), CrashHandler.SourceStartup, fatal: true);
+        Assert.Equal([true], fatalFlags);
+    }
+
+    [Fact] public void Handle_is_not_fatal_by_default()
+    {
+        var log = new FakeAppLog(); var fatalFlags = new List<bool>();
+        Create(log, (_, fatal) => fatalFlags.Add(fatal)).Handle(new Exception("x"), CrashHandler.SourceUi);
+        Assert.Equal([false], fatalFlags);
     }
 }

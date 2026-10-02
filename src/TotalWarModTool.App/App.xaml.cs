@@ -24,19 +24,27 @@ public partial class App : Application
         var log = new FileLog(paths.LogDirectory, TimeProvider.System, userProfilePath);
         log.Info($"{AppTexts.AppName} {appVersion} started");
 
-        // The texts exist from here on. They return the English inline fallbacks until ui.Load runs below.
+        // The texts exist from here on. They return the English inline fallbacks until the language is loaded in Compose.
         var ui = new UiText(paths.LocalesDirectory);
         var texts = new AppTexts(ui);
 
         // As early as it can work: the dialog needs the texts. A crash from here on is logged and shown, also while the rest of the start-up runs.
-        new CrashHandler(log, TimeProvider.System, appVersion, userProfilePath, details => ShowCrashDialog(texts, paths, details)).Install(this);
+        var crashHandler = new CrashHandler(log, TimeProvider.System, appVersion, userProfilePath, (details, fatal) => ShowCrashDialog(texts, paths, details, fatal));
+        crashHandler.Install(this);
 
+        // A step that throws before the main window exists would leave a process without a window: the guard shows the failure as fatal and shuts down.
+        // A failure before this point (paths, log, texts, crash handler) has nothing to show it with and propagates.
+        StartupGuard.Run(() => Compose(paths, log, ui, texts), crashHandler, Shutdown);
+    }
+
+    /// <summary>Everything after the log and the crash handler exist, up to the visible main window.</summary>
+    private void Compose(AppPaths paths, IAppLog log, UiText ui, AppTexts texts)
+    {
         var store = new GlobalSettingsStore(paths.RoamingRoot);
         var loaded = store.Load();
-        if (loaded.Status is LoadStatus.Corrupt or LoadStatus.Unreadable or LoadStatus.NewerVersion)
+        if (SettingsLoadMessage.Build(store.FilePath, loaded.Status, loaded.BadCopyPath) is { } settingsProblem)
         {
-            var badCopy = loaded.BadCopyPath is null ? string.Empty : $" The broken file was copied to {loaded.BadCopyPath}.";
-            log.Warn($"Settings file {store.FilePath}: {loaded.Status}.{badCopy}");
+            log.Warn(settingsProblem);
         }
 
         // Created before the sanitizer, so that its language repair arrives as a normal change and is saved.
@@ -45,15 +53,14 @@ public partial class App : Application
 
         // Read once: the sanitizer and the settings window offer the same languages. A language file added later shows up after a restart.
         var languages = LanguageCatalog.Find(paths.LocalesDirectory);
-        StartupSanitizer.FixLanguage(settings, languages);
-        ui.Load(settings.Language);
+        LanguageLoader.LoadAtStartup(settings, languages, ui, log);
 
         // Before the first window exists, so nothing is shown in the wrong colours. Kept: the settings applier switches the theme through it.
         var theme = new ThemeManager(Resources, new RegistrySystemThemeSource());
         theme.Apply(settings.Theme);
 
         // After the start values are applied: from here on a change of language or theme in the settings takes effect at once.
-        _ = new SettingsApplier(settings, ui, theme);
+        _ = new SettingsApplier(settings, ui, theme, log);
 
         // Every user-started operation runs through this one runner.
         var progressRunner = new ProgressRunner(
@@ -89,13 +96,13 @@ public partial class App : Application
 
     /// <summary>
     /// The <c>showDialog</c> of the crash handler. Called from any thread: switches to the UI thread and shows the dialog modal, owned by the
-    /// active window if there is one. Returns when the dialog is closed.
+    /// active window or the main window (never by a progress window, see <see cref="CrashDialogOwner"/>). Returns when the dialog is closed.
     /// </summary>
-    private void ShowCrashDialog(AppTexts texts, AppPaths paths, string details) =>
+    private void ShowCrashDialog(AppTexts texts, AppPaths paths, string details, bool fatal) =>
         Dispatcher.Invoke(() =>
         {
-            var owner = Windows.Cast<Window>().FirstOrDefault(window => window.IsActive);
-            new CrashDialog(texts, details, () => OpenFolder(paths.LogDirectory))
+            var owner = CrashDialogOwner.Choose(Windows.Cast<Window>().FirstOrDefault(window => window.IsActive), MainWindow);
+            new CrashDialog(texts, details, () => OpenFolder(paths.LogDirectory), fatal)
             {
                 Owner = owner,
                 WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,

@@ -56,6 +56,15 @@ public class StaTests
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(8), $"The timeout took {watch.Elapsed}.");
     }
 
+    // The timeout ends the modal loop; the body can then finish "normally" a moment later. That must not look like a pass: the test stalled
+    // until the timeout, and a test that only completes because its dispatcher loops were exited has not completed.
+    [Fact] public void RunAsync_throws_TimeoutException_when_the_body_only_finishes_because_the_frames_were_exited() =>
+        Assert.Throws<TimeoutException>(() => Sta.RunAsync(() =>
+        {
+            new Window().ShowDialog();      // nobody closes it; only the timeout ends it
+            return Task.CompletedTask;
+        }, timeoutSeconds: 1));
+
     // Same, when the action itself runs into the modal loop before it has returned a task.
     [Fact] public void RunAsync_times_out_when_the_action_blocks_in_a_modal_loop_before_it_returns()
     {
