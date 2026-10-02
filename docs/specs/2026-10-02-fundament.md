@@ -1,6 +1,7 @@
 # Spec: Fundament (Packs und Tabellen lesen, App-Gerüst)
 
-Stand: 2026-10-02. Status: Entwurf, wartet auf Abnahme durch den Nutzer.
+Stand: 2026-10-02. Status: vom Nutzer am 2026-10-02 freigegeben.
+Pläne: `docs/plans/2026-10-02-fundament-plan-1-geruest.md` (Gerüst).
 
 Diese Spec ist die erste von mehreren. Sie beschreibt das Fundament, auf dem alle späteren Teile
 aufbauen. Abschnitt 1 hält das Gesamtbild und die Architekturentscheidungen fest, die für alle Teile
@@ -282,6 +283,7 @@ Solution `TotalWarModTool` (Anzeigename „Total War Modding Tool“, Kürzel TW
 | `TotalWarModTool.Localization` | `UiText` als Instanz, `Get(key, fallback)`, Sprachdateien aus `locales/` | – |
 | `TotalWarModTool.Logging` | Rotierendes File-Log | – |
 | `TotalWarModTool.Settings` | Globale Einstellungen mit `Changed`-Event, Einstellungen pro Spiel | `Storage` |
+| `TotalWarModTool.Operations` | `OperationProgress` (Anzahl, Gesamt, aktuelles Element) als Nutzlast für `IProgress<T>`. Ergänzt mit Plan 1, damit Libraries Fortschritt melden können, ohne die App zu referenzieren. | – |
 | `TotalWarModTool.GameProfiles` | Ausgelieferte JSON-Profile laden, Installation finden (`GameLocator`) | – |
 | `TotalWarModTool.PackFiles` | Pack-Header und Index lesen, Eintrag lesen, Dekompression | – |
 | `TotalWarModTool.Schema` | RON-Teilmenge parsen, Schema-Modell, Schema-Quelle wählen | – |
@@ -538,7 +540,7 @@ vorigen existieren.
 
 | Nr. | Annahme (zu messen) | Geprüft in |
 |---|---|---|
-| 1 | `net8.0` und `net8.0-windows` bauen mit dem installierten SDK 10. Die Spike-Zeiten gelten ähnlich unter .NET 8. | Plan 1 |
+| 1 | Die Spike-Zeiten gelten ähnlich unter .NET 8. (Der Build-Teil ist gemessen: Ein `net8.0-windows`-WPF-Projekt baut mit SDK 10.0.400 ohne Warnung und läuft auf Runtime 8.0.23.) | Plan 2 |
 | 2 | `ZstdSharp.Port` hat eine passende Lizenz und dekomprimiert alle 1602 Vanilla-Tabellen bytegleich zu `rpfm_cli`. Zeit pro Tabelle bleibt klein. | Plan 2 |
 | 3 | Der eigene LZ4-Decoder liest alle 1145 relevanten Vanilla-Einträge bytegleich zu `rpfm_cli`. | Plan 2 |
 | 4 | Loc-Format: Kopf, Version, Zeilenanzahl, Zeilen aus zwei UTF-16-Texten und einem Flag. Parity gegen `rpfm_cli`. | Plan 2 |

@@ -69,6 +69,16 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Index- oder Schema-Cache auf Platte (gemessen nicht nötig; neu bewerten, wenn Teil 4 alle Tabellen braucht)
 - Kompakte Speicherform für dekodierte Tabellen (naiv 373 MB für alle Vanilla-Tabellen)
 
+== Aus Plan 1 (Gerüst) zurückgestellt ==
+
+- Dunkle Windows-Titelleiste im dunklen Theme
+- Theme folgt einer Änderung in Windows sofort (bisher beim Start und beim Umschalten in den Einstellungen)
+- Sprachdateien aus einem Nutzerordner unter %APPDATA%, die Updates überleben
+- Position des Einstellungsfensters merken
+- Changelog in der App anzeigen
+- Migrationskette für gespeicherte Dateien (kommt mit der ersten echten Formatänderung, samt Regressionstest)
+- Eigene Themes und Theme-Editor
+
 == Wartet auf ein öffentliches Remote ==
 
 - Remote für das lokale Repo festlegen (bisher nur lokal)
