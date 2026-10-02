@@ -31,15 +31,19 @@ Das Tool wird von Anfang an für eine öffentliche Veröffentlichung gebaut.
 |---|---|---|
 | 1 | Fundament: Spielprofil, Packs lesen, Tabellen dekodieren, App mit Tabs und Session (nur lesen) | diese Spec |
 | 2 | Arbeitsordner, Import bestehender Packs, Tabellen bearbeiten, Pack bauen | Backlog |
-| 3 | Objekt-Ansicht als Codeblock, Katalog (Effekte usw.), Autovervollständigung | Backlog |
-| 4 | Lua-Editor | Backlog |
-| 5 | Vanilla-Tracking, Diff, Merge, Kompatibilitätsprüfung | Backlog |
-| 6 | Versionsmanager, Snapshots | Backlog |
-| 7 | Error-Log, Spielstart | Backlog |
+| 3 | Error-Log, Spielstart | Backlog |
+| 4 | Objekt-Ansicht als Codeblock, Katalog (Effekte usw.), Autovervollständigung | Backlog |
+| 5 | Lua-Editor | Backlog |
+| 6 | Vanilla-Tracking, Diff, Merge, Kompatibilitätsprüfung | Backlog |
+| 7 | Versionsmanager, Snapshots | Backlog |
 | 8 | Workshop-Anbindung, GitHub, Steam-Upload | Backlog |
 | 9 | Bug-Reports aus Discord und Steam | Backlog |
 
 Dazu kommen eigene Specs für Release-Tool und Self-Update (früh, weil öffentlich).
+
+Begründung der Reihenfolge: Die Teile 1 bis 3 ergeben zusammen die tägliche Schleife „ändern, bauen,
+starten, Log lesen“. Die Objekt-Ansicht ist Komfort auf dieser Schleife. Das Error-Log stand zuerst
+auf Platz 7 und wurde am 2026-10-02 auf Wunsch des Nutzers vorgezogen.
 
 ### 1.3 Architekturentscheidungen für alle Teile
 
@@ -53,9 +57,9 @@ Dazu kommen eigene Specs für Release-Tool und Self-Update (früh, weil öffentl
 | Vanilla und fremde Mods sind immer read-only. | Regel „Originale und Fremdquellen werden nie geschrieben“. | – |
 | PMT-Leaf-Libraries werden per Kopie übernommen, jeweils erst im Plan, der sie braucht, und dabei nach Checkliste A2 angepasst. | Die Libraries sind klein (gemessen: `Storage` 170 Zeilen, `Localization` 268, `UndoRedo` 308, `Theming` 366). Release-Zyklen beider Tools bleiben unabhängig. | Gemeinsame Bibliothek für PMT und dieses Tool. Neu schreiben ohne Vorlage. |
 
-Die spätere Objekt-Ansicht (Teil 3) braucht vom Fundament nur zwei Dinge: Schlüsselspalten und
+Die spätere Objekt-Ansicht (Teil 4) braucht vom Fundament nur zwei Dinge: Schlüsselspalten und
 Referenzangaben aus dem Schema. Beides liest das Fundament in das Schema-Modell ein. Der
-Referenzgraph selbst wird erst in Teil 3 gebaut.
+Referenzgraph selbst wird erst in Teil 4 gebaut.
 
 ---
 
@@ -79,14 +83,28 @@ Referenzgraph selbst wird erst in Teil 3 gebaut.
    Tabelle, die mit dem Schema nicht lesbar ist, erscheint als „nicht dekodierbar“ mit Grund. Sie
    führt nie zu einem Absturz.
 
-### 2.2 Non-Goals
+### 2.2 Non-Goals dieser Spec
 
-- Jedes Schreiben außerhalb der eigenen App-Daten. Kein Bearbeiten, kein Arbeitsordner, kein Import,
-  kein Bauen von Packs.
-- Objekt-Ansicht, Referenzgraph, Suche über Packs, Lua-Komfort, Diff, Merge, Error-Log, Spielstart.
-- Schema-Download, Self-Update, Release-Tool (eigene Specs).
+„Non-Goal“ heißt hier: nicht Teil des Fundaments. Es heißt nicht, dass das Tool die Funktion nie
+bekommt.
+
+**Kommt in einem späteren Teil (siehe 1.2):**
+
+- Arbeitsordner, Import bestehender Packs, Bearbeiten, Bauen von Packs → Teil 2. Das Fundament
+  schreibt deshalb nichts außerhalb der eigenen App-Daten.
+- Error-Log und Spielstart → Teil 3.
+- Objekt-Ansicht, Referenzgraph, Katalog, Autovervollständigung → Teil 4.
+- Lua-Komfort → Teil 5.
+- Diff, Merge, Vanilla-Tracking → Teil 6.
+- Workshop-Titel aus Steam → Teil 8.
+- Self-Update und Release-Tool → eigene Specs.
+
+**Zurückgestellt ohne festen Teil (Backlog):**
+
+- Suche über Packs.
+- Schema-Download.
 - Profile für andere Spiele. Der Profil-Mechanismus existiert, ausgeliefert wird nur WH3.
-- Workshop-Titel aus Steam, Vorschau für Bilder, Modelle und Audio.
+- Vorschau für Bilder, Modelle und Audio.
 - LZMA-komprimierte Einträge (gemessen: 11 relevante Einträge in 397 Workshop-Packs, 0 in Vanilla).
 - Verschlüsselte Packs.
 - Mehrere gleichzeitig laufende Instanzen der App.

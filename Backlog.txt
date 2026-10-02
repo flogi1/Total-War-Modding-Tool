@@ -10,29 +10,34 @@ Teil 2: Arbeitsordner, Import bestehender Packs, Tabellen bearbeiten, Pack bauen
   - Text-Format der Tabellen im Arbeitsordner; verlustfreie Umwandlung Tabelle <-> Text (zu messen)
   - Stabile IDs (GUID) für Mod-Projekte
 
-Teil 3: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
+Teil 3: Error-Log und Spielstart (am 2026-10-02 von Teil 7 vorgezogen)
+  - Vor der Spec ein Spike: welche Logdateien auf Dateien oder Tabellen verweisen
+  - Gemessen am 2026-10-02 im Spielordner: lua_mod_log.txt (jede geladene Lua-Mod-Datei mit Pfad und
+    Erfolg oder Fehler), used_mods.txt (aktive Mods des letzten Starts), Mod-eigene Logs
+    (z. B. !groove_log.txt). Kein script_log_* gefunden (braucht vermutlich Aktivierung, zu messen).
+  - Gemessen in %APPDATA%\The Creative Assembly\Warhammer3: crash_report leer, logs mit mp_log.txt,
+    modified.log, gfx.log.txt, desync_report.txt
+  - Log allgemein und bezogen auf die gerade offene Datei anzeigen
+  - Spiel starten, Debug-Startoption (Quelle klären), Option für Absturz bei Loading Resources
+    (Verweis im Konzept auf das EU-V-Wiki stammt aus PMT, für Total War unbelegt)
+
+Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
   - Referenzgraph aus dem Schema (5825 Referenzfelder); Eignung zu messen
   - Katalog aller Einstellmöglichkeiten (Effekte, Boni) mit Suche und Kategorien, auch aus Mods
   - Kategorien: Gebäude, Lords, Traits und Ancillaries, Skripte, AI, Fähigkeiten, Fraktionsmechaniken, Misc
   - Maske als zweite Ansicht auf dasselbe Objektmodell
 
-Teil 4: Lua-Editor
+Teil 5: Lua-Editor
   - Editor-Komponente wählen (NuGet nur nach Rückfrage)
   - Skript-Dokumentation einbinden (Konzept Zeile 112 bricht mitten im Satz ab, Quelle klären)
   - Suchen und Ersetzen, Hotkeys nach Notepad++-Vorbild
 
-Teil 5: Vanilla-Tracking, Diff, Merge, Kompatibilität
+Teil 6: Vanilla-Tracking, Diff, Merge, Kompatibilität
   - Ursprüngliche Vanilla-Zeilen der überschriebenen Einträge sichern, nach Patch vergleichen
   - Zwei Mods gegen Vanilla vergleichen, 3-Wege-Merge, Konflikte zeigen
 
-Teil 6: Versionsmanager
+Teil 7: Versionsmanager
   - Entwicklungs- und Release-Stand, Teile verschieben, Einfrieren, Zip-Snapshot
-
-Teil 7: Error-Log und Spielstart
-  - Zu messen: welche Logdateien auf Dateien oder Tabellen verweisen (crash_report war am 2026-10-02 leer,
-    logs enthielt kein Skript-Log)
-  - Spiel starten, Debug-Startoption (Quelle klären), Option für Absturz bei Loading Resources
-    (Verweis im Konzept auf das EU-V-Wiki stammt aus PMT, für Total War unbelegt)
 
 Teil 8: Workshop, GitHub, Steam
   - Workshop-Titel der abonnierten Mods anzeigen
@@ -61,7 +66,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Vollständige Anzeige sehr großer Textdateien (über 5 MB)
 - Mehrere Instanzen gleichzeitig, Single-Instance-Handoff
 - Automatisches Erkennen geänderter Packs per FileSystemWatcher
-- Index- oder Schema-Cache auf Platte (gemessen nicht nötig; neu bewerten, wenn Teil 3 alle Tabellen braucht)
+- Index- oder Schema-Cache auf Platte (gemessen nicht nötig; neu bewerten, wenn Teil 4 alle Tabellen braucht)
 - Kompakte Speicherform für dekodierte Tabellen (naiv 373 MB für alle Vanilla-Tabellen)
 
 == Wartet auf ein öffentliches Remote ==
