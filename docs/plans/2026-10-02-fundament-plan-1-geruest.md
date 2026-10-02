@@ -353,7 +353,7 @@ Festlegungen:
 - Zeile: `yyyy-MM-dd HH:mm:ss.fff [INFO] text` (ebenso `[WARN]`, `[ERROR]`), Zeit aus `time.GetLocalNow()`. Bei `Error` mit Exception folgt `exception.ToString()` in den nächsten Zeilen.
 - Jede Nachricht und jeder Exception-Text läuft durch `PathRedactor`.
 - Rotation vor dem Schreiben, wenn die Datei mit der neuen Zeile `maxFileBytes` überschreitet: `twmt.log` → `twmt.1.log` → … Es bleiben höchstens `maxFiles` Dateien (aktuelle plus Archive).
-- Thread-sicher über ein Lock. `FileLog` wirft nie: `IOException` und `UnauthorizedAccessException` beim Anlegen des Ordners, Rotieren oder Schreiben werden verschluckt (ein Log kann seinen eigenen Ausfall nicht loggen).
+- Thread-sicher über ein Lock. `FileLog` wirft nie: Jede Exception beim Anlegen des Ordners, Rotieren oder Schreiben wird verschluckt (ein Log kann seinen eigenen Ausfall nicht loggen). Das ist die einzige Stelle im Projekt mit einem `catch` ohne Log-Eintrag.
 
 - [ ] **Step 1: Failing Tests schreiben**
 
@@ -1457,7 +1457,7 @@ public class CrashHandlerTests
 - [ ] **Step 4: GREEN prüfen** – Run: `dotnet test TotalWarModTool.slnx`
 - [ ] **Step 5: Von Hand prüfen** – Run: `dotnet run --project src/TotalWarModTool.App`.
   - `Debug` → `Throw test exception`: Crash-Dialog erscheint, `Copy details` füllt die Zwischenablage, `Open log` öffnet den Ordner, die App läuft nach `Close` weiter. `twmt.log` enthält den Fehler.
-  - `Debug` → `Run slow operation`: Fenster erscheint, Balken läuft bis 100, Zähler „n / 100“, Hauptfenster nimmt keine Klicks und Tasten an. `Cancel` schließt das Fenster zügig.
+  - `Debug` → `Run slow operation`: Fenster erscheint, Balken läuft bis 100, Zähler „n / 100“ und Prozentwert laufen mit, Hauptfenster nimmt keine Klicks und Tasten an. `Cancel` schließt das Fenster zügig.
   - `Debug` → `Run failing operation`: Fenster erscheint, schließt nach etwa 1 s, Fehlermeldung nennt die Operation und den Grund.
 - [ ] **Step 6: Commit** – `git commit -m "feat: add global crash handling and debug menu"`
 

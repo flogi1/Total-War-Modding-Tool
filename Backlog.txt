@@ -95,6 +95,8 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Debug-Menü, Befehle und Texte aus dem Release-Build entfernen
 - GlobalSettingsStore: Round-Trip-Test über alle Eigenschaften, bevor neue Felder dazukommen
 - Tests: WindowPlacementTracker; alle Vorlagen aus Controls.xaml einmal instanziieren (zu Beginn von Plan 3)
+- Debug-Auslöser für zwei Pfade, die bisher nur per Unit-Test und Code-Review geprüft sind und sich von Hand nicht auslösen lassen: Absturz auf einem Hintergrund-Thread (Dialogtext "muss beendet werden") und fehlgeschlagener Start (Exit-Code 1)
+- Crash-Behandlung: ein fataler Fehler darf nicht von einem schon wartenden nicht-fatalen Dialog verdeckt werden
 
 == Hinweise für Plan 2 und 3 (aus dem Abschluss-Review von Plan 1) ==
 
