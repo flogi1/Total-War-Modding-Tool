@@ -34,14 +34,15 @@ public partial class App : Application
             log.Warn($"Settings file {store.FilePath}: {loaded.Status}.{badCopy}");
         }
 
+        // Created before the sanitizer, so that its language repair arrives as a normal change and is saved.
         var settings = loaded.Settings;
+        _autoSaver = new SettingsAutoSaver(settings, store, log, loaded.Status);
+
         StartupSanitizer.FixLanguage(settings, LanguageCatalog.Find(paths.LocalesDirectory));
         ui.Load(settings.Language);
 
         // Before the first window exists, so nothing is shown in the wrong colours.
         new ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme);
-
-        _autoSaver = new SettingsAutoSaver(settings, store, log);
 
         var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder));
         _ = new WindowPlacementTracker(window, settings);
