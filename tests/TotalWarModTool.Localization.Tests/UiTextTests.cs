@@ -60,6 +60,17 @@ public class UiTextTests
         Assert.Equal(3, ui.LoadError!.Line);
     }
 
+    [Fact] public void Load_of_non_utf8_file_reports_error_and_uses_english()
+    {
+        using var dir = new TempDir();
+        var ui = new UiText(Locales(dir, ("en", En)));
+        File.WriteAllBytes(dir.File("de.json"), System.Text.Encoding.Latin1.GetBytes("{\"a\":\"Für\"}"));   // ANSI: the ue is the single byte 0xFC
+        ui.Load("de");
+        Assert.Equal("de", ui.Language);
+        Assert.Equal("A-en", ui.Get("a", "x"));
+        Assert.NotNull(ui.LoadError);
+    }
+
     [Fact] public void Load_raises_Changed_and_null_means_english()
     {
         using var dir = new TempDir();

@@ -31,4 +31,13 @@ public class LocaleCheckTests
     }
 
     [Fact] public void Reports_invalid_json() => Assert.Contains("json:de:1:3", Check(GoodEn, "{ x"));
+
+    [Fact] public void Reports_non_utf8_file_as_json_problem()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("en.json"), GoodEn);
+        File.WriteAllBytes(dir.File("de.json"), System.Text.Encoding.Latin1.GetBytes("{\"sample.title\":\"Tür\"}"));   // ANSI: the ue is the single byte 0xFC
+        var problems = LocaleCheck.FindProblems([new SampleTexts(new UiText(dir.Path))], dir.Path, ["en", "de"]);
+        Assert.Equal(["json:de:1:19"], problems);
+    }
 }
