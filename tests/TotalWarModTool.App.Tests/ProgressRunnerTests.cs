@@ -1,8 +1,11 @@
 using System.Windows;
+using System.Windows.Threading;
 using TotalWarModTool.Localization;
 
 namespace TotalWarModTool.App.Tests;
 
+// Runs one after another with the other classes that create windows or load XAML: see WpfCollection.
+[Collection(WpfCollection.Name)]
 public class ProgressRunnerTests
 {
     private static readonly TimeSpan Never = TimeSpan.FromSeconds(30);
@@ -83,6 +86,34 @@ public class ProgressRunnerTests
         Assert.True(stillVisibleAfterClose);
         Assert.Equal(OperationStatus.Cancelled, outcome.Status);
         Assert.False(shown[0].IsVisible);
+    });
+
+    // The subscriber throws inside the Loaded dispatch of the window. That exception belongs to the dispatcher, not to RunAsync: it reaches
+    // Dispatcher.UnhandledException (in the app: the global DispatcherUnhandledException handler with its crash dialog), while the run itself
+    // goes on and ends normally, because the close of the window was registered before the event was raised.
+    [Fact] public void Window_closes_even_when_a_WindowShown_subscriber_throws() => Sta.RunAsync(async () =>
+    {
+        var (runner, _, reported, shown) = Create(Soon);
+        using var gate = new ManualResetEventSlim();
+        var unhandled = new List<Exception>();
+        Dispatcher.CurrentDispatcher.UnhandledException += (_, e) => { unhandled.Add(e.Exception); e.Handled = true; };
+
+        // Only a closed window ends the modal loop, and the outer timeout of Sta.RunAsync cannot stop it. Without the fix nothing closes the
+        // window, so this guard does and the test fails on the assertion below instead of hanging.
+        var stuck = false;
+        var watchdog = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        watchdog.Tick += (_, _) => { stuck = true; shown.ForEach(w => w.CloseByRunner()); };
+        watchdog.Start();
+
+        runner.WindowShown += (_, _) => { gate.Set(); throw new InvalidOperationException("subscriber failed"); };
+        var outcome = await runner.RunAsync("t", (_, _) => { gate.Wait(); return 5; });
+        watchdog.Stop();
+
+        Assert.False(stuck, "The window stayed open until the guard closed it.");
+        Assert.Equal((OperationStatus.Completed, 5), (outcome.Status, outcome.Value));
+        Assert.False(Assert.Single(shown).IsVisible);
+        Assert.Equal("subscriber failed", Assert.Single(unhandled).Message);
+        Assert.Empty(reported);
     });
 
     [Fact] public void Input_is_locked_while_running_and_restored_in_every_case() => Sta.RunAsync(async () =>

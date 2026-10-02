@@ -2,6 +2,8 @@ using TotalWarModTool.Localization;
 
 namespace TotalWarModTool.App.Tests;
 
+// Runs one after another with the other classes that create windows or load XAML: see WpfCollection.
+[Collection(WpfCollection.Name)]
 public class ProgressWindowTests
 {
     [Fact] public void Apply_shows_bar_and_count_when_total_is_known() => Sta.Run(() =>

@@ -90,6 +90,8 @@ public sealed class ProgressRunner
     }
 
     // Modal. The close is registered only once the window is loaded, i.e. after ShowDialog is running, so Close can never run before ShowDialog.
+    // It is registered before WindowShown is raised: if a subscriber throws, the window still closes when the work has ended. The
+    // continuation is posted to the UI thread, so it runs after this handler has returned.
     private void ShowModal(string title, LatestProgress progress, CancellationTokenSource cts, Task work, IReadOnlyList<Window> windows)
     {
         var owner = windows.FirstOrDefault(window => window.IsActive);
@@ -100,8 +102,8 @@ public sealed class ProgressRunner
         };
         window.Loaded += (_, _) =>
         {
-            WindowShown?.Invoke(this, window);
             work.ContinueWith(_ => window.CloseByRunner(), TaskScheduler.FromCurrentSynchronizationContext());
+            WindowShown?.Invoke(this, window);
         };
         window.ShowDialog();
     }
