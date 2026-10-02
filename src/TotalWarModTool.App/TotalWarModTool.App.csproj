@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Settings\TotalWarModTool.Settings.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Storage\TotalWarModTool.Storage.csproj" />
   </ItemGroup>

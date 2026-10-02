@@ -3,6 +3,7 @@
     <Project Path="src/TotalWarModTool.App/TotalWarModTool.App.csproj" />
     <Project Path="src/TotalWarModTool.Localization/TotalWarModTool.Localization.csproj" />
     <Project Path="src/TotalWarModTool.Logging/TotalWarModTool.Logging.csproj" />
+    <Project Path="src/TotalWarModTool.Operations/TotalWarModTool.Operations.csproj" />
     <Project Path="src/TotalWarModTool.Settings/TotalWarModTool.Settings.csproj" />
     <Project Path="src/TotalWarModTool.Storage/TotalWarModTool.Storage.csproj" />
   </Folder>

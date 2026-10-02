@@ -16,6 +16,7 @@
     <ProjectReference Include="..\..\src\TotalWarModTool.App\TotalWarModTool.App.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Settings\TotalWarModTool.Settings.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Storage\TotalWarModTool.Storage.csproj" />
   </ItemGroup>

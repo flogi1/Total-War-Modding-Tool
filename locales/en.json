@@ -1,5 +1,10 @@
 {
   "app.title": "Total War Modding Tool",
   "menu.tools": "Tools",
-  "menu.tools.openLogFolder": "Open log folder"
+  "menu.tools.openLogFolder": "Open log folder",
+  "progress.cancel": "Cancel",
+  "progress.cancelling": "Cancelling",
+  "progress.count": "{0} / {1}",
+  "error.operationFailed.title": "Operation failed",
+  "error.operationFailed.message": "\"{0}\" could not be completed: {1} The log contains details (Tools, Open log folder)."
 }

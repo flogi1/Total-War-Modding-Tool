@@ -44,6 +44,18 @@ public partial class App : Application
         // Before the first window exists, so nothing is shown in the wrong colours.
         new ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme);
 
+        // Every user-started operation will run through this one runner. The main view model receives it with the next plan step.
+        var progressRunner = new ProgressRunner(
+            () => Windows.Cast<Window>().ToList(),
+            texts,
+            log,
+            TimeProvider.System,
+            (operation, error) => MessageBox.Show(
+                texts.OperationFailedMessage(operation, error.Message),
+                texts.OperationFailedTitle,
+                MessageBoxButton.OK,
+                MessageBoxImage.Error));
+
         var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder));
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
