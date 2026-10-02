@@ -90,21 +90,48 @@ public sealed class FileLog : IAppLog
     }
 
     /// <summary>
-    /// Shifts every file one index up (<c>twmt.log</c> becomes <c>twmt.1.log</c>, <c>twmt.1.log</c> becomes <c>twmt.2.log</c>, ...),
-    /// starting at the top so nothing is overwritten. The file in the last slot falls out. Index 0 is the current file.
+    /// Shifts the files one index up (<c>twmt.log</c> becomes <c>twmt.1.log</c>, <c>twmt.1.log</c> becomes <c>twmt.2.log</c>, ...),
+    /// starting at the top so nothing is overwritten. Index 0 is the current file. Every failure point is ordered so that a failed
+    /// rotation, repeated on every following write, never destroys more than the one file that would have fallen out anyway:
+    /// <list type="bullet">
+    /// <item>The current file is the one most likely to be held open by a viewer or virus scanner. Exclusive access is what a rename
+    /// needs, so it is requested first; if it is not available nothing has been touched yet.</item>
+    /// <item>The last file is only deleted when every slot is taken. After a half-finished shift there is a gap, and the files
+    /// below the gap are the only ones that have to move.</item>
+    /// </list>
     /// </summary>
     private void Rotate()
     {
-        var lastIndex = _maxFiles - 1;
-        File.Delete(PathOf(lastIndex));
-        for (var index = lastIndex - 1; index >= 0; index--)
+        using (new FileStream(CurrentFilePath, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            var source = PathOf(index);
-            if (File.Exists(source))
+        }
+
+        var lastIndex = _maxFiles - 1;
+        var freeSlot = FirstFreeArchiveSlot(lastIndex);
+        if (freeSlot < 0)
+        {
+            File.Delete(PathOf(lastIndex));
+            freeSlot = lastIndex;
+        }
+
+        for (var index = freeSlot - 1; index >= 0; index--)
+        {
+            File.Move(PathOf(index), PathOf(index + 1));
+        }
+    }
+
+    /// <summary>The lowest archive index (1 up to <paramref name="lastIndex"/>) without a file, or -1 if all of them are taken.</summary>
+    private int FirstFreeArchiveSlot(int lastIndex)
+    {
+        for (var index = 1; index <= lastIndex; index++)
+        {
+            if (!File.Exists(PathOf(index)))
             {
-                File.Move(source, PathOf(index + 1), overwrite: true);
+                return index;
             }
         }
+
+        return -1;
     }
 
     private string PathOf(int index) =>

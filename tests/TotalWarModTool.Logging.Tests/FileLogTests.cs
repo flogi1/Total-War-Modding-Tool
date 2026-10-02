@@ -65,4 +65,48 @@ public class FileLogTests
         Assert.Equal(1600, lines.Length);
         Assert.All(lines, l => Assert.Matches(@"^2026-10-02 14:03:07\.123 \[INFO\] t\d i\d+$", l));
     }
+
+    // Two lines of 79 characters plus line break fit into 200 bytes, a third one does not: every third write rotates.
+    private static void WriteLines(FileLog log, int from, int to)
+    {
+        for (var i = from; i < to; i++) log.Info("line " + i.ToString("D3") + new string('x', 40));
+    }
+
+    [Fact] public void Failed_rotation_keeps_existing_archives()
+    {
+        using var dir = new TempDir();
+        var log = new FileLog(dir.Path, new FakeTimeProvider(T0), null, maxFileBytes: 200, maxFiles: 3);
+        WriteLines(log, 0, 6);                                       // current + twmt.1.log + twmt.2.log, current is nearly full
+        var archive1 = File.ReadAllText(dir.File("twmt.1.log"));
+        var archive2 = File.ReadAllText(dir.File("twmt.2.log"));
+
+        // A viewer that keeps the current file open without delete sharing: every rotation attempt fails.
+        using (new FileStream(log.CurrentFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            Assert.Null(Record.Exception(() => WriteLines(log, 6, 12)));
+
+        Assert.Equal(archive1, File.ReadAllText(dir.File("twmt.1.log")));
+        Assert.Equal(archive2, File.ReadAllText(dir.File("twmt.2.log")));
+    }
+
+    [Fact] public void Failed_rotation_keeps_archives_when_an_archive_is_locked()
+    {
+        using var dir = new TempDir();
+        var log = new FileLog(dir.Path, new FakeTimeProvider(T0), null, maxFileBytes: 200, maxFiles: 4);
+        WriteLines(log, 0, 8);                                       // current + twmt.1.log .. twmt.3.log, current is nearly full
+        var archive1 = File.ReadAllText(dir.File("twmt.1.log"));
+        var archive2 = File.ReadAllText(dir.File("twmt.2.log"));
+
+        // The newest archive cannot be renamed, so the shift stops half way through. Repeated attempts must not eat more archives.
+        using (new FileStream(dir.File("twmt.1.log"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            Assert.Null(Record.Exception(() => WriteLines(log, 8, 14)));
+
+        var archives = Directory.GetFiles(dir.Path, "twmt.*.log").Select(File.ReadAllText).ToList();
+        Assert.Contains(archive1, archives);
+        Assert.Contains(archive2, archives);
+
+        // Once the lock is gone the archives close up again and rotation works as before.
+        WriteLines(log, 14, 20);
+        Assert.Equal(["twmt.1.log", "twmt.2.log", "twmt.3.log", "twmt.log"], Directory.GetFiles(dir.Path).Select(Path.GetFileName).Order());
+        Assert.Contains("line 019", File.ReadAllText(log.CurrentFilePath));
+    }
 }
