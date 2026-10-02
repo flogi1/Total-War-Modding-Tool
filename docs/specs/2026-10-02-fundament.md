@@ -1,7 +1,8 @@
 # Spec: Fundament (Packs und Tabellen lesen, App-Gerüst)
 
 Stand: 2026-10-02. Status: vom Nutzer am 2026-10-02 freigegeben.
-Pläne: `docs/plans/2026-10-02-fundament-plan-1-geruest.md` (Gerüst).
+Pläne: `docs/plans/2026-10-02-fundament-plan-1-geruest.md` (Gerüst, umgesetzt),
+`docs/plans/2026-10-02-fundament-plan-2-lese-libraries.md` (Lese-Libraries).
 
 Diese Spec ist die erste von mehreren. Sie beschreibt das Fundament, auf dem alle späteren Teile
 aufbauen. Abschnitt 1 hält das Gesamtbild und die Architekturentscheidungen fest, die für alle Teile
@@ -235,10 +236,10 @@ Format, wie es der Spike gelesen hat:
 - `Boolean` 1 Byte, `I16` / `I32` / `I64` / `F32` / `F64` in fester Breite, `ColourRGB` 4 Bytes,
   `StringU8` mit Länge (u16) und UTF-8, `StringU16` mit Länge (u16, in Zeichen) und UTF-16,
   `OptionalStringU8` mit einem Flag-Byte und nur bei gesetztem Flag einem `StringU8`.
-- `OptionalI32` (genau 1 Feld im Schema) wurde als Flag-Byte plus immer vorhandenem Wert
-  angenommen. **Zu messen.**
+- `OptionalI32` (genau 1 Feld im Schema, in `start_pos_characters_tables`) lässt sich nicht messen:
+  Die Tabelle liegt nicht in `db.pack`. Der Feldtyp gilt deshalb als nicht unterstützt (siehe 3.8).
 
-Das Loc-Format wurde im Spike nicht gelesen. **Zu messen.**
+Das Loc-Format wurde im ersten Spike nicht gelesen. Die Messung steht in 3.8.
 
 ### 3.5 Raster (Spike S4)
 
@@ -269,6 +270,71 @@ Laut Changelog der installierten Version: Lua-Diagnose, Delta-Merge für Tabelle
 Search, Übersetzer. Der Mehrwert dieses Tools liegt deshalb in Objekt-Ansicht, Session, Arbeitsordner
 mit Git, Versionen und Vanilla-Tracking, nicht in der reinen Tabellenansicht.
 
+### 3.8 Messungen vor Plan 2 (2026-10-02)
+
+Wegwerf-Code auf `net8.0` (Runtime 8.0.23), Vergleichsreferenz `rpfm_cli`. Diese Messungen
+beantworten die Annahmen 1 bis 12 aus Abschnitt 8.
+
+**zstd**
+- Paket `ZstdSharp.Port` 0.8.8: Lizenz MIT, rein verwaltet, keine weiteren Abhängigkeiten für
+  `net8.0`, 386 KB.
+- Alle 1602 Tabellen aus `db.pack` dekomprimieren bytegleich zur Rohausgabe von `rpfm_cli`.
+- Zeit für alle 1602 (99,1 MB): 164–247 ms.
+- Aufruf: Zielpuffer in der Größe aus dem Größen-Präfix, Dekompression des Rests ab Byte 4.
+
+**LZ4**
+- Ein eigener Decoder (rund 60 Zeilen) dekodiert alle 50.798 LZ4-Einträge der Vanilla-Packs und
+  3732 im Workshop auf die im Präfix genannte Größe. Kein Fehlschlag.
+- Drei Stichproben sind per SHA-256 identisch zur Ausgabe von `rpfm_cli`.
+- Frame-Eigenschaften (alle 54.530 Einträge): Version 1, kein Block-Checksum, keine Inhaltsgröße,
+  kein Dictionary. Blöcke hängen meist voneinander ab (50.832 Einträge), der Inhalts-Checksum ist
+  meist vorhanden (50.798). Blockgrößen-Kennung 4, 5 oder 7.
+- Folge: Der Decoder schreibt in einen einzigen Zielpuffer, damit Rückverweise über Blockgrenzen
+  funktionieren. Header- und Inhalts-Checksum werden übersprungen, nicht geprüft. Geprüft wird die
+  Größe.
+- Der einfache Decoder schafft rund 30 MB/s. Für die relevanten Typen reicht das.
+
+**Loc**
+- Format: `FF FE`, `LOC`, ein Nullbyte, Version (i32, Wert 1), Zeilenanzahl (u32). Pro Zeile:
+  Schlüssel und Text als `StringU16`, dann ein Flag-Byte.
+- Alle 248 Loc-Dateien aus `local_en.pack` dekodieren vollständig und sind zellgenau identisch zum
+  TSV-Export von `rpfm_cli` (266.427 Zeilen, 0,5 s).
+- Größte Loc-Datei: `text/localisation__.loc` in den Sprachpacks, rund 212.300 Zeilen, 61 MB.
+  Lesen und Dekomprimieren 85–153 ms, Dekodieren 77–93 ms.
+
+**Tabellen in Mods, jetzt mit Dekompression**
+- 35.252 von 35.261 Mod-Tabellen dekodieren (5505 von 5511 komprimierten, 29.747 von 29.750
+  unkomprimierten). 10 LZMA-Tabellen übersprungen.
+- Die 9 Fehlschläge betreffen 3 Tabellen (`culture_settlement_occupation_options_tables` v7,
+  `transported_military_forces_tables` v1, `cdir_events_mission_option_junctions_tables` v2). Die
+  Mods tragen dieselbe Versionsnummer wie das Schema, aber ein älteres Layout. Erwartetes Verhalten:
+  „nicht dekodierbar“.
+
+**Feldtypen**
+- In echten Daten bestätigt: `Boolean`, `F32`, `F64`, `I16`, `I32`, `I64`, `ColourRGB`, `StringU8`,
+  `StringU16`, `OptionalStringU8`.
+- Nicht messbar: `OptionalI32`. Alle nicht bestätigten Typen ergeben den Status „Feldtyp nicht
+  unterstützt“ statt geratener Werte.
+
+**Pack-Header und Scan**
+- Nur die 28 Header-Bytes aller 665 Packs lesen: warm 24 ms, kalt rund 4,4 s. Die Zeit steckt im
+  Öffnen der Dateien, nicht in der gelesenen Menge. Der Scan beim Start gehört deshalb in den
+  Hintergrund.
+- Zeitstempel im Index (4 Bytes): `boot.pack` und `shaders.pack`. Beide Indexe lesen fehlerfrei.
+- Bit `0x10` (verschlüsselte Daten laut RPFM-Wissen): nur `audio_base_m.pack`. Ob die Einträge
+  wirklich unlesbar sind, ist nicht geprüft. Für die relevanten Typen ohne Bedeutung.
+
+**`manifest.txt`**
+- 503 Zeilen im Format `Pfad<TAB>Größe<TAB>Flag`, davon 271 Packs.
+- Alle 262 Packs mit Vanilla-Typ stehen im Manifest. Kein Mod-Pack steht darin. 9 Manifest-Packs
+  fehlen auf der Platte (nicht gekaufte DLC).
+- Folge: Das Manifest ist die robustere Vanilla-Liste (siehe 4.3).
+
+**RPFM-Schemas**
+- Quelle: `https://github.com/Frodo45127/rpfm-schemas`, lokaler Stand Commit `5d841c5`,
+  `schema_wh3.ron` zuletzt geändert in Commit `1d5ce11` vom 2026-09-24 („Updated wh3 schemas for
+  patch 9.0“). Die lokale Datei ist unverändert gegenüber dem Repo.
+
 ---
 
 ## 4. Architektur des Fundaments
@@ -285,10 +351,10 @@ Solution `TotalWarModTool` (Anzeigename „Total War Modding Tool“, Kürzel TW
 | `TotalWarModTool.Settings` | Globale Einstellungen mit `Changed`-Event, Einstellungen pro Spiel | `Storage` |
 | `TotalWarModTool.Operations` | `OperationProgress` (Anzahl, Gesamt, aktuelles Element) als Nutzlast für `IProgress<T>`. Ergänzt mit Plan 1, damit Libraries Fortschritt melden können, ohne die App zu referenzieren. | – |
 | `TotalWarModTool.GameProfiles` | Ausgelieferte JSON-Profile laden, Installation finden (`GameLocator`) | – |
-| `TotalWarModTool.PackFiles` | Pack-Header und Index lesen, Eintrag lesen, Dekompression | – |
+| `TotalWarModTool.PackFiles` | Pack-Header und Index lesen, Eintrag lesen, Dekompression | – (NuGet `ZstdSharp.Port`) |
 | `TotalWarModTool.Schema` | RON-Teilmenge parsen, Schema-Modell, Schema-Quelle wählen | – |
 | `TotalWarModTool.Tables` | DB-Tabellen und Loc-Dateien dekodieren | `Schema` |
-| `TotalWarModTool.Workspace` | `PackCatalog`: Pack-Quellen eines Spiels mit Herkunft | `GameProfiles`, `PackFiles` |
+| `TotalWarModTool.Workspace` | `PackCatalog`: Pack-Quellen eines Spiels mit Herkunft | `GameProfiles`, `PackFiles`, `Operations` |
 | `TotalWarModTool.Session` | Offene Tabs und gewähltes Spiel speichern und laden | `Storage` |
 | `TotalWarModTool.App` | WPF, Composition Root, Views und ViewModels, `ProgressRunner`, Theme | alle |
 
@@ -333,6 +399,20 @@ Die Namen sind verbindlich für den ersten Plan. Details der Signaturen legt der
 
 Berechnung und Schreiben sind getrennt. Die Lese-Libraries schreiben nichts.
 
+Festlegungen aus Plan 2:
+
+- **Diagnosen statt Log.** Die Lese-Libraries referenzieren weder `Logging` noch `Localization`.
+  Jedes Problem kommt als Ergebnis zurück: ein Enum-Wert plus ein technisches Detail auf Englisch.
+  Die App loggt und übersetzt den Enum-Wert in einen UI-Text (Plan 3).
+- **Keine Exceptions bei kaputten Daten.** Nach außen dringt nur `OperationCanceledException`.
+- **Größengrenze.** `ReadEntry` liest keinen Eintrag, dessen unkomprimierte Größe über einer
+  Obergrenze liegt (Standard 256 MB), und meldet das als Diagnose.
+- **Fingerprint.** `ReadEntry` prüft vor dem Lesen, ob die Pack-Datei noch dem Fingerprint des
+  Index entspricht. Wenn nicht: Diagnose „Pack geändert“.
+- **Feldtypen.** Tabellen mit einem nicht bestätigten Feldtyp bekommen den zusätzlichen Status
+  `UnsupportedFieldType`.
+- **Farbwerte.** `ColourRGB` wird als Text `RRGGBB` geliefert.
+
 ### 4.3 Spielprofil
 
 Eine JSON-Datei pro Spiel im Programmordner unter `profiles/`. Für das Fundament enthält das
@@ -344,18 +424,25 @@ WH3-Profil nur Felder, die benutzt werden:
 - `packFormat` (`PFH5`)
 - `schemaFile` (`schema_wh3.ron`)
 - `vanillaPackTypes` (`boot`, `release`, `patch`)
+- `vanillaManifestFile` (`manifest.txt`, optional)
 
-Unlesbare Profildateien werden übersprungen und geloggt. Ein zweites, synthetisches Profil in den
-Tests belegt, dass kein WH3-Wissen im Code steckt.
+Unlesbare Profildateien werden übersprungen. Der Lader gibt die übersprungenen Dateien mit Grund
+zurück, die App loggt sie. Ein zweites, synthetisches Profil in den Tests belegt, dass kein
+WH3-Wissen im Code steckt.
 
 Herkunft eines Packs:
 
 - liegt unter dem Workshop-Ordner des Spiels → `Workshop`, die Workshop-ID ist der Ordnername,
-- liegt im Datenordner und der Pack-Typ steht in `vanillaPackTypes` → `Vanilla`,
-- liegt im Datenordner mit anderem Pack-Typ → `DataFolderMod`.
+- liegt im Datenordner und gilt als Vanilla → `Vanilla`,
+- liegt im Datenordner und gilt nicht als Vanilla → `DataFolderMod`.
 
-Gemessen passt diese Regel zu allen 665 Packs. Ob `manifest.txt` eine robustere Quelle für die
-Vanilla-Liste ist: **zu messen**.
+Was als Vanilla gilt:
+
+- Nennt das Profil ein Manifest und ist die Datei im Datenordner lesbar, entscheidet allein das
+  Manifest: Vanilla ist, was dort als Pack gelistet ist. Gemessen stimmt das für alle 268 Packs im
+  Datenordner (3.8). Ein Mod, der als Pack-Typ „Release“ gespeichert wurde, wird so trotzdem als Mod
+  erkannt.
+- Sonst entscheidet der Pack-Typ aus dem Header: Vanilla ist, was in `vanillaPackTypes` steht.
 
 ### 4.4 Schema-Quelle
 
@@ -375,11 +462,11 @@ umgewandeltes Schema-Format (dann könnte der RPFM-Ordner nicht direkt gelesen w
 
 ### 4.5 Dekompression
 
-- zstd über das NuGet-Paket `ZstdSharp.Port` (vom Nutzer am 2026-10-02 freigegeben). Lizenz und
-  Wartungsstand werden vor dem Einbau geprüft. **Zu messen:** Die dekomprimierten Bytes aller 1602
-  Tabellen sind identisch zur Rohausgabe von `rpfm_cli`.
-- LZ4-Frame mit einem eigenen Decoder in `PackFiles`. **Zu messen** an den 1145 echten
-  Vanilla-Einträgen gegen die Ausgabe von `rpfm_cli`.
+- zstd über das NuGet-Paket `ZstdSharp.Port` 0.8.8 (vom Nutzer am 2026-10-02 freigegeben, Lizenz
+  MIT). Gemessen: alle 1602 Tabellen bytegleich zur Rohausgabe von `rpfm_cli` (3.8).
+- LZ4-Frame mit einem eigenen Decoder in `PackFiles`. Gemessen: 54.530 Einträge dekodieren auf die
+  genannte Größe, drei Stichproben bytegleich zu `rpfm_cli` (3.8). Der Decoder prüft die Größe,
+  nicht die Checksummen des Frames.
 - LZMA: Diagnose „Kompressionsformat LZMA wird noch nicht unterstützt“. Steht im Backlog.
 - Die im Eintrag genannte unkomprimierte Größe wird nach dem Dekomprimieren geprüft. Bei Abweichung
   gibt es eine Diagnose statt eines Ergebnisses.
@@ -542,21 +629,21 @@ vorigen existieren.
 
 ## 8. Annahmen, die der erste echte Lauf prüft
 
-| Nr. | Annahme (zu messen) | Geprüft in |
+| Nr. | Annahme | Stand |
 |---|---|---|
-| 1 | Die Spike-Zeiten gelten ähnlich unter .NET 8. (Der Build-Teil ist gemessen: Ein `net8.0-windows`-WPF-Projekt baut mit SDK 10.0.400 ohne Warnung und läuft auf Runtime 8.0.23.) | Plan 2 |
-| 2 | `ZstdSharp.Port` hat eine passende Lizenz und dekomprimiert alle 1602 Vanilla-Tabellen bytegleich zu `rpfm_cli`. Zeit pro Tabelle bleibt klein. | Plan 2 |
-| 3 | Der eigene LZ4-Decoder liest alle 1145 relevanten Vanilla-Einträge bytegleich zu `rpfm_cli`. | Plan 2 |
-| 4 | Loc-Format: Kopf, Version, Zeilenanzahl, Zeilen aus zwei UTF-16-Texten und einem Flag. Parity gegen `rpfm_cli`. | Plan 2 |
-| 5 | Die größte Loc-Datei (67,4 MB) lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Plan 2 und 3 |
-| 6 | `OptionalI32` ist ein Flag-Byte plus immer vorhandener Wert. | Plan 2 |
-| 7 | Bedeutung der Header-Bits `0x10`, `0x80`, `0x100`. Welches Vanilla-Pack das Bit für verschlüsselte Daten trägt und ob seine Einträge wirklich unlesbar sind. | Plan 2 |
-| 8 | Der Zeitstempel im Index ist bei `PFH5` 4 Bytes breit (bisher 2 Packs). | Plan 2 |
-| 9 | Die 5506 komprimierten Mod-Tabellen dekodieren mit derselben Quote wie die unkomprimierten. Ursache der 3 Fehler bei Mod-Tabellen. | Plan 2 |
-| 10 | Packs lassen sich lesen, während das Spiel läuft. | Plan 2 |
-| 11 | Header aller Packs lesen (statt ganzer Indexe) dauert kalt deutlich unter den gemessenen 4,7 s. | Plan 2 |
-| 12 | `manifest.txt` listet die Vanilla-Packs und wäre robuster als der Pack-Typ. | Plan 2 |
-| 13 | Steam-Erkennung funktioniert auch bei anderer Installation. Der manuelle Pfad deckt alle übrigen Fälle ab. | Plan 2, Rückmeldung von Testern |
+| 1 | Die Spike-Zeiten gelten ähnlich unter .NET 8. | **Bestätigt** (3.8, Messungen liefen auf `net8.0`). Build mit SDK 10.0.400 und Lauf auf Runtime 8.0.23 ebenfalls gemessen. |
+| 2 | `ZstdSharp.Port` hat eine passende Lizenz und dekomprimiert alle 1602 Vanilla-Tabellen bytegleich zu `rpfm_cli`. | **Bestätigt** (3.8): MIT, 1602 von 1602 bytegleich, 164–247 ms für alle. |
+| 3 | Der eigene LZ4-Decoder liest die LZ4-Einträge korrekt. | **Bestätigt** (3.8): 54.530 Einträge auf die genannte Größe, drei Stichproben bytegleich zu `rpfm_cli`. Ein Paritätstest über mehr Einträge kommt mit Plan 2. |
+| 4 | Loc-Format: Kopf, Version, Zeilenanzahl, Zeilen aus zwei UTF-16-Texten und einem Flag. | **Bestätigt** (3.8): 248 von 248 Dateien zellgenau identisch. |
+| 5 | Die größte Loc-Datei lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Dekodieren **bestätigt** (3.8): rund 212.300 Zeilen in unter 0,1 s. Anzeige im Raster: **zu messen in Plan 3**. |
+| 6 | `OptionalI32` ist ein Flag-Byte plus immer vorhandener Wert. | **Nicht messbar** (3.8). Der Typ gilt als nicht unterstützt. |
+| 7 | Bedeutung der Header-Bits `0x10`, `0x80`, `0x100`. | **Teilweise** (3.8): `0x10` trägt nur `audio_base_m.pack`. Die Bedeutung stammt weiter aus RPFM-Wissen. Packs mit diesen Bits gelten als nicht unterstützt. |
+| 8 | Der Zeitstempel im Index ist bei `PFH5` 4 Bytes breit. | **Bestätigt** (3.8): `boot.pack`, `shaders.pack`. |
+| 9 | Komprimierte Mod-Tabellen dekodieren mit derselben Quote wie unkomprimierte. Ursache der Fehler. | **Bestätigt** (3.8): 5505 von 5511. Ursache: älteres Layout bei gleicher Versionsnummer. |
+| 10 | Packs lassen sich lesen, während das Spiel läuft. | **Zu messen** in Plan 3 (manuelle Checkliste). |
+| 11 | Header aller Packs lesen dauert kalt deutlich unter 4,7 s. | **Widerlegt** (3.8): kalt rund 4,4 s, warm 24 ms. Der Scan beim Start läuft im Hintergrund. |
+| 12 | `manifest.txt` listet die Vanilla-Packs und ist robuster als der Pack-Typ. | **Bestätigt** (3.8). Regel in 4.3 angepasst. |
+| 13 | Steam-Erkennung funktioniert auch bei anderer Installation. Der manuelle Pfad deckt alle übrigen Fälle ab. | **Zu messen**: Plan 3, Rückmeldung von Testern. |
 | 14 | 1,2 s Anzeigezeit für breite Tabellen ist für den Nutzer annehmbar oder lässt sich mit einfachen Mitteln senken. | Plan 3 |
 | 15 | Nach einem Spiel-Patch sind mehr Tabellen nicht dekodierbar als die heutigen 3. Die Anzeige „nicht dekodierbar“ reicht dem Nutzer als Verhalten. | laufender Betrieb |
 

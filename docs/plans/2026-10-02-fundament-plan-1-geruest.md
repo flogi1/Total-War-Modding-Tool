@@ -21,7 +21,7 @@
 
 **Branch:** `feature/fundament-geruest` (von `master`). Baseline: Das Repo enthält noch keinen Code, es gibt keinen früheren Build- oder Teststand.
 
-**Stand nach dem Abschluss-Review (2026-10-03):** Die Interface-Blöcke und Festlegungen in diesem Plan sind an den Code angeglichen. Die Test-Snippets zeigen den Stand zur Planzeit; maßgeblich sind die Tests im Repo.
+**Stand nach dem Abschluss-Review (2026-10-02):** Die Interface-Blöcke und Festlegungen in diesem Plan sind an den Code angeglichen. Die Test-Snippets zeigen den Stand zur Planzeit; maßgeblich sind die Tests im Repo.
 
 ## Global Constraints
 
