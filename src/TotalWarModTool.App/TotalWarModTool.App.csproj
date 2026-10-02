@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>TotalWarModTool</AssemblyName>
+    <RootNamespace>TotalWarModTool.App</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Settings\TotalWarModTool.Settings.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Storage\TotalWarModTool.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\locales\*.json" Link="locales\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

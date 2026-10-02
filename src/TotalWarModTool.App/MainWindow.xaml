@@ -1,0 +1,16 @@
+<Window x:Class="TotalWarModTool.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Texts.AppTitle}"
+        Width="1200" Height="800" MinWidth="400" MinHeight="300"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource Theme.WindowBackground}"
+        Foreground="{DynamicResource Theme.Text}">
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="{Binding Texts.MenuTools}">
+                <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
+            </MenuItem>
+        </Menu>
+    </DockPanel>
+</Window>

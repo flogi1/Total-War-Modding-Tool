@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The WPF SDK leaves these three out of the implicit usings; the shared test helpers and the tests rely on them. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TotalWarModTool.App\TotalWarModTool.App.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Settings\TotalWarModTool.Settings.csproj" />
+  </ItemGroup>
+
+</Project>
