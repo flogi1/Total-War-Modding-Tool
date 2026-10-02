@@ -903,12 +903,16 @@ Festlegungen:
 - Startreihenfolge in `App.OnStartup` (kein `StartupUri`):
   1. `AppPaths.Default()`
   2. `FileLog` (Profilpfad aus `Environment.SpecialFolder.UserProfile`), `Info` mit Version
-  3. `UiText` und `AppTexts` anlegen; bis zum `Load` in Schritt 6 liefern sie die Inline-Fallbacks
-  4. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status und `.bad`-Pfad
-  5. `SettingsAutoSaver` wird direkt nach Schritt 4 erzeugt (vor `FixLanguage`), damit die Reparatur der Sprache gespeichert wird; `OnExit` ruft `Flush()`
-  6. `LanguageCatalog.Find`, `StartupSanitizer.FixLanguage`, `UiText.Load(settings.Language)`
-  7. `ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme)` – vor dem ersten Fenster
-  8. `MainViewModel`, `MainWindow`, `WindowPlacementTracker`, `Show()`
+  3. `UiText` und `AppTexts` anlegen; bis zum `Load` in Schritt 7 liefern sie die Inline-Fallbacks
+  4. `CrashHandler(...).Install(this)` – so früh wie möglich, der Dialog braucht die Texte
+  5. `GlobalSettingsStore.Load()`; bei `Corrupt`, `Unreadable`, `NewerVersion` ein `Warn` mit Status und `.bad`-Pfad
+  6. `SettingsAutoSaver` wird direkt nach Schritt 5 erzeugt (vor `FixLanguage`), damit die Reparatur der Sprache gespeichert wird; `OnExit` ruft `Flush()`
+  7. `LanguageCatalog.Find` (einmal, dieselbe Liste geht später an das `SettingsViewModel`), `StartupSanitizer.FixLanguage`, `UiText.Load(settings.Language)`
+  8. `ThemeManager(Resources, new RegistrySystemThemeSource())` anlegen und behalten, `Apply(settings.Theme)` – vor dem ersten Fenster
+  9. `SettingsApplier(settings, ui, theme)` – nach den Startwerten; ab hier wirken Änderungen von Sprache und Theme sofort
+  10. `ProgressRunner`
+  11. `SettingsViewModel` (ein Exemplar für den ganzen Lauf), `SettingsWindowService` (Besitzer des Einstellungsfensters ist das Hauptfenster)
+  12. `MainViewModel`, `MainWindow`, `WindowPlacementTracker`, `Show()`
 - `openFolder` im Composition Root: legt den Ordner an und startet ihn mit `Process.Start` und `UseShellExecute = true`.
 - `SettingsAutoSaver`: `IOException` und `UnauthorizedAccessException` beim Speichern ergeben ein `Warn`, keinen Absturz.
 

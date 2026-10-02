@@ -12,6 +12,8 @@ public sealed class AppTexts(UiText ui) : TextsBase(ui)
 
     public string MenuTools => T("menu.tools", "Tools");
 
+    public string MenuSettings => T("menu.tools.settings", "Settings");
+
     public string MenuOpenLogFolder => T("menu.tools.openLogFolder", "Open log folder");
 
     public string ProgressCancel => T("progress.cancel", "Cancel");
@@ -46,4 +48,18 @@ public sealed class AppTexts(UiText ui) : TextsBase(ui)
     public string MenuDebugSlow => T("menu.debug.slow", "Run slow operation");
 
     public string MenuDebugFail => T("menu.debug.fail", "Run failing operation");
+
+    public string SettingsTitle => T("settings.title", "Settings");
+
+    public string SettingsCategoryGeneral => T("settings.category.general", "General");
+
+    public string SettingsLanguage => T("settings.language", "Language");
+
+    public string SettingsTheme => T("settings.theme", "Theme");
+
+    public string SettingsThemeSystem => T("settings.theme.system", "Same as Windows");
+
+    public string SettingsThemeLight => T("settings.theme.light", "Light");
+
+    public string SettingsThemeDark => T("settings.theme.dark", "Dark");
 }

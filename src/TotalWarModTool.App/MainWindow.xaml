@@ -12,6 +12,7 @@
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="{Binding Texts.MenuTools}">
+                <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
                 <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
             </MenuItem>
             <!-- Only in the debug build: IsDebugBuild is false in a release build, so the menu is collapsed there. -->

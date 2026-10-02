@@ -1,6 +1,7 @@
 {
   "app.title": "Total War Modding Tool",
   "menu.tools": "Werkzeuge",
+  "menu.tools.settings": "Einstellungen",
   "menu.tools.openLogFolder": "Log-Ordner öffnen",
   "progress.cancel": "Abbrechen",
   "progress.cancelling": "Wird abgebrochen",
@@ -15,5 +16,12 @@
   "menu.debug": "Debug",
   "menu.debug.throw": "Test-Ausnahme auslösen",
   "menu.debug.slow": "Langsame Operation starten",
-  "menu.debug.fail": "Fehlschlagende Operation starten"
+  "menu.debug.fail": "Fehlschlagende Operation starten",
+  "settings.title": "Einstellungen",
+  "settings.category.general": "Allgemein",
+  "settings.language": "Sprache",
+  "settings.theme": "Theme",
+  "settings.theme.system": "Wie Windows",
+  "settings.theme.light": "Hell",
+  "settings.theme.dark": "Dunkel"
 }

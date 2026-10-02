@@ -14,9 +14,11 @@ public sealed class MainViewModel : ObservableObject
 
     /// <param name="openFolder">Opens a folder in the file explorer. Passed in so the view model stays free of processes and tests need no explorer.</param>
     /// <param name="progress">The runner every user-started operation goes through. Only the debug commands use it for now.</param>
-    public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, ProgressRunner progress)
+    /// <param name="openSettings">Opens the settings window (or activates it if it is open). Passed in so the view model knows no windows.</param>
+    public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, ProgressRunner progress, Action openSettings)
     {
         Texts = texts;
+        OpenSettingsCommand = new RelayCommand(openSettings);
         OpenLogFolderCommand = new RelayCommand(() => openFolder(paths.LogDirectory));
 
         // The debug commands exist in every build; only the menu that offers them is limited to the debug build (IsDebugBuild).
@@ -29,6 +31,8 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>True in the debug build only. The Debug menu binds its visibility to it.</summary>
     public bool IsDebugBuild { get; } = ReadIsDebugBuild();
+
+    public ICommand OpenSettingsCommand { get; }
 
     public ICommand OpenLogFolderCommand { get; }
 

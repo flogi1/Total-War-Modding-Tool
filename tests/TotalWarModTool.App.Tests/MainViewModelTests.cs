@@ -18,7 +18,7 @@ public class MainViewModelTests
         var texts = NewTexts();
         var runner = new ProgressRunner(() => [main], texts, new FakeAppLog(), TimeProvider.System, (title, ex) => reported.Add((title, ex)), showDelay);
         runner.WindowShown += (_, w) => shown.Add(w);
-        return (new MainViewModel(texts, Paths, _ => { }, runner), main, reported, shown);
+        return (new MainViewModel(texts, Paths, _ => { }, runner, () => { }), main, reported, shown);
     }
 
     // Waits for the effect, no fixed sleep. The Sta.RunAsync timeout is the outer guard.
@@ -36,14 +36,22 @@ public class MainViewModelTests
     [Fact] public void OpenLogFolder_opens_the_log_directory()
     {
         string? opened = null;
-        var vm = new MainViewModel(NewTexts(), Paths, p => opened = p, NoRunner());
+        var vm = new MainViewModel(NewTexts(), Paths, p => opened = p, NoRunner(), () => { });
         vm.OpenLogFolderCommand.Execute(null);
         Assert.Equal(@"X:\local\logs", opened);
     }
 
+    [Fact] public void OpenSettings_calls_the_delegate()
+    {
+        var opened = 0;
+        var vm = new MainViewModel(NewTexts(), Paths, _ => { }, NoRunner(), () => opened++);
+        vm.OpenSettingsCommand.Execute(null);
+        Assert.Equal(1, opened);
+    }
+
     [Fact] public void DebugThrow_throws_the_test_exception()
     {
-        var vm = new MainViewModel(NewTexts(), Paths, _ => { }, NoRunner());
+        var vm = new MainViewModel(NewTexts(), Paths, _ => { }, NoRunner(), () => { });
         var ex = Assert.Throws<InvalidOperationException>(() => vm.DebugThrowCommand.Execute(null));
         Assert.Equal("Debug test exception", ex.Message);
     }

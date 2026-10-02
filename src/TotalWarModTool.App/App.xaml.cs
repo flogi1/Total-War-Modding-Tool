@@ -43,11 +43,17 @@ public partial class App : Application
         var settings = loaded.Settings;
         _autoSaver = new SettingsAutoSaver(settings, store, log, loaded.Status);
 
-        StartupSanitizer.FixLanguage(settings, LanguageCatalog.Find(paths.LocalesDirectory));
+        // Read once: the sanitizer and the settings window offer the same languages. A language file added later shows up after a restart.
+        var languages = LanguageCatalog.Find(paths.LocalesDirectory);
+        StartupSanitizer.FixLanguage(settings, languages);
         ui.Load(settings.Language);
 
-        // Before the first window exists, so nothing is shown in the wrong colours.
-        new ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme);
+        // Before the first window exists, so nothing is shown in the wrong colours. Kept: the settings applier switches the theme through it.
+        var theme = new ThemeManager(Resources, new RegistrySystemThemeSource());
+        theme.Apply(settings.Theme);
+
+        // After the start values are applied: from here on a change of language or theme in the settings takes effect at once.
+        _ = new SettingsApplier(settings, ui, theme);
 
         // Every user-started operation runs through this one runner.
         var progressRunner = new ProgressRunner(
@@ -61,7 +67,16 @@ public partial class App : Application
                 MessageBoxButton.OK,
                 MessageBoxImage.Error));
 
-        var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder, progressRunner));
+        // One view model for the whole run: it keeps no state of its own, so every settings window can use it.
+        var settingsViewModel = new SettingsViewModel(settings, texts, languages);
+
+        // The main view model needs the way to open the settings window, and the settings window needs the main window as its owner.
+        // The owner is only read when the window is opened, which is after mainWindow is set below.
+        Window? mainWindow = null;
+        var settingsWindows = new SettingsWindowService(() => new SettingsWindow(settingsViewModel) { Owner = mainWindow });
+
+        var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate));
+        mainWindow = window;
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
     }
