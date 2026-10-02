@@ -71,6 +71,15 @@ public class UiTextTests
         Assert.NotNull(ui.LoadError);
     }
 
+    [Fact] public void Load_of_file_with_unreadable_json_string_reports_error_and_uses_english()
+    {
+        using var dir = new TempDir();
+        var ui = new UiText(Locales(dir, ("en", En), ("de", "{\"a\":\"x\\ud800y\"}")));   // lone surrogate escape
+        ui.Load("de");
+        Assert.Equal("A-en", ui.Get("a", "x"));
+        Assert.NotNull(ui.LoadError);
+    }
+
     [Fact] public void Load_raises_Changed_and_null_means_english()
     {
         using var dir = new TempDir();

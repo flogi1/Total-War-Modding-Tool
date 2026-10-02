@@ -18,6 +18,22 @@ public class LocaleFileReaderTests
         Assert.Contains("UTF-8", file.Error.Message);
     }
 
+    [Theory]
+    [InlineData("{\"a\":\"x\\ud800y\"}")]      // lone high surrogate escape in a text
+    [InlineData("{\"x\\udc00y\":\"b\"}")]      // lone low surrogate escape in a key
+    public void Read_reports_error_for_unreadable_json_string(string json)
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("de.json"), json);
+
+        var file = LocaleFileReader.Read(dir.File("de.json"));
+
+        Assert.Empty(file.Texts);
+        Assert.NotNull(file.Error);
+        Assert.Equal((1L, 1L), (file.Error.Line, file.Error.Position));
+        Assert.False(string.IsNullOrWhiteSpace(file.Error.Message));
+    }
+
     [Fact] public void Read_accepts_utf8_file_with_bom()
     {
         using var dir = new TempDir();

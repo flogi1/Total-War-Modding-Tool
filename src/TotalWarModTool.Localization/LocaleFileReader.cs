@@ -19,7 +19,8 @@ public static class LocaleFileReader
     /// <summary>
     /// Keys starting with an underscore are comments, values that are not strings are ignored. Empty texts are kept in the result;
     /// callers treat them as missing. A missing or unreadable file, or a root that is not an object, gives an empty result without an error.
-    /// A broken file (invalid JSON, or bytes that are not valid UTF-8, e.g. saved as ANSI) gives an empty result with the error.
+    /// A broken file (invalid JSON, bytes that are not valid UTF-8 e.g. saved as ANSI, or a string that cannot be read e.g. a lone surrogate
+    /// escape) gives an empty result with the error.
     /// </summary>
     public static LocaleFile Read(string path)
     {
@@ -49,12 +50,20 @@ public static class LocaleFileReader
             }
 
             var texts = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var property in document.RootElement.EnumerateObject())
+            try
             {
-                if (!property.Name.StartsWith('_') && property.Value.ValueKind == JsonValueKind.String)
+                foreach (var property in document.RootElement.EnumerateObject())
                 {
-                    texts[property.Name] = property.Value.GetString()!;
+                    if (!property.Name.StartsWith('_') && property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        texts[property.Name] = property.Value.GetString()!;
+                    }
                 }
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Valid JSON that cannot be turned into a .NET string, e.g. a lone surrogate escape (\ud800). The position is unknown.
+                return new LocaleFile(NoTexts, new LocaleParseError(1, 1, $"A key or text in the file cannot be read (check the \\u escape sequences): {ex.Message}"));
             }
 
             return new LocaleFile(texts, null);
