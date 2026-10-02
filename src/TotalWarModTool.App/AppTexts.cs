@@ -27,4 +27,23 @@ public sealed class AppTexts(UiText ui) : TextsBase(ui)
     /// <param name="reason">Message of the exception.</param>
     public string OperationFailedMessage(string operation, string reason) =>
         F("error.operationFailed.message", "\"{0}\" could not be completed: {1} The log contains details (Tools, Open log folder).", operation, reason);
+
+    public string CrashTitle => T("crash.title", "Unexpected error");
+
+    public string CrashMessage => T("crash.message",
+        "Total War Modding Tool ran into an unexpected error. Your settings are safe. You can keep working, but restarting the app is safer.");
+
+    public string CrashOpenLog => T("crash.openLog", "Open log");
+
+    public string CrashCopyDetails => T("crash.copyDetails", "Copy details");
+
+    public string CrashClose => T("crash.close", "Close");
+
+    public string MenuDebug => T("menu.debug", "Debug");
+
+    public string MenuDebugThrow => T("menu.debug.throw", "Throw test exception");
+
+    public string MenuDebugSlow => T("menu.debug.slow", "Run slow operation");
+
+    public string MenuDebugFail => T("menu.debug.fail", "Run failing operation");
 }

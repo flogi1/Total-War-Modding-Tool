@@ -862,9 +862,13 @@ public sealed class MainViewModel : ObservableObject
 // tests/TotalWarModTool.App.Tests
 internal static class Sta
 {
-    public static void Run(Action action);                    // runs on a fresh STA thread, rethrows
+    // Runs on a fresh STA thread, rethrows what the action throws. Afterwards the dispatcher of that thread is shut down
+    // (which also destroys windows left open on it). Throws TimeoutException when the thread has not finished after
+    // joinTimeoutSeconds (it is a background thread, so it cannot keep the test host alive).
+    public static void Run(Action action, int joinTimeoutSeconds = 30);
     // Installs a DispatcherSynchronizationContext, starts action, pumps a DispatcherFrame until the task ends,
-    // rethrows its exception. Throws TimeoutException when the task is not done after timeoutSeconds.
+    // rethrows its exception. Throws TimeoutException when the task is not done after timeoutSeconds; the timeout also
+    // exits nested dispatcher loops (e.g. a ShowDialog nobody closes), and the dispatcher of the thread is shut down afterwards.
     public static void RunAsync(Func<Task> action, int timeoutSeconds = 10);
 }
 internal sealed class FakeAppLog : IAppLog { public List<string> Infos, Warnings, Errors; public List<Exception?> Exceptions; }
@@ -1099,11 +1103,13 @@ Ablauf von `RunAsync` (verbindlich, weil Signatur und Tests ihn nicht eindeutig 
        window = new ProgressWindow(title, texts, progress, cts.Cancel) { Owner = active window or null }
        window.Loaded += (_, _) =>
        {
-           WindowShown?.Invoke(this, window);
            task.ContinueWith(_ => window.CloseByRunner(), TaskScheduler.FromCurrentSynchronizationContext());
+           WindowShown?.Invoke(this, window);
        };
-       window.ShowDialog();                       -- the close is only registered after Loaded,
-                                                  -- so Close() can never run before ShowDialog()
+       window.ShowDialog();                       -- the close is only registered after Loaded, so Close() can never run before
+                                                  -- ShowDialog(). It is registered before WindowShown is raised and posted to the UI
+                                                  -- thread, so it still runs after Loaded returns: a throwing subscriber cannot leave
+                                                  -- the window open
 6. evaluate task:
        returned normally          -> cts cancelled ? Cancelled(value) : Completed(value)
        OperationCanceledException while cts is cancelled -> Cancelled(default)
@@ -1337,9 +1343,9 @@ public ICommand DebugFailCommand { get; }      // progress.RunAsync: waits 1 s, 
 Festlegungen:
 - `Handle` loggt immer (`log.Error` mit Quelle und Exception). Ist kein Dialog offen, ruft es `showDialog(CrashReport.Build(...))`. Während `showDialog` läuft, lösen weitere Aufrufe nur den Log-Eintrag aus. Wirft `showDialog` selbst, wird das geloggt und nicht weitergereicht.
 - `Install`: `DispatcherUnhandledException` → `Handle(…, SourceUi)`, `Handled = true`. `AppDomain.CurrentDomain.UnhandledException` → `Handle(…, SourceAppDomain)`. `TaskScheduler.UnobservedTaskException` → `Handle(…, SourceTask)`, `SetObserved()`.
-- `showDialog` im Composition Root: wechselt auf den UI-Thread (`Dispatcher.Invoke`) und zeigt `CrashDialog` modal. `Install` wird direkt nach dem Anlegen des Logs aufgerufen (Schritt 2 der Startreihenfolge), der Dialog nutzt die Texte, sobald sie geladen sind, vorher die Inline-Fallbacks.
+- `showDialog` im Composition Root: wechselt auf den UI-Thread (`Dispatcher.Invoke`) und zeigt `CrashDialog` modal. `Install` wird direkt nach dem Anlegen der Texte aufgerufen (zwischen Schritt 3 und 4 der Startreihenfolge; davor gibt es nur Pfade und Log), der Dialog nutzt die Texte, sobald sie geladen sind, vorher die Inline-Fallbacks. `DispatcherUnhandledException` setzt `Handled = true`: die App läuft nach dem Dialog weiter (der `ProgressRunner` verlässt sich darauf, weil die Ausnahme eines `WindowShown`-Abonnenten über diesen Weg läuft).
 - `CrashDialog`: Meldungstext, schreibgeschütztes Textfeld mit den Details, Knöpfe `Open log`, `Copy details` (Zwischenablage), `Close`. Der Knopf „Fehler melden“ fehlt bewusst (Spec 4.6).
-- Menü `Debug` in `MainWindow.xaml` nur im Debug-Build sichtbar (`#if DEBUG` setzt eine Eigenschaft `IsDebugBuild` im ViewModel, das Menü bindet seine Sichtbarkeit daran).
+- Menü `Debug` in `MainWindow.xaml` nur im Debug-Build sichtbar (`#if DEBUG` setzt eine Eigenschaft `IsDebugBuild` im ViewModel, das Menü bindet seine Sichtbarkeit daran). Die Befehle selbst gibt es in jedem Build; als Titel der beiden Operationen dienen die Menütexte `MenuDebugSlow` und `MenuDebugFail`.
 
 Texte dieser Task:
 

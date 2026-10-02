@@ -6,5 +6,14 @@
   "progress.cancelling": "Cancelling",
   "progress.count": "{0} / {1}",
   "error.operationFailed.title": "Operation failed",
-  "error.operationFailed.message": "\"{0}\" could not be completed: {1} The log contains details (Tools, Open log folder)."
+  "error.operationFailed.message": "\"{0}\" could not be completed: {1} The log contains details (Tools, Open log folder).",
+  "crash.title": "Unexpected error",
+  "crash.message": "Total War Modding Tool ran into an unexpected error. Your settings are safe. You can keep working, but restarting the app is safer.",
+  "crash.openLog": "Open log",
+  "crash.copyDetails": "Copy details",
+  "crash.close": "Close",
+  "menu.debug": "Debug",
+  "menu.debug.throw": "Throw test exception",
+  "menu.debug.slow": "Run slow operation",
+  "menu.debug.fail": "Run failing operation"
 }

@@ -6,10 +6,19 @@
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource Theme.WindowBackground}"
         Foreground="{DynamicResource Theme.Text}">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="{Binding Texts.MenuTools}">
                 <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
+            </MenuItem>
+            <!-- Only in the debug build: IsDebugBuild is false in a release build, so the menu is collapsed there. -->
+            <MenuItem Header="{Binding Texts.MenuDebug}" Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVisibility}}">
+                <MenuItem Header="{Binding Texts.MenuDebugThrow}" Command="{Binding DebugThrowCommand}" />
+                <MenuItem Header="{Binding Texts.MenuDebugSlow}" Command="{Binding DebugSlowCommand}" />
+                <MenuItem Header="{Binding Texts.MenuDebugFail}" Command="{Binding DebugFailCommand}" />
             </MenuItem>
         </Menu>
     </DockPanel>

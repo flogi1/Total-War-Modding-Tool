@@ -19,12 +19,17 @@ public partial class App : Application
 
         var paths = AppPaths.Default();
 
-        var log = new FileLog(paths.LogDirectory, TimeProvider.System, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-        log.Info($"{AppTexts.AppName} {typeof(App).Assembly.GetName().Version?.ToString(3)} started");
+        var userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var appVersion = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+        var log = new FileLog(paths.LogDirectory, TimeProvider.System, userProfilePath);
+        log.Info($"{AppTexts.AppName} {appVersion} started");
 
         // The texts exist from here on. They return the English inline fallbacks until ui.Load runs below.
         var ui = new UiText(paths.LocalesDirectory);
         var texts = new AppTexts(ui);
+
+        // As early as it can work: the dialog needs the texts. A crash from here on is logged and shown, also while the rest of the start-up runs.
+        new CrashHandler(log, TimeProvider.System, appVersion, userProfilePath, details => ShowCrashDialog(texts, paths, details)).Install(this);
 
         var store = new GlobalSettingsStore(paths.RoamingRoot);
         var loaded = store.Load();
@@ -44,7 +49,7 @@ public partial class App : Application
         // Before the first window exists, so nothing is shown in the wrong colours.
         new ThemeManager(Resources, new RegistrySystemThemeSource()).Apply(settings.Theme);
 
-        // Every user-started operation will run through this one runner. The main view model receives it with the next plan step.
+        // Every user-started operation runs through this one runner.
         var progressRunner = new ProgressRunner(
             () => Windows.Cast<Window>().ToList(),
             texts,
@@ -56,7 +61,7 @@ public partial class App : Application
                 MessageBoxButton.OK,
                 MessageBoxImage.Error));
 
-        var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder));
+        var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder, progressRunner));
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
     }
@@ -66,6 +71,21 @@ public partial class App : Application
         _autoSaver?.Flush();
         base.OnExit(e);
     }
+
+    /// <summary>
+    /// The <c>showDialog</c> of the crash handler. Called from any thread: switches to the UI thread and shows the dialog modal, owned by the
+    /// active window if there is one. Returns when the dialog is closed.
+    /// </summary>
+    private void ShowCrashDialog(AppTexts texts, AppPaths paths, string details) =>
+        Dispatcher.Invoke(() =>
+        {
+            var owner = Windows.Cast<Window>().FirstOrDefault(window => window.IsActive);
+            new CrashDialog(texts, details, () => OpenFolder(paths.LogDirectory))
+            {
+                Owner = owner,
+                WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
+            }.ShowDialog();
+        });
 
     private static void OpenFolder(string path)
     {
