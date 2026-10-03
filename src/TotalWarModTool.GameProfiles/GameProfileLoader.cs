@@ -80,6 +80,12 @@ public static class GameProfileLoader
             detail = "Not valid JSON: " + ex.Message;
             return null;
         }
+        catch (InvalidOperationException ex)
+        {
+            // JsonElement.GetString() throws this for a lone escaped surrogate, which JsonDocument.Parse accepts.
+            detail = "Contains text that is not valid Unicode: " + ex.Message;
+            return null;
+        }
     }
 
     private static GameProfile? Parse(JsonElement root, out string detail)

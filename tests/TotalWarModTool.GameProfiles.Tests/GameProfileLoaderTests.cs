@@ -30,6 +30,8 @@ public class GameProfileLoaderTests
     [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":0,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]
     [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":[]}""")]
     [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":"one","installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]
+    [InlineData("""{"schemaVersion":1,"id":"\ud800","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // lone surrogate in id
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["\ud800"]}""")]   // lone surrogate in vanillaPackTypes
     public void Skips_a_broken_profile_and_keeps_the_good_one(string broken)
     {
         using var dir = new TempDir();
