@@ -89,5 +89,13 @@
   "schema.source.override": "from the schema folder, {0}",
   "schema.source.shipped.noDate": "shipped with the app",
   "schema.source.override.noDate": "from the schema folder",
-  "schema.source.none": "none"
+  "schema.source.none": "none",
+  "status.game": "Game: {0}",
+  "status.game.notFound": "Game: {0} (not found)",
+  "status.game.none": "Game: none",
+  "status.loading": "Loading",
+  "status.schema": "Schema: {0}",
+  "status.hint.noSchema": "No schema could be loaded ({0}). Tables cannot be decoded. Check the schema folder in the settings.",
+  "status.hint.schemaOverrideFailed": "The schema folder has no usable {0} ({1}). The shipped schema is used.",
+  "status.hint.folderProblem": "A pack folder could not be read: {0}"
 }

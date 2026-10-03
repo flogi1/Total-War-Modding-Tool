@@ -66,6 +66,9 @@ public abstract class TabViewModel : ObservableObject, IDisposable
 
     internal void MarkStale() => IsStale = true;
 
+    /// <summary>The title, also what screen readers and UI automation call the tab.</summary>
+    public override string ToString() => Title;
+
     /// <summary>Computes every text property again in the language that is active now and raises <c>PropertyChanged</c> for those that changed.</summary>
     protected abstract void RefreshTexts();
 

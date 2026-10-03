@@ -174,6 +174,41 @@ public class ExplorerViewTests
         Assert.InRange(realized, 5, 100);
     });
 
+    // Recycled containers must not write their reset state back into the nodes: scrolling the pack out of view and back keeps it open.
+    [Fact] public void Scrolling_far_down_and_back_up_keeps_an_expanded_pack_open() => Sta.RunAsync(async () =>
+    {
+        var entries = Enumerable.Range(0, 3000).Select(i => ($"file{i:D4}.txt", new byte[] { 1 })).ToArray();
+        using var setup = await Create(g => g.AddPack("a.pack", entries), height: 300);
+        var vm = setup.ViewModel;
+        var pack = vm.Groups.SelectMany(g => g.Children).OfType<PackNode>().Single();
+        pack.IsExpanded = true;
+        Pump(setup.Window);
+        var scroll = FindScrollViewer(setup.Tree)!;
+        Assert.True(scroll.ScrollableHeight > 0);
+        scroll.ScrollToEnd(); Pump(setup.Window);
+        Assert.True(scroll.VerticalOffset > 0);
+        scroll.ScrollToHome(); Pump(setup.Window);
+        Assert.Equal(0, scroll.VerticalOffset);
+        Assert.True(pack.IsExpanded);
+        Assert.Equal([pack.Pack.Path], vm.ExpandedPackPaths);
+        Assert.Equal(3000, pack.Children.Count);
+        Assert.Equal(["Open a.pack"], setup.Game.Runner.Titles);                       // never read again
+    });
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer viewer || (viewer = FindScrollViewer(child)!) is not null)
+            {
+                return viewer;
+            }
+        }
+
+        return null;
+    }
+
     private static void RaiseEnter(TreeView tree) =>
         tree.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(tree)!, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
 

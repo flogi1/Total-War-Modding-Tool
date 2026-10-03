@@ -135,6 +135,31 @@ public sealed partial class AppTexts
         _ => string.Empty,
     };
 
+    /// <param name="gameName">Display name of the game profile. Data, not a UI text.</param>
+    public string StatusGame(string gameName) => F("status.game", "Game: {0}", gameName);
+
+    /// <param name="gameName">Display name of the game profile. Data, not a UI text.</param>
+    public string StatusGameNotFound(string gameName) => F("status.game.notFound", "Game: {0} (not found)", gameName);
+
+    public string StatusGameNone => T("status.game.none", "Game: none");
+
+    public string StatusLoading => T("status.loading", "Loading");
+
+    /// <param name="source">Where the schema comes from, see <see cref="SchemaSourceText"/>.</param>
+    public string StatusSchema(string source) => F("status.schema", "Schema: {0}", source);
+
+    /// <param name="problem">The problem of the shipped schema file, see <see cref="SchemaProblemText"/>.</param>
+    public string StatusHintNoSchema(string problem) => F("status.hint.noSchema",
+        "No schema could be loaded ({0}). Tables cannot be decoded. Check the schema folder in the settings.", problem);
+
+    /// <param name="fileName">Name of the schema file the profile expects. Data, not a UI text.</param>
+    /// <param name="problem">The problem of the file in the schema folder, see <see cref="SchemaProblemText"/>.</param>
+    public string StatusHintSchemaOverrideFailed(string fileName, string problem) => F("status.hint.schemaOverrideFailed",
+        "The schema folder has no usable {0} ({1}). The shipped schema is used.", fileName, problem);
+
+    /// <param name="path">Path of the pack folder that could not be read. Data, not a UI text.</param>
+    public string StatusHintFolderProblem(string path) => F("status.hint.folderProblem", "A pack folder could not be read: {0}", path);
+
     public string TabClose => T("tab.close", "Close");
 
     public string TabStale => T("tab.stale", "The pack was changed on disk. This tab shows the old content.");

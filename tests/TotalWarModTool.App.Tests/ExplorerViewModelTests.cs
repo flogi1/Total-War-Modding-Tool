@@ -1,3 +1,4 @@
+using TotalWarModTool.Localization;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Session;
 using TotalWarModTool.Workspace;
@@ -29,6 +30,37 @@ public class ExplorerViewModelTests
             Assert.Equal(("settings", ""), Assert.Single(opened));
             async Task<string?> Loaded() { await c.LoadAsync(); return vm.Message; }
         }
+    }
+
+    // Review item 1: the explorer follows a language switch; what the user expanded stays as it is.
+    [Fact] public async Task Group_names_and_the_message_follow_a_language_switch()
+    {
+        var locales = Path.Combine(RepoRoot.Find(), "locales");
+        using var game = new TestGame(); game.AddPack("a.pack", ("a.txt", [1]));
+        var ui = new UiText(locales); var texts = new AppTexts(ui);
+        var c = new WorkspaceController(TestGame.Profile, game.GameSettings, game.Settings, game.Paths, new NoSteam(), game.Runner, game.Log, texts);
+        var vm = new ExplorerViewModel(c, texts, (_, _) => Task.CompletedTask, () => { });
+        await c.LoadAsync();
+        var group = Assert.IsType<GroupNode>(Assert.Single(vm.Groups));
+        var pack = PackNodeOf(vm, "a.pack");
+        pack.IsExpanded = true; group.IsExpanded = true;
+        var changed = new List<string?>(); group.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        var raised = 0; vm.ExpandedPacksChanged += (_, _) => raised++;
+
+        ui.Load("de");
+        Assert.Equal("Mods im Datenordner (1)", group.Name);
+        Assert.Contains(nameof(ExplorerNode.Name), changed);
+        Assert.Same(group, Assert.Single(vm.Groups));                              // the same nodes, nothing was rebuilt
+        Assert.Equal((true, true), (group.IsExpanded, pack.IsExpanded));
+        Assert.Equal([pack.Pack.Path], vm.ExpandedPackPaths);
+        Assert.Equal(0, raised);
+
+        // The message of a game that is not found, in the other direction.
+        game.GameSettings.InstallPath = game.Root.File("nowhere");
+        Assert.Equal("Der Spielordner aus den Einstellungen hat keinen Datenordner. Wähle den Spielordner in den Einstellungen.", vm.Message);
+        ui.Load("en");
+        Assert.Equal("The game folder from the settings has no data folder. Choose the game folder in the settings.", vm.Message);
+        Assert.True(vm.ShowOpenSettings);
     }
 
     [Fact] public async Task The_messages_for_a_missing_game_and_a_missing_profile()

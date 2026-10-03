@@ -89,5 +89,13 @@
   "schema.source.override": "aus dem Schema-Ordner, {0}",
   "schema.source.shipped.noDate": "mit der App geliefert",
   "schema.source.override.noDate": "aus dem Schema-Ordner",
-  "schema.source.none": "keins"
+  "schema.source.none": "keins",
+  "status.game": "Spiel: {0}",
+  "status.game.notFound": "Spiel: {0} (nicht gefunden)",
+  "status.game.none": "Spiel: keins",
+  "status.loading": "Wird geladen",
+  "status.schema": "Schema: {0}",
+  "status.hint.noSchema": "Es konnte kein Schema geladen werden ({0}). Tabellen sind nicht dekodierbar. Prüfe den Schema-Ordner in den Einstellungen.",
+  "status.hint.schemaOverrideFailed": "Der Schema-Ordner enthält keine brauchbare {0} ({1}). Das mitgelieferte Schema wird benutzt.",
+  "status.hint.folderProblem": "Ein Pack-Ordner konnte nicht gelesen werden: {0}"
 }

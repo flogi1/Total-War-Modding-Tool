@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Logging;
+using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
 using TotalWarModTool.Storage;
 
@@ -12,6 +14,8 @@ namespace TotalWarModTool.App;
 public partial class App : Application
 {
     private SettingsAutoSaver? _autoSaver;
+    private DebouncedSaver? _gameSettingsSaver;
+    private DebouncedSaver? _sessionSaver;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -39,11 +43,11 @@ public partial class App : Application
 
         // A step that throws before the main window exists would leave a process without a window: the guard shows the failure as fatal and shuts down.
         // A failure before this point (paths, log, texts, crash handler) has nothing to show it with and propagates.
-        StartupGuard.Run(() => Compose(paths, log, ui, texts), crashHandler, Shutdown);
+        StartupGuard.Run(() => Compose(paths, log, ui, texts, crashHandler), crashHandler, Shutdown);
     }
 
     /// <summary>Everything after the log and the crash handler exist, up to the visible main window. Restores the normal shutdown mode at the end.</summary>
-    private void Compose(AppPaths paths, IAppLog log, UiText ui, AppTexts texts)
+    private void Compose(AppPaths paths, IAppLog log, UiText ui, AppTexts texts, CrashHandler crashHandler)
     {
         var store = new GlobalSettingsStore(paths.RoamingRoot);
         var loaded = store.Load();
@@ -87,18 +91,103 @@ public partial class App : Application
         Window? mainWindow = null;
         var settingsWindows = new SettingsWindowService(() => new SettingsWindow(settingsViewModel) { Owner = mainWindow });
 
-        var window = new MainWindow(new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate));
+        // The game: the profile the settings name, else the first one. Everything stored per game is named after the id of that profile.
+        var profiles = GameProfileLoader.LoadAll(paths.ProfilesDirectory);
+        foreach (var problem in profiles.Problems)
+        {
+            log.Warn($"Game profile {problem.FileName} was skipped: {problem.Detail}");
+        }
+
+        var profile = ChooseProfile(profiles.Profiles, settings.SelectedGame);
+        if (profile is not null && profile.Id != settings.SelectedGame)
+        {
+            settings.SelectedGame = profile.Id;
+        }
+
+        var gameSettings = new GameSettings();
+        SessionStore? sessionStore = null;
+        var sessionLoaded = new SessionLoadResult(SessionState.Empty, LoadStatus.Missing, null);
+        if (profile is not null)
+        {
+            var gameSettingsStore = new GameSettingsStore(paths.RoamingRoot, profile.Id);
+            var gameSettingsLoaded = gameSettingsStore.Load();
+            gameSettings = gameSettingsLoaded.Settings;
+            if (SettingsLoadMessage.Build(gameSettingsStore.FilePath, gameSettingsLoaded.Status, gameSettingsLoaded.BadCopyPath, "Game settings file") is { } gameProblem)
+            {
+                log.Warn(gameProblem);
+            }
+
+            if (gameSettingsLoaded.Status is LoadStatus.NewerVersion or LoadStatus.Unreadable)
+            {
+                // Never subscribed, so nothing is ever written: a newer file would lose fields, an unreadable one is only defaults here.
+                log.Warn($"Game settings will not be saved in this session: {gameSettingsStore.FilePath} was not loaded as it is.");
+            }
+            else
+            {
+                var saver = new DebouncedSaver(() => gameSettingsStore.Save(gameSettingsLoaded.Settings), log, "The game settings");
+                gameSettingsLoaded.Settings.Changed += (_, _) => saver.MarkDirty();
+                _gameSettingsSaver = saver;
+            }
+
+            sessionStore = new SessionStore(paths.RoamingRoot, profile.Id);
+            sessionLoaded = sessionStore.Load();
+            if (SettingsLoadMessage.Build(sessionStore.FilePath, sessionLoaded.Status, sessionLoaded.BadCopyPath, "Session file") is { } sessionProblem)
+            {
+                log.Warn(sessionProblem);
+            }
+        }
+
+        var workspace = new WorkspaceController(profile, gameSettings, settings, paths, new RegistrySteamLocationSource(), progressRunner, log, texts);
+        var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace);
+
+        SessionCoordinator? session = null;
+        if (sessionStore is not null)
+        {
+            session = new SessionCoordinator(sessionStore, sessionLoaded, workspace, viewModel.Explorer, viewModel.Tabs, log);
+            var saver = new DebouncedSaver(session.Save, log, "The session");
+            session.Dirty += (_, _) => saver.MarkDirty();
+            _sessionSaver = saver;
+        }
+
+        var window = new MainWindow(viewModel);
         mainWindow = window;
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
 
         // The start-up worked: from here on the app ends when its last window is closed, as usual.
         ShutdownMode = ShutdownMode.OnLastWindowClose;
+
+        // Not awaited: the window is there and shows "loading" while the packs are scanned. A surprise from the chain goes to the crash handler.
+        _ = LoadGameAsync(workspace, session, crashHandler);
+    }
+
+    // The profile of the stored id (ignoring case), else the first one; null without profiles.
+    private static GameProfile? ChooseProfile(IReadOnlyList<GameProfile> profiles, string? selectedId) =>
+        profiles.FirstOrDefault(profile => string.Equals(profile.Id, selectedId, StringComparison.OrdinalIgnoreCase)) ?? profiles.FirstOrDefault();
+
+    private static async Task LoadGameAsync(WorkspaceController workspace, SessionCoordinator? session, CrashHandler crashHandler)
+    {
+        try
+        {
+            await workspace.LoadAsync();
+            if (session is not null)
+            {
+                await session.RestoreAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Not fatal: the app runs on without what could not be loaded.
+            crashHandler.Handle(ex, CrashHandler.SourceTask);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // A failed save stays pending without a timer, so every saver is flushed once more here.
         _autoSaver?.Flush();
+        _gameSettingsSaver?.Flush();
+        _sessionSaver?.Flush();
         base.OnExit(e);
     }
 

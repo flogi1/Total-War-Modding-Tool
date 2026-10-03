@@ -14,16 +14,27 @@ namespace TotalWarModTool.App;
 public abstract class ExplorerNode : ObservableObject
 {
     private readonly ChildCollection _children = new();
+    private string _name;
     private string? _toolTip;
     private bool _hasProblem;
     private bool _isExpanded;
 
     protected ExplorerNode(string name)
     {
-        Name = name;
+        _name = name;
     }
 
-    public string Name { get; }
+    public string Name
+    {
+        get => _name;
+        private set => SetProperty(ref _name, value);
+    }
+
+    /// <summary>Replaces the name of a node whose name is text of the current language (a group).</summary>
+    internal void Rename(string name) => Name = name;
+
+    /// <summary>The name, also what screen readers and UI automation call the row.</summary>
+    public override string ToString() => Name;
 
     public string? ToolTip
     {

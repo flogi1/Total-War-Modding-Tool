@@ -21,6 +21,28 @@ public class DebouncedSaverTests
         Assert.Equal(1, saves);
     });
 
+    // The dirty flag is cleared before the save runs, so a change that arrives during the save stays pending.
+    [Fact] public void A_change_during_the_save_is_not_lost() => Sta.Run(() =>
+    {
+        var saves = 0; DebouncedSaver? saver = null;
+        saver = new DebouncedSaver(() => { saves++; if (saves == 1) saver!.MarkDirty(); }, new FakeAppLog(), "Session");
+        saver.MarkDirty(); saver.Flush();
+        Assert.Equal(1, saves);
+        saver.Flush();
+        Assert.Equal(2, saves);
+        saver.Flush();
+        Assert.Equal(2, saves);
+    });
+
+    [Fact] public void A_failed_save_stays_pending_also_when_a_change_arrived_during_it() => Sta.Run(() =>
+    {
+        var saves = 0; var fail = true; DebouncedSaver? saver = null;
+        saver = new DebouncedSaver(() => { if (fail) { saver!.MarkDirty(); throw new IOException("locked"); } saves++; }, new FakeAppLog(), "Session");
+        saver.MarkDirty(); saver.Flush();
+        fail = false; saver.Flush();
+        Assert.Equal(1, saves);
+    });
+
     [Fact] public void Saves_by_itself_after_the_delay() => Sta.RunAsync(async () =>
     {
         var saves = 0;

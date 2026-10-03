@@ -47,13 +47,15 @@ public sealed class DebouncedSaver
             return;
         }
 
+        // Cleared before the save: a change that arrives while it runs sets the flag again and is not lost.
+        _dirty = false;
         try
         {
             _save();
-            _dirty = false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            _dirty = true;
             _log.Warn($"{_what} could not be saved: {ex.Message}");
         }
     }

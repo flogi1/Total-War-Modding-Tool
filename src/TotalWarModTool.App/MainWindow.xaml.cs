@@ -8,5 +8,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+        ExplorerHost.Content = new ExplorerView(viewModel.Explorer);
+        TabsHost.Content = new TabsView(viewModel.Tabs);
     }
 }

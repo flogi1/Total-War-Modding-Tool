@@ -41,6 +41,7 @@ public sealed class ExplorerViewModel : ObservableObject
         Rebuild();
         workspace.Changed += (_, _) => Rebuild();
         workspace.PackChanged += (_, pack) => OnPackChanged(pack);
+        texts.PropertyChanged += (_, _) => RefreshTexts();
     }
 
     public AppTexts Texts { get; }
@@ -123,6 +124,20 @@ public sealed class ExplorerViewModel : ObservableObject
             _ when catalog.Packs.Count == 0 => (texts.ExplorerNoPacks, false),
             _ => (null, false),
         };
+    }
+
+    // A language switch: the texts of the groups and the message are computed again. The nodes stay, so nothing the user expanded changes.
+    private void RefreshTexts()
+    {
+        foreach (var group in Groups.OfType<GroupNode>())
+        {
+            group.Rename(Texts.ExplorerGroup(Texts.OriginName(group.Origin), group.Children.Count));
+        }
+
+        if (_message is not null)
+        {
+            (Message, ShowOpenSettings) = ComputeMessage();
+        }
     }
 
     private void Rebuild()

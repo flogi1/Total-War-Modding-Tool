@@ -113,8 +113,11 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Plan 3: `PackSource.Header` ist bei abgeschnittenen und unbekannten Packs `null`; „verschlüsselt“ kommt aus `Header.HasEncryptedIndex` / `HasEncryptedData`.
 - Plan 3: Zellformen: Zeilen sind `object?[]`; `ColourRgb` ist ein Hex-Text; fehlendes `OptionalStringU8` ist ein leerer Text; das Loc-Flag heißt `Tooltip`.
 
-- Plan 3: Der Explorer baut Gruppennamen, Tooltips und Meldungen beim Aufbau des Baums in der aktuellen Sprache. Ein Sprachwechsel zur Laufzeit zeigt sie erst nach dem nächsten Neuaufbau (Aktualisieren) in der neuen Sprache.
+- Plan 3: Die Tooltips der Pack-Knoten (Problemtext, "verschlüsselt") werden beim Aufbau des Baums in der aktuellen Sprache gebaut. Ein Sprachwechsel zur Laufzeit zeigt sie erst nach dem nächsten Neuaufbau (Aktualisieren) in der neuen Sprache. Gruppennamen und Meldung folgen dem Sprachwechsel schon.
 - Plan 3: Lange Tooltips der Pack-Knoten (Problemtext plus technisches Detail) brechen nicht um.
+
+- Plan 3: Ein Tab zeigt nur dann "veraltet", wenn das Pack beim Öffnen des Eintrags einen Index im Cache hatte (aufgeklappt). Tabs aus der wiederhergestellten Sitzung oder von nicht aufgeklappten Packs erkennen eine Änderung auf der Platte erst nach einem Aktualisieren und erneutem Öffnen.
+- Plan 3: Wird das Spiel erst im Lauf der Sitzung gefunden (Spielordner nachträglich gewählt), wird die gespeicherte Sitzung nicht wiederhergestellt. Der erste Schreibvorgang ersetzt sie dann durch den aktuellen Stand.
 
 == Wartet auf ein öffentliches Remote ==
 
