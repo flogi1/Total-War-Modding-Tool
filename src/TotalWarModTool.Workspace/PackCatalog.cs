@@ -24,9 +24,9 @@ public static class PackCatalog
         cancellationToken.ThrowIfCancellationRequested();
 
         var dataFolder = Path.Combine(installPath, profile.DataFolder);
-        var manifestPacks = ReadManifestPacks(profile, dataFolder);
+        var manifestPacks = ReadManifestPacks(profile, dataFolder, cancellationToken);
 
-        var dataCandidates = ListPacks(dataFolder, workshopId: null);
+        var dataCandidates = ListPacks(dataFolder, workshopId: null, cancellationToken);
         var workshopCandidates = ListWorkshopPacks(workshopPath, cancellationToken);
         var total = dataCandidates.Count + workshopCandidates.Count;
 
@@ -66,13 +66,16 @@ public static class PackCatalog
         return byName != 0 ? byName : string.CompareOrdinal(a.Path, b.Path);
     }
 
-    private static List<Candidate> ListPacks(string folder, string? workshopId)
+    // A folder that cannot be listed completely contributes no packs: a partial list would be a half result.
+    private static List<Candidate> ListPacks(string folder, string? workshopId, CancellationToken cancellationToken)
     {
         var result = new List<Candidate>();
         try
         {
-            foreach (var file in Directory.EnumerateFiles(folder, "*" + PackExtension, SearchOption.TopDirectoryOnly))
+            // The pattern is not used on purpose: its case handling depends on the platform, so ".PACK" is filtered here.
+            foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var name = Path.GetFileName(file);
                 if (name.EndsWith(PackExtension, StringComparison.OrdinalIgnoreCase))
                 {
@@ -82,10 +85,13 @@ public static class PackCatalog
         }
         catch (IOException)
         {
-            // A missing or locked folder is an empty folder; the catalog never fails because of it.
+            // A missing or locked folder counts as empty; the catalog never fails because of it (see Backlog: folder problems).
+            return [];
         }
         catch (UnauthorizedAccessException)
         {
+            // Same as above: an inaccessible folder counts as empty.
+            return [];
         }
 
         return result;
@@ -99,19 +105,26 @@ public static class PackCatalog
             return result;
         }
 
+        List<string> folders;
         try
         {
-            foreach (var folder in Directory.EnumerateDirectories(workshopPath))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                result.AddRange(ListPacks(folder, Path.GetFileName(folder)));
-            }
+            folders = Directory.EnumerateDirectories(workshopPath).ToList();
         }
         catch (IOException)
         {
+            // A missing or locked workshop folder counts as empty, without partial results.
+            return result;
         }
         catch (UnauthorizedAccessException)
         {
+            // Same as above: an inaccessible workshop folder counts as empty.
+            return result;
+        }
+
+        foreach (var folder in folders)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            result.AddRange(ListPacks(folder, Path.GetFileName(folder), cancellationToken));
         }
 
         return result;
@@ -119,7 +132,7 @@ public static class PackCatalog
 
     // Null when the profile names no manifest or the file is not readable. Each line is "path<TAB>size<TAB>flag";
     // only the file name of a path that ends in .pack counts.
-    private static HashSet<string>? ReadManifestPacks(GameProfile profile, string dataFolder)
+    private static HashSet<string>? ReadManifestPacks(GameProfile profile, string dataFolder, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(profile.VanillaManifestFile))
         {
@@ -134,6 +147,7 @@ public static class PackCatalog
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             while (reader.ReadLine() is { } line)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var tab = line.IndexOf('\t');
                 var path = tab >= 0 ? line[..tab] : line;
                 if (path.EndsWith(PackExtension, StringComparison.OrdinalIgnoreCase))
@@ -146,10 +160,12 @@ public static class PackCatalog
         }
         catch (IOException)
         {
+            // An unreadable manifest means: no manifest, the pack type decides.
             return null;
         }
         catch (UnauthorizedAccessException)
         {
+            // Same as above.
             return null;
         }
     }

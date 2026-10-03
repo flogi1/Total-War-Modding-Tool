@@ -107,6 +107,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Plan 3: ProgressRunner.RunAsync lehnt einen zweiten Lauf mit InvalidOperationException ab. Zeit- oder sessiongesteuerte Aufrufer brauchen eine Abfrage, ob ein Lauf aktiv ist.
 - Plan 3: entscheiden, ob ViewModels weiter den konkreten ProgressRunner bekommen (Tests brauchen dann Sta und ein echtes Fenster) oder eine kleine Schnittstelle mit Fake.
 - Plan 3: Controls.xaml hat keinen Stil für DataGrid. Die Tabellen-Tabs brauchen einen.
+- Plan 3: Der Pack-Katalog kann einen nicht lesbaren Daten- oder Workshop-Ordner nicht von einem fehlenden unterscheiden. PackCatalogResult soll Ordnerprobleme melden, damit die UI sie anzeigen kann.
 - Tests der App brauchen einen interaktiven Desktop und dauern rund 30 s. Für CI einplanen.
 
 == Wartet auf ein öffentliches Remote ==

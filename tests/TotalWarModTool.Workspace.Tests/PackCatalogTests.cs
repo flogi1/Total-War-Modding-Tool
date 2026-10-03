@@ -43,6 +43,35 @@ public class PackCatalogTests
         Assert.Equal("data.pack:Vanilla: | Local_EN.pack:Vanilla: | sneaky_mod.pack:DataFolderMod:", Describe(r));
     }
 
+    [Fact] public void Manifest_paths_with_a_directory_prefix_count_by_file_name()
+    {
+        using var l = new Layout();
+        l.DataPack("slash.pack", 3); l.DataPack("back.pack", 3); l.DataPack("other.pack", 1);
+        File.WriteAllText(Path.Combine(l.Data, "manifest.txt"), "sub/dir/slash.pack\t5\t1\nsub\\dir\\back.pack\t7\t1\n");
+        var r = PackCatalog.Scan(Profile("manifest.txt"), l.Install, null, null, CancellationToken.None);
+        Assert.True(r.UsedManifest);
+        Assert.Equal("back.pack:Vanilla: | slash.pack:Vanilla: | other.pack:DataFolderMod:", Describe(r));
+    }
+
+    [Fact] public void Manifest_pack_with_a_broken_header_is_vanilla_and_keeps_its_problem()
+    {
+        using var l = new Layout();
+        File.WriteAllBytes(Path.Combine(l.Data, "broken.pack"), [1, 2, 3]);
+        File.WriteAllText(Path.Combine(l.Data, "manifest.txt"), "broken.pack\t3\t1\n");
+        var r = PackCatalog.Scan(Profile("manifest.txt"), l.Install, null, null, CancellationToken.None);
+        var broken = Assert.Single(r.Packs);
+        Assert.Equal((PackOrigin.Vanilla, PackProblem.Truncated, (PackHeader?)null), (broken.Origin, broken.Problem, broken.Header));
+    }
+
+    [Fact] public void Uppercase_pack_extension_is_listed()
+    {
+        using var l = new Layout();
+        l.DataPack("Shout.PACK", 3);
+        l.WorkshopPack("8", "Loud.PACK");
+        var r = PackCatalog.Scan(Profile(null), l.Install, l.Workshop, null, CancellationToken.None);
+        Assert.Equal("Shout.PACK:DataFolderMod: | Loud.PACK:Workshop:8", Describe(r));
+    }
+
     [Fact] public void Named_but_missing_manifest_falls_back_to_the_pack_type()
     {
         using var l = new Layout();
@@ -88,6 +117,16 @@ public class PackCatalogTests
         PackCatalog.Scan(Profile(null), l.Install, l.Workshop, progress, CancellationToken.None);
         Assert.Equal([1L, 2L, 3L], progress.Items.Select(p => p.Done));
         Assert.All(progress.Items, p => { Assert.Equal(3L, p.Total); Assert.EndsWith(".pack", p.Item); });
+    }
+
+    private sealed class CancelAfterFirst(CancellationTokenSource source) : IProgress<OperationProgress> { public void Report(OperationProgress value) => source.Cancel(); }
+
+    [Fact] public void Cancelling_in_the_middle_of_a_scan_throws()
+    {
+        using var l = new Layout();
+        l.DataPack("a.pack", 1); l.DataPack("b.pack", 1); l.WorkshopPack("7", "c.pack");
+        using var cts = new CancellationTokenSource();
+        Assert.Throws<OperationCanceledException>(() => PackCatalog.Scan(Profile(null), l.Install, l.Workshop, new CancelAfterFirst(cts), cts.Token));
     }
 
     [Fact] public void Cancelled_token_throws()
