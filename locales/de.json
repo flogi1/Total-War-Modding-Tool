@@ -87,5 +87,7 @@
   "tab.info.type.none": "(keine Endung)",
   "schema.source.shipped": "mit der App geliefert, {0}",
   "schema.source.override": "aus dem Schema-Ordner, {0}",
+  "schema.source.shipped.noDate": "mit der App geliefert",
+  "schema.source.override.noDate": "aus dem Schema-Ordner",
   "schema.source.none": "keins"
 }

@@ -27,6 +27,21 @@ public class DiagnosisTextsTests
     [Fact] public void A_changed_or_removed_pack_tells_the_user_to_refresh() =>
         Assert.Equal("The pack was changed or removed on disk. Refresh the pack list and open the entry again.", Texts().EntryProblemText(EntryProblem.PackChanged));
 
+    [Fact] public void Schema_source_names_the_origin_and_the_date_of_the_file()
+    {
+        var date = new DateTime(2026, 9, 24, 12, 0, 0, DateTimeKind.Local).ToUniversalTime();
+        Assert.Equal(("shipped with the app, 2026-09-24", "from the schema folder, 2026-09-24", "none", "none"),
+            (Texts().SchemaSourceText(new ResolvedSchema(null, SchemaOrigin.Shipped, null, date, null, null)),
+             Texts().SchemaSourceText(new ResolvedSchema(null, SchemaOrigin.Override, null, date, null, null)),
+             Texts().SchemaSourceText(new ResolvedSchema(null, SchemaOrigin.None, null, null, null, null)), Texts().SchemaSourceText(null)));
+    }
+
+    // Without a file date the text must not end in a dangling comma.
+    [Fact] public void Schema_source_without_a_date_has_no_dangling_comma() =>
+        Assert.Equal(("shipped with the app", "from the schema folder"),
+            (Texts().SchemaSourceText(new ResolvedSchema(null, SchemaOrigin.Shipped, null, null, null, null)),
+             Texts().SchemaSourceText(new ResolvedSchema(null, SchemaOrigin.Override, null, null, null, null))));
+
     [Fact] public void An_unknown_origin_is_named_by_its_value() =>
         Assert.Equal("99", Texts().OriginName((PackOrigin)99));
 

@@ -87,6 +87,7 @@ public sealed class TabsViewModel : ObservableObject
         }
 
         Tabs.RemoveAt(index);
+        tab.Dispose();
     }
 
     /// <summary>Marks every tab of the pack: the pack changed on disk, the tabs show old content.</summary>

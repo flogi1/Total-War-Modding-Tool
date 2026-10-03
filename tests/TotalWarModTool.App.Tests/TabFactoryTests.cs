@@ -19,6 +19,7 @@ public class TabFactoryTests
     [Theory]
     [InlineData(0, "0 B")] [InlineData(1023, "1023 B")] [InlineData(1024, "1.0 KB")] [InlineData(1536, "1.5 KB")]
     [InlineData(5 * 1024 * 1024, "5.0 MB")] [InlineData(1181116006, "1.1 GB")]
+    [InlineData(1048575, "1.0 MB")] [InlineData(1073741823, "1.0 GB")]
     public void FormatSize_uses_binary_units(long bytes, string expected) => Assert.Equal(expected, TabFactory.FormatSize(bytes));
 
     [Fact] public void Table_tab_has_columns_rows_and_header()
@@ -73,6 +74,44 @@ public class TabFactoryTests
         Assert.Equal(("hi", "UTF-8, 2 B", (string?)null), (text.Text, text.Header, text.Notice));
         var big = Assert.IsType<TextTabViewModel>(Create(Entry("a.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", true, 8 * 1024 * 1024))));
         Assert.Equal("Only the first 5.0 MB of 8.0 MB are shown.", big.Notice);
+    }
+
+    // The tabs read the texts of the language that is active; a switch at run time changes them in place and tells the view.
+    [Fact] public void Open_tabs_follow_a_language_switch()
+    {
+        var ui = new UiText(System.IO.Path.Combine(RepoRoot.Find(), "locales")); var texts = new AppTexts(ui);
+        TabViewModel Make(OpenedEntry e, ResolvedSchema? schema = null) => TabFactory.Create(Pack, e, schema, texts, _ => { });
+        var raised = new List<string>();
+        T Watch<T>(T tab) where T : TabViewModel { tab.PropertyChanged += (_, e) => raised.Add($"{tab.Title}:{e.PropertyName}"); return tab; }
+
+        var okTable = new DecodedTable(TableDecodeStatus.Ok, "units_tables", 3, false, Def, [["a", 1], ["b", 2]], null);
+        var table = Watch(Assert.IsType<TableTabViewModel>(Make(Entry("db/units_tables/table", EntryKind.Table, table: okTable))));
+        var badTable = new DecodedTable(TableDecodeStatus.VersionNotInSchema, "units_tables", 9, false, null, [], "Version 9 is not in the schema.");
+        var resolved = new ResolvedSchema(null, SchemaOrigin.Shipped, @"X:\s.ron", new DateTime(2026, 9, 24, 12, 0, 0, DateTimeKind.Local).ToUniversalTime(), null, null);
+        var info = Watch(Assert.IsType<InfoTabViewModel>(Make(Entry("db/units_tables/info", EntryKind.Table, table: badTable, format: CompressionFormat.Zstd), resolved)));
+        var text = Watch(Assert.IsType<TextTabViewModel>(Make(Entry("big.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", true, 8 * 1024 * 1024)))));
+        var loc = Watch(Assert.IsType<LocTabViewModel>(Make(Entry("names.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Ok, [new("k", "t", false)], null)))));
+
+        ui.Load("de");
+
+        Assert.Equal("units_tables, Version 3, 2 Zeile(n)", table.Header);
+        Assert.Equal(("Diese Tabelle ist nicht dekodierbar", "Das Schema kennt diese Version der Tabelle nicht."), (info.Heading, info.Reason));
+        Assert.Equal([new("Tabelle", "units_tables"), new("Version", "9"), new("Größe im Pack", "10 B"), new("Größe", "20 B"), new("Kompression", "zstd"),
+            new("Schema", "mit der App geliefert, 2026-09-24"), new InfoLine("Technisches Detail", "Version 9 is not in the schema.")], info.Lines);
+        Assert.Equal("Es werden nur die ersten 5.0 MB von 8.0 MB gezeigt.", text.Notice);
+        Assert.Equal("1 Zeile(n)", loc.Header);
+        Assert.Contains("table:Header", raised); Assert.Contains("info:Heading", raised); Assert.Contains("info:Reason", raised);
+        Assert.Contains("info:Lines", raised); Assert.Contains("big.txt:Notice", raised); Assert.Contains("names.loc:Header", raised);
+    }
+
+    [Fact] public void A_closed_tab_no_longer_follows_the_language()
+    {
+        var ui = new UiText(System.IO.Path.Combine(RepoRoot.Find(), "locales")); var texts = new AppTexts(ui);
+        var loc = Assert.IsType<LocTabViewModel>(TabFactory.Create(Pack, Entry("names.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Ok, [new("k", "t", false)], null)),
+            null, texts, _ => { }));
+        loc.Dispose();
+        ui.Load("de");
+        Assert.Equal("1 row(s)", loc.Header);
     }
 
     [Fact] public void File_without_extension_says_so() =>

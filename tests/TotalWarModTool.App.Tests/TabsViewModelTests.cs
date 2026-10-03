@@ -11,7 +11,6 @@ public class TabsViewModelTests
     private static readonly PackSource B = A with { Path = @"D:\data\b.pack", Name = "b.pack" };
     private static OpenedEntry Text(string path) => new(path, EntryKind.Text, 1, 1, CompressionFormat.None, EntryProblem.None, null, false, null, null, new TextContent("x", "UTF-8", false, 1));
 
-    // Review Focus 5
     [Fact] public void Opening_an_open_entry_activates_its_tab()
     {
         var tabs = new TabsViewModel(Texts);

@@ -87,5 +87,7 @@
   "tab.info.type.none": "(no extension)",
   "schema.source.shipped": "shipped with the app, {0}",
   "schema.source.override": "from the schema folder, {0}",
+  "schema.source.shipped.noDate": "shipped with the app",
+  "schema.source.override.noDate": "from the schema folder",
   "schema.source.none": "none"
 }

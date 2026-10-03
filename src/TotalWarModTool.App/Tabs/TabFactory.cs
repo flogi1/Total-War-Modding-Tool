@@ -20,35 +20,31 @@ public static class TabFactory
 
         if (entry.ReadProblem != EntryProblem.None)
         {
-            return Info(pack, entry, schema, texts, close, texts.TabInfoNotReadable, texts.EntryProblemText(entry.ReadProblem));
+            var problem = entry.ReadProblem;
+            return Info(t => t.TabInfoNotReadable, t => t.EntryProblemText(problem));
         }
 
         switch (entry.Kind)
         {
             case EntryKind.Table when entry.SchemaMissing:
-                return Info(pack, entry, schema, texts, close, texts.TabInfoNotDecodable, texts.TabInfoNoSchema);
+                return Info(t => t.TabInfoNotDecodable, t => t.TabInfoNoSchema);
             case EntryKind.Table when entry.Table is not { Status: TableDecodeStatus.Ok }:
-                return Info(pack, entry, schema, texts, close, texts.TabInfoNotDecodable,
-                    texts.TableStatusText(entry.Table?.Status ?? TableDecodeStatus.Failed));
+                var status = entry.Table?.Status ?? TableDecodeStatus.Failed;
+                return Info(t => t.TabInfoNotDecodable, t => t.TableStatusText(status));
             case EntryKind.Table:
-                var table = entry.Table!;
-                var columns = table.Definition?.Fields.Select(f => f.Name).ToList() ?? [];
-                return new TableTabViewModel(pack, entry.EntryPath, close, texts.TabTableHeader(table.TableName, table.Version, table.Rows.Count),
-                    columns, table.Rows);
+                return new TableTabViewModel(pack, entry.EntryPath, texts, close, entry.Table!);
             case EntryKind.Loc when entry.Loc is not { Status: LocDecodeStatus.Ok }:
-                return Info(pack, entry, schema, texts, close, texts.TabInfoNotDecodable, texts.TableStatusFailed);
+                return Info(t => t.TabInfoNotDecodable, t => t.TableStatusFailed);
             case EntryKind.Loc:
-                var rows = entry.Loc!.Rows;
-                return new LocTabViewModel(pack, entry.EntryPath, close, texts.TabLocHeader(rows.Count), rows);
+                return new LocTabViewModel(pack, entry.EntryPath, texts, close, entry.Loc!.Rows);
             case EntryKind.Text when entry.Text is { } text:
-                var notice = text.Truncated
-                    ? texts.TabTextTruncated(FormatSize(EntryText.MaxBytes), FormatSize(text.TotalBytes))
-                    : null;
-                return new TextTabViewModel(pack, entry.EntryPath, close, text.Text,
-                    texts.TabTextHeader(text.EncodingName, FormatSize(text.TotalBytes)), notice);
+                return new TextTabViewModel(pack, entry.EntryPath, texts, close, text);
             default:
-                return Info(pack, entry, schema, texts, close, texts.TabInfoNotSupported, string.Empty);
+                return Info(t => t.TabInfoNotSupported, _ => string.Empty);
         }
+
+        InfoTabViewModel Info(Func<AppTexts, string> heading, Func<AppTexts, string> reason) =>
+            new(pack, entry, schema, texts, close, heading, reason);
     }
 
     /// <summary>Binary units with one decimal from KB on, e.g. "512 B", "1.5 KB", "3.2 MB", "1.1 GB"; independent of the user's culture.</summary>
@@ -59,9 +55,10 @@ public static class TabFactory
             return string.Create(CultureInfo.InvariantCulture, $"{Math.Max(bytes, 0)} B");
         }
 
-        var value = (double)bytes;
-        var unit = -1;
-        while (value >= 1024 && unit < SizeUnits.Length - 1)
+        // The unit is chosen after rounding to one decimal, so 1048575 bytes read "1.0 MB" and never "1024.0 KB".
+        var value = bytes / 1024.0;
+        var unit = 0;
+        while (Math.Round(value, 1, MidpointRounding.AwayFromZero) >= 1024 && unit < SizeUnits.Length - 1)
         {
             value /= 1024;
             unit++;
@@ -70,12 +67,8 @@ public static class TabFactory
         return string.Create(CultureInfo.InvariantCulture, $"{value:0.0} {SizeUnits[unit]}");
     }
 
-    private static InfoTabViewModel Info(PackSource pack, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close,
-        string heading, string reason) =>
-        new(pack, entry.EntryPath, close, heading, reason, InfoLines(entry, schema, texts));
-
-    // Only what is known, always in this order: type, table, version, sizes, compression, schema, technical detail.
-    private static List<InfoLine> InfoLines(OpenedEntry entry, ResolvedSchema? schema, AppTexts texts)
+    // Only what is known, in the language of the texts, always in this order: type, table, version, sizes, compression, schema, technical detail.
+    internal static List<InfoLine> InfoLines(OpenedEntry entry, ResolvedSchema? schema, AppTexts texts)
     {
         var lines = new List<InfoLine>();
         var isTable = entry.Kind == EntryKind.Table;

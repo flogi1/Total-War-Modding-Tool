@@ -193,6 +193,35 @@ public class TabsViewTests
         Assert.DoesNotContain(Descendants<TextBlock>(setup.View).Where(t => t.Text.StartsWith("Only the first")), t => t.Visibility == Visibility.Visible);
     });
 
+    // The themed TextBox template once hard-coded hidden scroll bars, so the bars of the text tab never showed.
+    [Fact] public void Text_tab_shows_both_scroll_bars_when_the_text_is_longer_and_wider_than_the_view() => Sta.Run(() =>
+    {
+        var setup = Create();
+        var longText = string.Join(NewLine, Enumerable.Repeat(new string('x', 600), 200));
+        var text = new TextContent(longText, "UTF-8", false, longText.Length);
+        setup.ViewModel.Add(Pack, new OpenedEntry("a.txt", EntryKind.Text, 1, 1, CompressionFormat.None, EntryProblem.None, null, false, null, null, text), null);
+        Pump(setup.Window);
+
+        var host = ContentHostOf(Descendants<TextBox>(setup.View).Single());
+        Assert.Equal((Visibility.Visible, Visibility.Visible), (host.ComputedVerticalScrollBarVisibility, host.ComputedHorizontalScrollBarVisibility));
+    });
+
+    [Fact] public void A_plain_text_box_keeps_hidden_scroll_bars() => Sta.Run(() =>
+    {
+        var box = new TextBox { Text = string.Join(NewLine, Enumerable.Repeat(new string('x', 600), 200)), AcceptsReturn = true };
+        var window = new Window { Width = 300, Height = 200, Content = box };
+        window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(File.ReadAllText(ControlsXamlPath())));
+        window.Show();
+        Pump(window);
+
+        var host = ContentHostOf(box);
+        Assert.Equal((Visibility.Collapsed, Visibility.Collapsed), (host.ComputedVerticalScrollBarVisibility, host.ComputedHorizontalScrollBarVisibility));
+    });
+
+    private static readonly string NewLine = Environment.NewLine;
+
+    private static ScrollViewer ContentHostOf(TextBox box) => Assert.IsType<ScrollViewer>(box.Template.FindName("PART_ContentHost", box));
+
     [Fact] public void Loc_tab_shows_three_columns_with_texts_and_rows() => Sta.Run(() =>
     {
         var setup = Create();

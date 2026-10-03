@@ -198,16 +198,20 @@ public sealed partial class AppTexts
     /// <param name="date">Date of the schema file, <c>yyyy-MM-dd</c>.</param>
     public string SchemaSourceOverride(string date) => F("schema.source.override", "from the schema folder, {0}", date);
 
+    public string SchemaSourceShippedNoDate => T("schema.source.shipped.noDate", "shipped with the app");
+
+    public string SchemaSourceOverrideNoDate => T("schema.source.override.noDate", "from the schema folder");
+
     public string SchemaSourceNone => T("schema.source.none", "none");
 
-    /// <summary>Where the schema comes from, with the date of its file in local time; "none" without a schema.</summary>
+    /// <summary>Where the schema comes from, with the date of its file in local time (just the origin when the date is unknown); "none" without a schema.</summary>
     public string SchemaSourceText(ResolvedSchema? schema)
     {
-        var date = schema?.FileDateUtc?.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        var date = schema?.FileDateUtc?.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         return schema?.Origin switch
         {
-            SchemaOrigin.Shipped => SchemaSourceShipped(date),
-            SchemaOrigin.Override => SchemaSourceOverride(date),
+            SchemaOrigin.Shipped => date is null ? SchemaSourceShippedNoDate : SchemaSourceShipped(date),
+            SchemaOrigin.Override => date is null ? SchemaSourceOverrideNoDate : SchemaSourceOverride(date),
             _ => SchemaSourceNone,
         };
     }
