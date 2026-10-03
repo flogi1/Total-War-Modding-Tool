@@ -12,12 +12,13 @@ public sealed record DecodedLoc(LocDecodeStatus Status, IReadOnlyList<LocRow> Ro
 /// <summary>Decodes a Loc file (UTF-16 key, text and a tooltip flag per row). Never throws for the data.</summary>
 public static class LocDecoder
 {
-    private const int SupportedVersion = 1;
+    // The marker and the version are shared with LocEncoder so that reader and writer cannot drift.
+    internal const int SupportedVersion = 1;
 
     // A row is a key (u16 length), a text (u16 length) and a flag byte: at least 5 bytes.
     private const int MinRowBytes = 5;
 
-    private static readonly byte[] Marker = [0xFF, 0xFE, 0x4C, 0x4F, 0x43, 0x00];
+    internal static ReadOnlySpan<byte> Marker => [0xFF, 0xFE, 0x4C, 0x4F, 0x43, 0x00];
 
     // A row counts as three cells (key, text, flag) against the same budget as a DB table.
     private const int CellsPerRow = 3;

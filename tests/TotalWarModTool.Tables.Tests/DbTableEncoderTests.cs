@@ -61,6 +61,37 @@ public class DbTableEncoderTests
         Assert.Throws<ArgumentException>(() => DbTableEncoder.Encode(unsupported, 1, null, []));
     }
 
+    // Built from char values: a lone surrogate in an attribute argument or literal would be turned into U+FFFD by the compiler.
+    private const char High = (char)0xD800;
+    private const char Low = (char)0xDC00;
+    private static readonly string[] Unpaired = ["a" + High + "b", "a" + High, "a" + Low + "b", "" + Low + High, "" + High + High + Low];
+
+    [Fact] public void Unpaired_surrogates_throw_for_every_string_path()
+    {
+        foreach (var text in Unpaired)
+        {
+            foreach (var type in new[] { FieldType.StringU8, FieldType.StringU16, FieldType.OptionalStringU8 })
+            {
+                var def = new TableDefinition(1, [F("s", type)]);
+                Assert.Throws<ArgumentException>(() => DbTableEncoder.Encode(def, 1, null, [[text]]));
+            }
+
+            Assert.Throws<ArgumentException>(() => DbTableEncoder.Encode(new TableDefinition(1, []), 1, text, []));
+        }
+    }
+
+    [Fact] public void A_valid_surrogate_pair_still_encodes()
+    {
+        foreach (var type in new[] { FieldType.StringU8, FieldType.StringU16, FieldType.OptionalStringU8 })
+        {
+            var def = new TableDefinition(1, [F("s", type)]);
+            var data = DbTableEncoder.Encode(def, 1, "😀", [["😀"]]);
+            Assert.Equal(TableDecodeStatus.Ok, DbTableDecoder.Decode(data, "t_tables", Schema(1, def.Fields.ToArray())).Status);
+        }
+
+        Assert.Equal("😀", DbTableDecoder.ReadGuid(DbTableEncoder.Encode(new TableDefinition(1, []), 1, "😀", [])));
+    }
+
     [Fact] public void ReadGuid_reads_the_header_guid_or_null()
     {
         Assert.Equal(TestGuid, DbTableDecoder.ReadGuid(new TableBytes().Guid(TestGuid).Version(3).Rows(0).Build()));

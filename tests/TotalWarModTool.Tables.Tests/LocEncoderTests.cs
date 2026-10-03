@@ -16,6 +16,23 @@ public class LocEncoderTests
         Assert.Equal(expected, LocEncoder.Encode([new LocRow("k", "t", true)]));
     }
 
+    // Built from char values: a lone surrogate in an attribute argument or literal would be turned into U+FFFD by the compiler.
+    private const char High = (char)0xD800;
+    private const char Low = (char)0xDC00;
+    private static readonly string[] Unpaired = ["a" + High + "b", "a" + High, "a" + Low + "b", "" + Low + High, "" + High + High + Low];
+
+    [Fact] public void Unpaired_surrogates_in_key_or_text_throw()
+    {
+        foreach (var text in Unpaired)
+        {
+            Assert.Throws<ArgumentException>(() => LocEncoder.Encode([new LocRow(text, "t", false)]));
+            Assert.Throws<ArgumentException>(() => LocEncoder.Encode([new LocRow("k", text, false)]));
+        }
+    }
+
+    [Fact] public void A_valid_surrogate_pair_still_encodes() =>
+        Assert.Equal(LocDecodeStatus.Ok, LocDecoder.Decode(LocEncoder.Encode([new LocRow("😀", "😀", false)])).Status);
+
     [Fact] public void Too_long_text_throws() =>
         Assert.Throws<ArgumentException>(() => LocEncoder.Encode([new LocRow("k", new string('a', 65536), false)]));
 }

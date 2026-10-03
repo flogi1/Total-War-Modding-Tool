@@ -18,8 +18,9 @@ public static class DbTableDecoder
     // Capacity hint only; the list grows on demand for larger real tables.
     private const int MaxCapacityHint = 65536;
 
-    private static readonly byte[] GuidMarker = [0xFD, 0xFE, 0xFC, 0xFF];
-    private static readonly byte[] VersionMarker = [0xFC, 0xFD, 0xFE, 0xFF];
+    // Shared with DbTableEncoder so that reader and writer cannot drift.
+    internal static ReadOnlySpan<byte> GuidMarker => [0xFD, 0xFE, 0xFC, 0xFF];
+    internal static ReadOnlySpan<byte> VersionMarker => [0xFC, 0xFD, 0xFE, 0xFF];
 
     public static DecodedTable Decode(byte[] data, string tableName, GameSchema schema) => Decode(data, tableName, schema, MaxCells);
 

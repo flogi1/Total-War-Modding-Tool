@@ -69,9 +69,14 @@ internal sealed class ByteWriter
         _stream.Write(buffer);
     }
 
-    /// <summary>A u16 byte count followed by UTF-8 bytes. Writes nothing when the text needs more than 65535 bytes.</summary>
+    /// <summary>A u16 byte count followed by UTF-8 bytes. Writes nothing when the text needs more than 65535 bytes or has an unpaired surrogate.</summary>
     public bool TryWriteStringU8(string value, out string? reason)
     {
+        if (!IsWellFormed(value, out reason))
+        {
+            return false;
+        }
+
         var bytes = Encoding.UTF8.GetBytes(value);
         if (bytes.Length > MaxLength)
         {
@@ -85,9 +90,14 @@ internal sealed class ByteWriter
         return true;
     }
 
-    /// <summary>A u16 code-unit count followed by UTF-16LE code units. Writes nothing when the text has more than 65535 units.</summary>
+    /// <summary>A u16 code-unit count followed by UTF-16LE code units. Writes nothing when the text has more than 65535 units or an unpaired surrogate.</summary>
     public bool TryWriteStringU16(string value, out string? reason)
     {
+        if (!IsWellFormed(value, out reason))
+        {
+            return false;
+        }
+
         if (value.Length > MaxLength)
         {
             reason = $"text has {value.Length.ToString(CultureInfo.InvariantCulture)} UTF-16 units, the limit is {MaxLength.ToString(CultureInfo.InvariantCulture)}";
@@ -96,6 +106,26 @@ internal sealed class ByteWriter
 
         WriteUInt16((ushort)value.Length);
         _stream.Write(Encoding.Unicode.GetBytes(value));
+        reason = null;
+        return true;
+    }
+
+    // An unpaired surrogate is no valid text: UTF-8 would silently turn it into U+FFFD, so every string path rejects it.
+    private static bool IsWellFormed(string value, out string? reason)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+            {
+                i++;
+            }
+            else if (char.IsSurrogate(value[i]))
+            {
+                reason = $"text has an unpaired surrogate at index {i.ToString(CultureInfo.InvariantCulture)}";
+                return false;
+            }
+        }
+
         reason = null;
         return true;
     }

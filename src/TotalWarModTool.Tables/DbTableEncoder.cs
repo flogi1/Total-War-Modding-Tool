@@ -11,9 +11,6 @@ public static class DbTableEncoder
 {
     private const int MaxColourDigits = 8;
 
-    private static readonly byte[] GuidMarker = [0xFD, 0xFE, 0xFC, 0xFF];
-    private static readonly byte[] VersionMarker = [0xFC, 0xFD, 0xFE, 0xFF];
-
     /// <summary>
     /// Writes the header (GUID block only when <paramref name="guid"/> is not null, version block only when
     /// <paramref name="version"/> is not 0), then the rows. An empty optional text is written as absent.
@@ -34,7 +31,7 @@ public static class DbTableEncoder
         var writer = new ByteWriter();
         if (guid is not null)
         {
-            writer.WriteBytes(GuidMarker);
+            writer.WriteBytes(DbTableDecoder.GuidMarker);
             if (!writer.TryWriteStringU16(guid, out var guidReason))
             {
                 throw new ArgumentException("GUID: " + guidReason, nameof(guid));
@@ -43,7 +40,7 @@ public static class DbTableEncoder
 
         if (version != 0)
         {
-            writer.WriteBytes(VersionMarker);
+            writer.WriteBytes(DbTableDecoder.VersionMarker);
             writer.WriteInt32(version);
         }
 
@@ -57,7 +54,8 @@ public static class DbTableEncoder
             if (row is null || row.Length != fieldCount)
             {
                 throw new ArgumentException(
-                    $"Row {r} has {row?.Length.ToString(CultureInfo.InvariantCulture) ?? "no"} cells, the definition has {fieldCount} fields", nameof(rows));
+                    $"Row {r.ToString(CultureInfo.InvariantCulture)} has {row?.Length.ToString(CultureInfo.InvariantCulture) ?? "no"} cells, " +
+                    $"the definition has {fieldCount.ToString(CultureInfo.InvariantCulture)} fields", nameof(rows));
             }
 
             for (var c = 0; c < fieldCount; c++)
@@ -65,7 +63,7 @@ public static class DbTableEncoder
                 var field = definition.Fields[c];
                 if (!TryWriteCell(writer, field.Type, row[c], out var reason))
                 {
-                    throw new ArgumentException($"Row {r}, column '{field.Name}' ({field.RawType}): {reason}", nameof(rows));
+                    throw new ArgumentException($"Row {r.ToString(CultureInfo.InvariantCulture)}, column '{field.Name}' ({field.RawType}): {reason}", nameof(rows));
                 }
             }
         }
@@ -100,7 +98,7 @@ public static class DbTableEncoder
                 if (v.Length is < 1 or > MaxColourDigits
                     || !uint.TryParse(v, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var colour))
                 {
-                    reason = $"'{v}' is not a colour of 1 to {MaxColourDigits} hex digits";
+                    reason = $"'{v}' is not a colour of 1 to {MaxColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
                     return false;
                 }
 
