@@ -10,6 +10,9 @@ public static class PackReader
 {
     public const int HeaderSize = 28;
 
+    /// <summary>Default upper bound for the size of one entry (stored or uncompressed): 256 MiB.</summary>
+    public const long DefaultMaxEntryBytes = 268_435_456;
+
     // Real paths are far shorter. The cap keeps a missing terminator from growing a buffer to the size of the index.
     private const int MaxPathBytes = 65535;
     private const int ReadBufferSize = 64 * 1024;
@@ -31,6 +34,17 @@ public static class PackReader
     {
         ArgumentNullException.ThrowIfNull(path);
         return WithStream(path, stream => ParseIndex(path, stream), (problem, detail) => new PackIndexResult(null, problem, detail));
+    }
+
+    /// <summary>
+    /// Reads and, if needed, decompresses one entry of the pack that <paramref name="index"/> describes. Only
+    /// <see cref="OperationCanceledException"/> and argument errors are thrown; every other failure is an <see cref="EntryProblem"/>.
+    /// </summary>
+    public static EntryContent ReadEntry(PackIndex index, PackEntry entry, CancellationToken cancellationToken, long maxBytes = DefaultMaxEntryBytes)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(entry);
+        return EntryReader.Read(index, entry, cancellationToken, maxBytes);
     }
 
     // Only the exception types that the file system raises for a missing, locked, inaccessible or shrinking file are translated.
