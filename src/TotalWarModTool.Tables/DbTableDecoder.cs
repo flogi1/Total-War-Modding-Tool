@@ -23,6 +23,21 @@ public static class DbTableDecoder
 
     public static DecodedTable Decode(byte[] data, string tableName, GameSchema schema) => Decode(data, tableName, schema, MaxCells);
 
+    /// <summary>The GUID text of the header; null when the data has no GUID block or the block is cut off. Never throws for the data.</summary>
+    public static string? ReadGuid(byte[] data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+
+        var cursor = new ByteCursor(data);
+        if (!cursor.StartsWith(GuidMarker))
+        {
+            return null;
+        }
+
+        cursor.TryReadBytes(GuidMarker.Length, out _, out _);
+        return cursor.TryReadStringU16(out var guid, out _) ? guid : null;
+    }
+
     internal static DecodedTable Decode(byte[] data, string tableName, GameSchema schema, long maxCells)
     {
         ArgumentNullException.ThrowIfNull(data);
