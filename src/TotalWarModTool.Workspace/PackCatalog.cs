@@ -1,0 +1,156 @@
+using TotalWarModTool.GameProfiles;
+using TotalWarModTool.Operations;
+using TotalWarModTool.PackFiles;
+
+namespace TotalWarModTool.Workspace;
+
+/// <summary>Lists the packs of the game's data folder and the workshop folder and labels each with its origin. Read only.</summary>
+public static class PackCatalog
+{
+    private const string PackExtension = ".pack";
+
+    private readonly record struct Candidate(string Path, string Name, string? WorkshopId);
+
+    /// <summary>
+    /// Scans the data folder (top level only) and the workshop folder (one level deep, sub folder name = workshop id).
+    /// Missing or unreadable folders give an empty list. A pack with a broken header stays in the list with its problem.
+    /// Throws <see cref="OperationCanceledException"/> when cancelled.
+    /// </summary>
+    public static PackCatalogResult Scan(GameProfile profile, string installPath, string? workshopPath,
+        IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(installPath);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var dataFolder = Path.Combine(installPath, profile.DataFolder);
+        var manifestPacks = ReadManifestPacks(profile, dataFolder);
+
+        var dataCandidates = ListPacks(dataFolder, workshopId: null);
+        var workshopCandidates = ListWorkshopPacks(workshopPath, cancellationToken);
+        var total = dataCandidates.Count + workshopCandidates.Count;
+
+        var vanillaTypes = new HashSet<string>(profile.VanillaPackTypes, StringComparer.OrdinalIgnoreCase);
+        var packs = new List<PackSource>(total);
+        foreach (var candidate in dataCandidates.Concat(workshopCandidates))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var fingerprint = FileFingerprint.TryRead(candidate.Path);
+            var header = PackReader.ReadHeader(candidate.Path);
+            var origin = candidate.WorkshopId is not null
+                ? PackOrigin.Workshop
+                : IsVanilla(candidate.Name, header, manifestPacks, vanillaTypes) ? PackOrigin.Vanilla : PackOrigin.DataFolderMod;
+            packs.Add(new PackSource(candidate.Path, candidate.Name, origin, candidate.WorkshopId, fingerprint, header.Header, header.Problem, header.Detail));
+            progress?.Report(new OperationProgress(packs.Count, total, candidate.Name));
+        }
+
+        packs.Sort(Compare);
+        return new PackCatalogResult(packs, manifestPacks is not null);
+    }
+
+    private static bool IsVanilla(string name, PackHeaderResult header, HashSet<string>? manifestPacks, HashSet<string> vanillaTypes) =>
+        manifestPacks is not null
+            ? manifestPacks.Contains(name)
+            : header.Header is { } h && vanillaTypes.Contains(h.Type.ToString());
+
+    private static int Compare(PackSource a, PackSource b)
+    {
+        var byOrigin = a.Origin.CompareTo(b.Origin);
+        if (byOrigin != 0)
+        {
+            return byOrigin;
+        }
+
+        var byName = StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name);
+        return byName != 0 ? byName : string.CompareOrdinal(a.Path, b.Path);
+    }
+
+    private static List<Candidate> ListPacks(string folder, string? workshopId)
+    {
+        var result = new List<Candidate>();
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(folder, "*" + PackExtension, SearchOption.TopDirectoryOnly))
+            {
+                var name = Path.GetFileName(file);
+                if (name.EndsWith(PackExtension, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(new Candidate(file, name, workshopId));
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // A missing or locked folder is an empty folder; the catalog never fails because of it.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return result;
+    }
+
+    private static List<Candidate> ListWorkshopPacks(string? workshopPath, CancellationToken cancellationToken)
+    {
+        var result = new List<Candidate>();
+        if (string.IsNullOrEmpty(workshopPath))
+        {
+            return result;
+        }
+
+        try
+        {
+            foreach (var folder in Directory.EnumerateDirectories(workshopPath))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                result.AddRange(ListPacks(folder, Path.GetFileName(folder)));
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return result;
+    }
+
+    // Null when the profile names no manifest or the file is not readable. Each line is "path<TAB>size<TAB>flag";
+    // only the file name of a path that ends in .pack counts.
+    private static HashSet<string>? ReadManifestPacks(GameProfile profile, string dataFolder)
+    {
+        if (string.IsNullOrEmpty(profile.VanillaManifestFile))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = new FileStream(Path.Combine(dataFolder, profile.VanillaManifestFile), FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (reader.ReadLine() is { } line)
+            {
+                var tab = line.IndexOf('\t');
+                var path = tab >= 0 ? line[..tab] : line;
+                if (path.EndsWith(PackExtension, StringComparison.OrdinalIgnoreCase))
+                {
+                    names.Add(path[(path.LastIndexOfAny(['/', '\\']) + 1)..]);
+                }
+            }
+
+            return names;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+}

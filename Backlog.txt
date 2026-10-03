@@ -68,6 +68,8 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Automatisches Erkennen geänderter Packs per FileSystemWatcher
 - Index- oder Schema-Cache auf Platte (gemessen nicht nötig; neu bewerten, wenn Teil 4 alle Tabellen braucht)
 - Kompakte Speicherform für dekodierte Tabellen (naiv 373 MB für alle Vanilla-Tabellen)
+- LZ4: Checksummen des Frames prüfen (bisher nur Größenprüfung)
+- Feldtyp OptionalI32 und weitere unbestätigte Typen (nicht messbar, bisher Status nicht unterstützt)
 
 == Aus Plan 1 (Gerüst) zurückgestellt ==
 
