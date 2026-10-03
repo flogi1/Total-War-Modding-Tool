@@ -356,7 +356,7 @@ Solution `TotalWarModTool` (Anzeigename „Total War Modding Tool“, Kürzel TW
 | `TotalWarModTool.Schema` | RON-Teilmenge parsen, Schema-Modell, Schema-Quelle wählen | – |
 | `TotalWarModTool.Tables` | DB-Tabellen und Loc-Dateien dekodieren | `Schema` |
 | `TotalWarModTool.Workspace` | `PackCatalog`: Pack-Quellen eines Spiels mit Herkunft | `GameProfiles`, `PackFiles`, `Operations` |
-| `TotalWarModTool.Session` | Offene Tabs und gewähltes Spiel speichern und laden | `Storage` |
+| `TotalWarModTool.Session` | Offene Tabs, aktiver Tab und aufgeklappte Packs speichern und laden | `Storage` |
 | `TotalWarModTool.App` | WPF, Composition Root, Views und ViewModels, `ProgressRunner`, Theme | alle |
 
 Module referenzieren nie die App. Für das Fundament ist kein Host-Interface nötig.

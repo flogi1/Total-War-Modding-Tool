@@ -33,6 +33,8 @@ public sealed class GlobalSettingsStore
             Language = settings.Language,
             Theme = settings.Theme.ToString(),
             MainWindow = ToFile(settings.MainWindow),
+            SelectedGame = settings.SelectedGame,
+            SchemaFolder = settings.SchemaFolder,
         };
         JsonFileStore.Save(FilePath, SchemaVersion, file);
     }
@@ -45,6 +47,8 @@ public sealed class GlobalSettingsStore
             Language = file.Language ?? string.Empty,
             Theme = ParseTheme(file.Theme),
             MainWindow = ToPlacement(file.MainWindow),
+            SelectedGame = file.SelectedGame,
+            SchemaFolder = file.SchemaFolder,
         };
     }
 
@@ -99,6 +103,8 @@ public sealed class GlobalSettingsStore
         public string? Language { get; set; }
         public string? Theme { get; set; }
         public WindowPlacementFile? MainWindow { get; set; }
+        public string? SelectedGame { get; set; }
+        public string? SchemaFolder { get; set; }
     }
 
     private sealed class WindowPlacementFile

@@ -13,6 +13,8 @@ public sealed class GlobalSettings
     private string _language = DefaultLanguage;
     private ThemeChoice _theme = ThemeChoice.System;
     private WindowPlacement? _mainWindow;
+    private string? _selectedGame;
+    private string? _schemaFolder;
 
     /// <summary>Argument: the name of the changed property.</summary>
     public event EventHandler<string>? Changed;
@@ -63,4 +65,40 @@ public sealed class GlobalSettings
             Changed?.Invoke(this, nameof(MainWindow));
         }
     }
+
+    /// <summary>Profile id of the selected game. The setter trims; a blank value becomes null (no game chosen yet).</summary>
+    public string? SelectedGame
+    {
+        get => _selectedGame;
+        set
+        {
+            var normalized = NormalizeText(value);
+            if (normalized == _selectedGame)
+            {
+                return;
+            }
+
+            _selectedGame = normalized;
+            Changed?.Invoke(this, nameof(SelectedGame));
+        }
+    }
+
+    /// <summary>Override folder for schema files. The setter trims; a blank value becomes null (use the default schema source).</summary>
+    public string? SchemaFolder
+    {
+        get => _schemaFolder;
+        set
+        {
+            var normalized = NormalizeText(value);
+            if (normalized == _schemaFolder)
+            {
+                return;
+            }
+
+            _schemaFolder = normalized;
+            Changed?.Invoke(this, nameof(SchemaFolder));
+        }
+    }
+
+    private static string? NormalizeText(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
