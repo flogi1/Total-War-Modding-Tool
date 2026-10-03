@@ -715,18 +715,18 @@ vorigen existieren.
 | 2 | `ZstdSharp.Port` hat eine passende Lizenz und dekomprimiert alle 1602 Vanilla-Tabellen bytegleich zu `rpfm_cli`. | **Bestätigt** (3.8): MIT, 1602 von 1602 bytegleich, 164–247 ms für alle. |
 | 3 | Der eigene LZ4-Decoder liest die LZ4-Einträge korrekt. | **Bestätigt** (3.8): 54.530 Einträge auf die genannte Größe, drei Stichproben bytegleich zu `rpfm_cli`. Stand Plan 2: Ein Paritätstest vergleicht je 3 kleine LZ4-Einträge aus bis zu 3 Vanilla-Packs (die ersten nach Name, die LZ4 enthalten) bytegleich mit `rpfm_cli`; ein weiterer Test dekomprimiert alle relevanten komprimierten Einträge des Datenordners. |
 | 4 | Loc-Format: Kopf, Version, Zeilenanzahl, Zeilen aus zwei UTF-16-Texten und einem Flag. | **Bestätigt** (3.8): 248 von 248 Dateien zellgenau identisch. |
-| 5 | Die größte Loc-Datei lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Dekodieren **bestätigt** (3.8): rund 212.300 Zeilen in unter 0,1 s. Anzeige im Raster: **Abnahme Plan 3 (manuelle Checkliste)**. |
+| 5 | Die größte Loc-Datei lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Dekodieren **bestätigt** (3.8): rund 212.300 Zeilen in unter 0,1 s. Anzeige im Raster: **bestätigt** (Abnahme Plan 3, 2026-10-03): große Loc-Dateien erscheinen in weit unter 5 s; welche die größte war, wurde nicht festgehalten. |
 | 6 | `OptionalI32` ist ein Flag-Byte plus immer vorhandener Wert. | **Nicht messbar** (3.8). Der Typ gilt als nicht unterstützt. |
 | 7 | Bedeutung der Header-Bits `0x10`, `0x80`, `0x100`. | **Teilweise** (3.8): `0x10` trägt nur `audio_base_m.pack`. Die Bedeutung stammt weiter aus RPFM-Wissen. Packs mit diesen Bits gelten als nicht unterstützt. |
 | 8 | Der Zeitstempel im Index ist bei `PFH5` 4 Bytes breit. | **Bestätigt** (3.8): `boot.pack`, `shaders.pack`. |
 | 9 | Komprimierte Mod-Tabellen dekodieren mit derselben Quote wie unkomprimierte. Ursache der Fehler. | **Bestätigt** (3.8): 5505 von 5511. Ursache: älteres Layout bei gleicher Versionsnummer. |
-| 10 | Packs lassen sich lesen, während das Spiel läuft. | Abnahme Plan 3 (manuelle Checkliste) |
+| 10 | Packs lassen sich lesen, während das Spiel läuft. | **Bestätigt** (Abnahme Plan 3, 2026-10-03): Bei laufendem Spiel lässt sich ein Vanilla-Pack aufklappen und eine Tabelle öffnen. |
 | 11 | Header aller Packs lesen dauert kalt deutlich unter 4,7 s. | **Widerlegt** (3.8): kalt rund 4,4 s, warm 24 ms. Der Scan beim Start läuft im Hintergrund. |
 | 12 | `manifest.txt` listet die Vanilla-Packs und ist robuster als der Pack-Typ. | **Bestätigt** (3.8). Regel in 4.3 angepasst. |
-| 13 | Steam-Erkennung funktioniert auch bei anderer Installation. Der manuelle Pfad deckt alle übrigen Fälle ab. | Abnahme Plan 3 (manuelle Checkliste), dazu Rückmeldung von Testern |
-| 14 | 1,2 s Anzeigezeit für breite Tabellen ist für den Nutzer annehmbar oder lässt sich mit einfachen Mitteln senken. | Abnahme Plan 3 (manuelle Checkliste) |
+| 13 | Steam-Erkennung funktioniert auch bei anderer Installation. Der manuelle Pfad deckt alle übrigen Fälle ab. | Auf dem Rechner des Nutzers **bestätigt** (Abnahme Plan 3, 2026-10-03: automatische Erkennung und manueller Pfad). Andere Installationen: **offen**, Rückmeldung von Testern. |
+| 14 | 1,2 s Anzeigezeit für breite Tabellen ist für den Nutzer annehmbar oder lässt sich mit einfachen Mitteln senken. | **Bestätigt** (Abnahme Plan 3, 2026-10-03): rund 1 s für eine breite Tabelle, vom Nutzer als annehmbar abgenommen. |
 | 15 | Nach einem Spiel-Patch sind mehr Tabellen nicht dekodierbar als die heutigen 3. Die Anzeige „nicht dekodierbar“ reicht dem Nutzer als Verhalten. | laufender Betrieb |
-| 16 | Ein Text-Tab mit 5 MB bleibt bedienbar. | Abnahme Plan 3 (manuelle Checkliste) |
+| 16 | Ein Text-Tab mit 5 MB bleibt bedienbar. | **Nicht messbar** (Abnahme Plan 3, 2026-10-03): keine Textdatei über 5 MB in den Packs gefunden. Bleibt offen, bis eine solche Datei auftaucht. |
 
 Annahmen für spätere Teile, hier nur notiert: Eignung des Referenzgraphen für die Objekt-Ansicht,
 verlustfreie Umwandlung Tabelle ↔ Text, Inhalte der Spiel-Logs, Startoptionen des Spiels,
