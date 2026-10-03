@@ -81,6 +81,23 @@ public static class RealData
         RunRpfm(destDir, arguments);
     }
 
+    /// <summary>Creates an empty pack with rpfm_cli.</summary>
+    public static void RpfmCreatePack(string packPath)
+    {
+        // RunRpfm creates its first argument as a folder, so it gets the folder of the pack.
+        RunRpfm(Path.GetDirectoryName(packPath)!, ["--game", "warhammer_3", "pack", "create", "--pack-path", packPath]);
+    }
+
+    /// <summary>Adds a folder from disk to a pack with rpfm_cli; TSV files are imported to binary with the schema.</summary>
+    public static void RpfmAddFolder(string packPath, string folderOnDisk, string folderInPack, string schemaPathForTsv)
+    {
+        RunRpfm(Path.GetDirectoryName(packPath)!,
+        [
+            "--game", "warhammer_3", "pack", "add", "--pack-path", packPath,
+            "--tsv-to-binary", schemaPathForTsv, "--folder-path", $"{folderOnDisk};{folderInPack}",
+        ]);
+    }
+
     private static void RunRpfm(string destDir, List<string> arguments)
     {
         var cli = RpfmCli ?? throw new InvalidOperationException("TWMT_RPFM_CLI is not set or the file does not exist.");
