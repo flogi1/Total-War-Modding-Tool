@@ -415,6 +415,10 @@ Festlegungen aus Plan 2:
 - **Strenge Indexprüfung.** Ein Indexeintrag mit einer Kompressionskennung ungleich 0 oder 1
   oder mit einem Namen (Pfad oder Abhängigkeit) von mehr als 65535 Bytes gilt als `InconsistentIndex`.
   An den 397 Workshop-Packs und den Packs im `data`-Ordner gemessen trifft das keine echte Datei.
+- **Lesen eines Eintrags.** Verschwindet die Pack-Datei während des Lesens oder wird sie kürzer,
+  gilt das als `PackChanged`. Bei komprimierten Einträgen begrenzt dieselbe Obergrenze auch die
+  gespeicherten Bytes (Frame höchstens Obergrenze + Obergrenze / 255 + 64 KB, sonst `TooLarge`).
+  Ein Eintrag, der nicht innerhalb der Pack-Datei liegt, gilt als `Corrupt`.
 
 ### 4.3 Spielprofil
 

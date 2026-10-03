@@ -7,6 +7,7 @@ internal static class EntryReader
     private const int SizePrefixLength = 4;
     private const int FormatIdLength = 4;
     private const int ProbeLength = SizePrefixLength + FormatIdLength;
+    private const int FrameOverheadAllowance = 65536;
 
     private const uint ZstdMagic = 0xFD2FB528;
     private const uint Lz4Magic = 0x184D2204;
@@ -88,6 +89,13 @@ internal static class EntryReader
                 return Fail(EntryProblem.UnsupportedCompression, $"The compression format is {format}, which is not supported.", format, size);
             }
 
+            // A compressed frame is never much larger than its content (worst case: stored blocks plus headers).
+            var maxFrameLength = limit + limit / 255 + FrameOverheadAllowance;
+            if (entry.StoredSize - SizePrefixLength > maxFrameLength)
+            {
+                return Fail(EntryProblem.TooLarge, $"The compressed frame has {entry.StoredSize - SizePrefixLength} bytes; the limit is {maxFrameLength}.", format, size);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             var stored = new byte[entry.StoredSize];
             probe.CopyTo(stored);
@@ -95,7 +103,7 @@ internal static class EntryReader
             var frame = stored.AsSpan(SizePrefixLength);
             return format == CompressionFormat.Zstd
                 ? DecodeZstd(frame, (int)size)
-                : DecodeLz4(frame, (int)size);
+                : DecodeLz4(frame, (int)size, cancellationToken);
         });
 
     private static EntryContent DecodeZstd(ReadOnlySpan<byte> frame, int size)
@@ -115,8 +123,8 @@ internal static class EntryReader
         }
     }
 
-    private static EntryContent DecodeLz4(ReadOnlySpan<byte> frame, int size) =>
-        Lz4Frame.TryDecode(frame, size, out var data, out var error)
+    private static EntryContent DecodeLz4(ReadOnlySpan<byte> frame, int size, CancellationToken cancellationToken) =>
+        Lz4Frame.TryDecode(frame, size, cancellationToken, out var data, out var error)
             ? new EntryContent(data, CompressionFormat.Lz4, size, EntryProblem.None, null)
             : Fail(EntryProblem.Corrupt, $"The LZ4 frame is damaged: {error}", CompressionFormat.Lz4, size);
 

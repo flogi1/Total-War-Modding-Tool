@@ -19,7 +19,11 @@ public static class Lz4Frame
     /// Decodes <paramref name="frame"/> into a buffer of exactly <paramref name="expectedSize"/> bytes.
     /// The caller bounds <paramref name="expectedSize"/>; it is the only number that sizes an allocation.
     /// </summary>
-    public static bool TryDecode(ReadOnlySpan<byte> frame, int expectedSize, out byte[] data, out string? error)
+    public static bool TryDecode(ReadOnlySpan<byte> frame, int expectedSize, out byte[] data, out string? error) =>
+        TryDecode(frame, expectedSize, CancellationToken.None, out data, out error);
+
+    /// <summary>Like the public overload; throws <see cref="OperationCanceledException"/> when the token is cancelled (checked once per block).</summary>
+    internal static bool TryDecode(ReadOnlySpan<byte> frame, int expectedSize, CancellationToken cancellationToken, out byte[] data, out string? error)
     {
         data = [];
         error = null;
@@ -72,6 +76,7 @@ public static class Lz4Frame
         var written = 0;
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (frame.Length - position < 4)
             {
                 error = "The frame ends before the end mark.";

@@ -3,14 +3,18 @@ using System.Text;
 namespace TotalWarModTool.PackFiles;
 
 /// <summary>
-/// Reads the header and the file index of PFH5 packs. Read only: the data section is never touched.
+/// Reads the header and the file index of PFH5 packs and single entries. Read only: the pack is only opened for reading, and the
+/// index functions never touch the data section; <see cref="ReadEntry"/> reads only the bytes of one entry.
 /// Broken, truncated or hostile files produce a <see cref="PackProblem"/>, never an exception or a partial result.
 /// </summary>
 public static class PackReader
 {
     public const int HeaderSize = 28;
 
-    /// <summary>Default upper bound for the size of one entry (stored or uncompressed): 256 MiB.</summary>
+    /// <summary>
+    /// Default upper bound for the size of one entry: 256 MiB. It limits the uncompressed size and, with a small allowance
+    /// for the frame overhead, the stored size of a compressed entry.
+    /// </summary>
     public const long DefaultMaxEntryBytes = 268_435_456;
 
     // Real paths are far shorter. The cap keeps a missing terminator from growing a buffer to the size of the index.
@@ -39,11 +43,13 @@ public static class PackReader
     /// <summary>
     /// Reads and, if needed, decompresses one entry of the pack that <paramref name="index"/> describes. Only
     /// <see cref="OperationCanceledException"/> and argument errors are thrown; every other failure is an <see cref="EntryProblem"/>.
+    /// <paramref name="maxBytes"/> must be positive.
     /// </summary>
     public static EntryContent ReadEntry(PackIndex index, PackEntry entry, CancellationToken cancellationToken, long maxBytes = DefaultMaxEntryBytes)
     {
         ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(entry);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
         return EntryReader.Read(index, entry, cancellationToken, maxBytes);
     }
 
