@@ -5,6 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TotalWarModTool.Tables.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
   </ItemGroup>
 

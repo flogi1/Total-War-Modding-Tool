@@ -144,4 +144,15 @@ public class PackReaderIndexTests
         Assert.NotEqual(before, FileFingerprint.TryRead(path));
         Assert.Null(FileFingerprint.TryRead(dir.File("missing.pack")));
     }
+
+    [Fact] public void Fingerprint_changes_when_only_the_modification_time_changes()
+    {
+        using var dir = new TempDir();
+        var path = new PackBuilder().AddEntry("a", B("x")).WriteTo(dir.File("a.pack"));
+        var before = FileFingerprint.TryRead(path)!;
+        File.SetLastWriteTimeUtc(path, before.LastWriteTimeUtc.AddMinutes(5));
+        var after = FileFingerprint.TryRead(path)!;
+        Assert.Equal(before.Length, after.Length);
+        Assert.NotEqual(before, after);
+    }
 }

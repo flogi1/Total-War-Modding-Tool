@@ -25,6 +25,17 @@ public class SchemaLoaderTests
         )
         """;
 
+    [Fact] public void File_above_the_size_cap_is_Unreadable_and_a_file_at_the_cap_loads()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("s.ron"), Sample);
+        var length = new FileInfo(dir.File("s.ron")).Length;
+        Assert.Equal(SchemaProblem.None, SchemaLoader.Load(dir.File("s.ron"), length).Problem);
+        var r = SchemaLoader.Load(dir.File("s.ron"), length - 1);
+        Assert.Equal((null, SchemaProblem.Unreadable), (r.Schema, r.Problem));
+        Assert.Contains("larger than", r.Detail);
+    }
+
     [Fact] public void Loads_tables_versions_fields_and_references()
     {
         using var dir = new TempDir();

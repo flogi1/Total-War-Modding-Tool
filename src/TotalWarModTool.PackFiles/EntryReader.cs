@@ -69,7 +69,7 @@ internal static class EntryReader
         {
             var bytes = new byte[entry.StoredSize];
             stream.ReadExactly(bytes);
-            return new EntryContent(bytes, CompressionFormat.None, bytes.Length, EntryProblem.None, null);
+            return ChangedDuringRead(index) ? ChangedAfterRead() : new EntryContent(bytes, CompressionFormat.None, bytes.Length, EntryProblem.None, null);
         });
 
     private static EntryContent ReadCompressed(PackIndex index, PackEntry entry, CancellationToken cancellationToken, long limit) =>
@@ -100,11 +100,22 @@ internal static class EntryReader
             var stored = new byte[entry.StoredSize];
             probe.CopyTo(stored);
             stream.ReadExactly(stored.AsSpan(ProbeLength));
+            if (ChangedDuringRead(index))
+            {
+                return ChangedAfterRead();
+            }
+
             var frame = stored.AsSpan(SizePrefixLength);
             return format == CompressionFormat.Zstd
                 ? DecodeZstd(frame, (int)size)
                 : DecodeLz4(frame, (int)size, cancellationToken);
         });
+
+    // The first fingerprint check happens before the read; a change between that check and the end of the read is caught here.
+    private static bool ChangedDuringRead(PackIndex index) => FileFingerprint.TryRead(index.Fingerprint.Path) != index.Fingerprint;
+
+    private static EntryContent ChangedAfterRead() =>
+        Fail(EntryProblem.PackChanged, "The pack file changed or disappeared while the entry was read.");
 
     private static EntryContent DecodeZstd(ReadOnlySpan<byte> frame, int size)
     {

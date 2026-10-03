@@ -107,6 +107,22 @@ public class PackCatalogTests
         Assert.Empty(PackCatalog.Scan(Profile(null), root.Path, Path.Combine(root.Path, "none"), null, CancellationToken.None).Packs);
     }
 
+    [Fact] public void Null_profile_and_blank_install_path_are_argument_errors()
+    {
+        Assert.Throws<ArgumentNullException>(() => PackCatalog.Scan(null!, @"C:\game", null, null, CancellationToken.None));
+        Assert.Throws<ArgumentNullException>(() => PackCatalog.Scan(Profile(null), null!, null, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackCatalog.Scan(Profile(null), "", null, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackCatalog.Scan(Profile(null), "  ", null, null, CancellationToken.None));
+    }
+
+    [Fact] public void Fingerprint_equals_the_one_of_ReadIndex()
+    {
+        using var l = new Layout();
+        l.DataPack("a.pack", 1);
+        var source = Assert.Single(PackCatalog.Scan(Profile(null), l.Install, null, null, CancellationToken.None).Packs);
+        Assert.Equal(PackReader.ReadIndex(source.Path).Index!.Fingerprint, source.Fingerprint);
+    }
+
     private sealed class Collect : IProgress<OperationProgress> { public List<OperationProgress> Items = []; public void Report(OperationProgress value) => Items.Add(value); }
 
     [Fact] public void Reports_progress_per_pack()

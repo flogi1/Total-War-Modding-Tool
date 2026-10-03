@@ -24,7 +24,12 @@ public static class GameProfileLoader
         {
             files = Directory.GetFiles(profilesFolder, "*.json", SearchOption.TopDirectoryOnly);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException ex)
+        {
+            problems.Add(new ProfileProblem(profilesFolder, "Profile folder cannot be listed: " + ex.Message));
+            return new ProfileLoadResult(profiles, problems);
+        }
+        catch (UnauthorizedAccessException ex)
         {
             problems.Add(new ProfileProblem(profilesFolder, "Profile folder cannot be listed: " + ex.Message));
             return new ProfileLoadResult(profiles, problems);
@@ -33,7 +38,7 @@ public static class GameProfileLoader
         var names = files.Select(Path.GetFileName).OfType<string>().ToList();
         names.Sort(StringComparer.Ordinal);
 
-        var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in names)
         {
             var profile = TryLoad(Path.Combine(profilesFolder, name), out var detail);
@@ -64,7 +69,12 @@ public static class GameProfileLoader
             using var reader = new StreamReader(stream);
             text = reader.ReadToEnd();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException ex)
+        {
+            detail = "File cannot be read: " + ex.Message;
+            return null;
+        }
+        catch (UnauthorizedAccessException ex)
         {
             detail = "File cannot be read: " + ex.Message;
             return null;
@@ -116,6 +126,21 @@ public static class GameProfileLoader
             return null;
         }
 
+        if (!IsValidId(id))
+        {
+            detail = "id must consist of the characters a-z, 0-9 and _ only.";
+            return null;
+        }
+
+        foreach (var (name, value) in new[] { ("installFolderName", installFolderName), ("dataFolder", dataFolder), ("schemaFile", schemaFile) })
+        {
+            if (!IsSingleSafePathSegment(value))
+            {
+                detail = name + " must be a single plain file or folder name.";
+                return null;
+            }
+        }
+
         if (!root.TryGetProperty("steamAppId", out var appIdElement)
             || appIdElement.ValueKind != JsonValueKind.Number
             || !appIdElement.TryGetInt32(out var steamAppId)
@@ -159,10 +184,37 @@ public static class GameProfileLoader
                 detail = "vanillaManifestFile must be a non-empty string when present.";
                 return null;
             }
+
+            if (!IsSingleSafePathSegment(manifest))
+            {
+                detail = "vanillaManifestFile must be a single plain file name.";
+                return null;
+            }
         }
 
         return new GameProfile(id, displayName, steamAppId, installFolderName, dataFolder, packFormat, schemaFile, packTypes, manifest);
     }
+
+    private static bool IsValidId(string id)
+    {
+        foreach (var c in id)
+        {
+            if (c is not ((>= 'a' and <= 'z') or (>= '0' and <= '9') or '_'))
+            {
+                return false;
+            }
+        }
+
+        return id.Length > 0;
+    }
+
+    // Profile values are joined to the install and profile folders, so they must never leave them.
+    private static bool IsSingleSafePathSegment(string value) =>
+        value.Length > 0
+        && !Path.IsPathRooted(value)
+        && value.IndexOfAny(['/', '\\']) < 0
+        && value is not ("." or "..")
+        && value.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
     private static bool TryGetString(JsonElement root, string name, out string value, out string detail)
     {

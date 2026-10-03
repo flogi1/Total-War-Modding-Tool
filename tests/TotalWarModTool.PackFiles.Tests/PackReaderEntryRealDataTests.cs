@@ -40,20 +40,34 @@ public class PackReaderEntryRealDataTests
         Assert.Contains(CompressionFormat.Lz4, formats);
     }
 
-    [RpfmFact] public void Lz4_samples_match_rpfm_cli()
+    private const int MaxLz4Packs = 3;
+    private const int Lz4SamplesPerPack = 3;
+
+    [RpfmFact] public void Lz4_samples_of_up_to_three_packs_match_rpfm_cli()
     {
-        foreach (var pack in Directory.GetFiles(RealData.Wh3Data, "*.pack"))
+        // The first vanilla packs by name that hold LZ4 entries (vanilla = listed in the data folder's manifest.txt, so the
+        // user's own mod packs are never picked), the smallest relevant entries of each; one rpfm_cli call per pack.
+        var manifest = Path.Combine(RealData.Wh3Data, "manifest.txt");
+        var vanilla = File.Exists(manifest)
+            ? File.ReadLines(manifest).Select(l => Path.GetFileName(l.Split('\t')[0].Replace('\\', '/'))).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var packs = Directory.GetFiles(RealData.Wh3Data, "*.pack")
+            .Where(p => vanilla is null || vanilla.Contains(Path.GetFileName(p)))
+            .OrderBy(p => Path.GetFileName(p), StringComparer.Ordinal);
+        var verifiedPacks = 0;
+        foreach (var pack in packs)
         {
             var index = PackReader.ReadIndex(pack).Index!;
-            var samples = index.Entries.Where(e => e.IsCompressed && IsRelevant(e))
+            if (index.Header.HasEncryptedData) continue;
+            var samples = index.Entries.Where(e => e.IsCompressed && IsRelevant(e)).OrderBy(e => e.StoredSize)
                 .Select(e => (Entry: e, Content: PackReader.ReadEntry(index, e, CancellationToken.None)))
-                .Where(x => x.Content.Format == CompressionFormat.Lz4).Take(5).ToList();
+                .Where(x => x.Content.Format == CompressionFormat.Lz4).Take(Lz4SamplesPerPack).ToList();
             if (samples.Count == 0) continue;
             using var dir = new TempDir();
             RealData.RpfmExtractFiles(pack, samples.Select(s => s.Entry.Path), dir.Path);
-            Assert.All(samples, s => Assert.True(s.Content.Bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(dir.Path, s.Entry.Path))), s.Entry.Path));
-            return;
+            Assert.All(samples, s => Assert.True(s.Content.Bytes.AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(dir.Path, s.Entry.Path))), $"{Path.GetFileName(pack)}:{s.Entry.Path}"));
+            if (++verifiedPacks == MaxLz4Packs) break;
         }
-        Assert.Fail("no LZ4 entry found in the data folder");
+        Assert.True(verifiedPacks >= 2, $"LZ4 entries were found in only {verifiedPacks} vanilla pack(s)");
     }
 }

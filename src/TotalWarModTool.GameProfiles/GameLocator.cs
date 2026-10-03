@@ -17,12 +17,12 @@ public static partial class GameLocator
         ArgumentNullException.ThrowIfNull(steam);
 
         var steamPath = steam.GetSteamPath();
-        if (string.IsNullOrWhiteSpace(steamPath) || !Directory.Exists(steamPath))
+        if (string.IsNullOrWhiteSpace(steamPath) || !TryNormalize(steamPath, out var steamFull) || !Directory.Exists(steamFull))
         {
             return null;
         }
 
-        foreach (var library in ReadLibraryFolders(steamPath))
+        foreach (var library in ReadLibraryFolders(steamFull))
         {
             if (!Directory.Exists(library))
             {
@@ -59,30 +59,62 @@ public static partial class GameLocator
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(steamPath);
 
-        var folders = new List<string> { steamPath };
+        var folders = new List<string>();
+        if (!TryNormalize(steamPath, out var steamFull))
+        {
+            return folders;
+        }
+
+        folders.Add(steamFull);
         string text;
         try
         {
-            var file = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
+            var file = Path.Combine(steamFull, "steamapps", "libraryfolders.vdf");
             using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var reader = new StreamReader(stream);
             text = reader.ReadToEnd();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException)
+        {
+            return folders;
+        }
+        catch (UnauthorizedAccessException)
         {
             return folders;
         }
 
         foreach (Match match in PathEntry().Matches(text))
         {
-            var folder = match.Groups[1].Value.Replace(@"\\", @"\");
-            if (folder.Length > 0 && !folders.Contains(folder, StringComparer.OrdinalIgnoreCase))
+            var entry = match.Groups[1].Value.Replace(@"\\", @"\");
+            if (entry.Length > 0 && TryNormalize(entry, out var folder) && !folders.Contains(folder, StringComparer.OrdinalIgnoreCase))
             {
                 folders.Add(folder);
             }
         }
 
         return folders;
+    }
+
+    // Full path with the platform separator and without a trailing separator; false for a path that is not valid.
+    private static bool TryNormalize(string path, out string full)
+    {
+        try
+        {
+            full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            return true;
+        }
+        catch (ArgumentException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+        catch (PathTooLongException)
+        {
+        }
+
+        full = string.Empty;
+        return false;
     }
 
     // <library>\steamapps\common\<game> -> <library>\steamapps\workshop\content\<appId>

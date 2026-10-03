@@ -17,6 +17,25 @@ public class LocDecoderTests
 
     [Fact] public void Empty_loc_is_ok() => Assert.Equal((LocDecodeStatus.Ok, 0), (LocDecoder.Decode(Loc(1, 0, _ => { })).Status, LocDecoder.Decode(Loc(1, 0, _ => { })).Rows.Count));
 
+    [Fact] public void Row_count_that_the_minimum_row_size_cannot_hold_fails_without_rows()
+    {
+        // 4 rows need at least 20 bytes; 19 remain.
+        var d = LocDecoder.Decode(Loc(1, 4, b => b.Raw(new byte[19])));
+        Assert.Equal(LocDecodeStatus.Failed, d.Status);
+        Assert.Empty(d.Rows);
+        Assert.Contains("Row count 4", d.Detail);
+    }
+
+    [Fact] public void Row_count_above_the_cell_budget_fails_without_rows()
+    {
+        var data = Loc(1, 2, b => b.Str16("a").Str16("b").Bool(false).Str16("c").Str16("d").Bool(true));   // 2 rows = 6 cells
+        Assert.Equal(LocDecodeStatus.Ok, LocDecoder.Decode(data, maxCells: 6).Status);
+        var d = LocDecoder.Decode(data, maxCells: 5);
+        Assert.Equal(LocDecodeStatus.Failed, d.Status);
+        Assert.Empty(d.Rows);
+        Assert.Contains("2", d.Detail); Assert.Contains("5", d.Detail);
+    }
+
     [Fact] public void Other_version_wrong_marker_bad_flag_leftover_and_huge_count_fail()
     {
         Assert.Equal(LocDecodeStatus.Failed, LocDecoder.Decode(Loc(2, 0, _ => { })).Status);

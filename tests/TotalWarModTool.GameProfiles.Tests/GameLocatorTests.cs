@@ -64,6 +64,33 @@ public class GameLocatorTests
         Assert.Equal((install, (string?)null), (location!.InstallPath, location.WorkshopPath));
     }
 
+    [Fact]
+    public void Steam_path_with_forward_slashes_is_normalized_and_not_duplicated()
+    {
+        using var steam = new TempDir();
+        Directory.CreateDirectory(Path.Combine(steam.Path, "steamapps"));
+        File.WriteAllText(Path.Combine(steam.Path, "steamapps", "libraryfolders.vdf"),
+            "\"path\" \"" + steam.Path.Replace(@"\", @"\\") + "\"");
+        var install = Install(steam.Path, withWorkshop: true);
+        var slashes = steam.Path.Replace('\\', '/');
+
+        Assert.Equal([steam.Path], GameLocator.ReadLibraryFolders(slashes));
+        var location = GameLocator.Find(TestGame, new FakeSteam(slashes));
+        Assert.Equal(install, location!.InstallPath);
+        Assert.DoesNotContain('/', location.InstallPath + location.DataPath + location.WorkshopPath);
+    }
+
+    [Fact]
+    public void Invalid_steam_and_library_paths_are_skipped()
+    {
+        using var steam = new TempDir();
+        Directory.CreateDirectory(Path.Combine(steam.Path, "steamapps"));
+        File.WriteAllText(Path.Combine(steam.Path, "steamapps", "libraryfolders.vdf"), "\"path\" \"Z:\\\\bad\0name\"");
+        Assert.Equal([steam.Path], GameLocator.ReadLibraryFolders(steam.Path));
+        Assert.Empty(GameLocator.ReadLibraryFolders("bad\0path"));
+        Assert.Null(GameLocator.Find(TestGame, new FakeSteam("bad\0path")));
+    }
+
     [Theory]
     [InlineData(false)]   // no steam at all
     [InlineData(true)]    // steam present, game not installed

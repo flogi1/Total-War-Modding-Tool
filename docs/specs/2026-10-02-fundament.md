@@ -412,13 +412,25 @@ Festlegungen aus Plan 2:
 - **Feldtypen.** Tabellen mit einem nicht bestätigten Feldtyp bekommen den zusätzlichen Status
   `UnsupportedFieldType`.
 - **Farbwerte.** `ColourRGB` wird als Text `RRGGBB` geliefert.
+- **Tabellengrenzen.** Ein Tabellenkopf darf nicht mehr Zeilen behaupten, als die Daten halten
+  können: Die Zeilenanzahl wird an der Mindestgröße einer Zeile gemessen (Summe der Mindestgrößen
+  der Felder), bei einer Definition ohne Felder an höchstens 1.000.000 Zeilen. Dazu gilt ein
+  Zellbudget von 50 Millionen (Zeilen mal Felder, weit über jeder echten Tabelle); eine Loc-Zeile
+  zählt als 3 Zellen. Wer eine Grenze überschreitet, bekommt `Failed` und keine Zeilen.
+- **Profilprüfung.** Die `id` besteht nur aus `a-z`, `0-9` und `_`. `installFolderName`,
+  `dataFolder`, `schemaFile` und `vanillaManifestFile` sind je ein einzelner, sicherer Pfadteil
+  (nicht leer, nicht absolut, ohne Trenner, nicht `.` oder `..`, ohne ungültige Dateinamenzeichen).
+  Ein Profil, das dagegen verstößt, wird übersprungen und gemeldet. Ids werden ohne Beachtung der
+  Groß-/Kleinschreibung auf Duplikate geprüft.
 - **Strenge Indexprüfung.** Ein Indexeintrag mit einer Kompressionskennung ungleich 0 oder 1
   oder mit einem Namen (Pfad oder Abhängigkeit) von mehr als 65535 Bytes gilt als `InconsistentIndex`.
   An den 397 Workshop-Packs und den Packs im `data`-Ordner gemessen trifft das keine echte Datei.
 - **Lesen eines Eintrags.** Verschwindet die Pack-Datei während des Lesens oder wird sie kürzer,
   gilt das als `PackChanged`. Bei komprimierten Einträgen begrenzt dieselbe Obergrenze auch die
   gespeicherten Bytes (Frame höchstens Obergrenze + Obergrenze / 255 + 64 KB, sonst `TooLarge`).
-  Ein Eintrag, der nicht innerhalb der Pack-Datei liegt, gilt als `Corrupt`.
+  Ein Eintrag, der nicht innerhalb der Pack-Datei liegt, gilt als `Corrupt`. Der Fingerprint wird
+  nach dem Lesen (vor dem Dekomprimieren) noch einmal verglichen; weicht er ab oder ist die Datei
+  weg, gilt das als `PackChanged`.
 
 ### 4.3 Spielprofil
 
@@ -610,8 +622,11 @@ Temp-Ordner. Libraries test-first.
 - **Tests auf echten Daten**, übersprungen ohne Fixture, mit Invarianten statt festen Zahlen:
   - jeder Index im Datenordner: Datenende gleich Dateilänge,
   - Parity: dekomprimierte Bytes gleich der Rohausgabe von `rpfm_cli`,
-  - Parity: dekodierte Tabellen und Loc-Dateien gleich dem TSV-Export von `rpfm_cli` (Farbspalten
-    werden vor dem Vergleich wie bei RPFM zusammengezogen),
+  - Parity: dekodierte Tabellen und Loc-Dateien gleich dem TSV-Export von `rpfm_cli`. Jedes Feld
+    findet seine TSV-Spalte. Ein `ColourRGB`-Feld ist bei RPFM eine einzelne Spalte mit `RRGGBB`
+    und wird direkt verglichen. Die r/g/b-Dreiergruppen (20 Tabellen) zieht RPFM zu einer Spalte
+    (`…_hex` oder `unnamed colour group_N`) zusammen; sie werden vor dem Vergleich ebenso zu
+    `RRGGBB` zusammengezogen (je Kanal das niedrigste Byte, wie RPFM),
   - jede Tabelle ist entweder `Ok` mit vollständig verbrauchten Bytes oder trägt eine Diagnose.
 - **Manuelle UI-Checkliste** als Abnahme von Plan 3.
 
@@ -640,7 +655,7 @@ vorigen existieren.
 |---|---|---|
 | 1 | Die Spike-Zeiten gelten ähnlich unter .NET 8. | **Bestätigt** (3.8, Messungen liefen auf `net8.0`). Build mit SDK 10.0.400 und Lauf auf Runtime 8.0.23 ebenfalls gemessen. |
 | 2 | `ZstdSharp.Port` hat eine passende Lizenz und dekomprimiert alle 1602 Vanilla-Tabellen bytegleich zu `rpfm_cli`. | **Bestätigt** (3.8): MIT, 1602 von 1602 bytegleich, 164–247 ms für alle. |
-| 3 | Der eigene LZ4-Decoder liest die LZ4-Einträge korrekt. | **Bestätigt** (3.8): 54.530 Einträge auf die genannte Größe, drei Stichproben bytegleich zu `rpfm_cli`. Ein Paritätstest über mehr Einträge kommt mit Plan 2. |
+| 3 | Der eigene LZ4-Decoder liest die LZ4-Einträge korrekt. | **Bestätigt** (3.8): 54.530 Einträge auf die genannte Größe, drei Stichproben bytegleich zu `rpfm_cli`. Stand Plan 2: Ein Paritätstest vergleicht je 3 kleine LZ4-Einträge aus bis zu 3 Vanilla-Packs (die ersten nach Name, die LZ4 enthalten) bytegleich mit `rpfm_cli`; ein weiterer Test dekomprimiert alle relevanten komprimierten Einträge des Datenordners. |
 | 4 | Loc-Format: Kopf, Version, Zeilenanzahl, Zeilen aus zwei UTF-16-Texten und einem Flag. | **Bestätigt** (3.8): 248 von 248 Dateien zellgenau identisch. |
 | 5 | Die größte Loc-Datei lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Dekodieren **bestätigt** (3.8): rund 212.300 Zeilen in unter 0,1 s. Anzeige im Raster: **zu messen in Plan 3**. |
 | 6 | `OptionalI32` ist ein Flag-Byte plus immer vorhandener Wert. | **Nicht messbar** (3.8). Der Typ gilt als nicht unterstützt. |

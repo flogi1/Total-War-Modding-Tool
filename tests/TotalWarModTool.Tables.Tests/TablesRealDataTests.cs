@@ -1,3 +1,4 @@
+using System.Globalization;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 
@@ -32,7 +33,7 @@ public class TablesRealDataTests
         RealData.RpfmExtractFolder(pack, "db", dir.Path, SchemaPath);
         var schema = Wh3Schema();
         var index = PackReader.ReadIndex(pack).Index!;
-        int compared = 0;
+        int compared = 0, colourCells = 0, mergedCells = 0;
         foreach (var e in index.Entries)
         {
             var tsvPath = Path.Combine(dir.Path, e.Path + ".tsv");
@@ -41,18 +42,58 @@ public class TablesRealDataTests
             Assert.True(t.Status == TableDecodeStatus.Ok, $"{e.Path}: {t.Status} {t.Detail}");
             var tsv = RpfmTsv.Read(tsvPath);
             Assert.Equal(tsv.Rows.Count, t.Rows.Count);
-            // rpfm merges colour columns into one display column; compare every TSV column that exists in the definition
-            for (int c = 0; c < tsv.Columns.Count; c++)
+            // Every field must find its TSV column by name. A ColourRGB field is one column with the RRGGBB hex text and is
+            // compared like every other field (case-insensitive). The r/g/b triples (any numeric type, values 0..255) have no
+            // column of their own: rpfm merges them into one "<prefix>_hex" or "unnamed colour group_N" column, so the three
+            // channels are merged into RRGGBB here before the comparison. rpfm keeps only the low byte of a channel (measured: a
+            // channel value of 257 shows as 01), so the comparison does the same.
+            var fields = t.Definition!.Fields;
+            var columnNames = tsv.Columns.ToList();
+            var withoutColumn = fields.Select(f => f.Name).Where(n => !columnNames.Contains(n)).ToHashSet();
+            for (int field = 0; field < fields.Count; field++)
             {
-                int field = t.Definition!.Fields.ToList().FindIndex(f => f.Name == tsv.Columns[c]);
-                if (field < 0) continue;
-                bool colour = t.Definition.Fields[field].Type == FieldType.ColourRgb;
+                int c = columnNames.IndexOf(fields[field].Name);
+                if (c < 0) continue;
+                bool colour = fields[field].Type == FieldType.ColourRgb;
                 for (int r = 0; r < tsv.Rows.Count; r++)
+                {
                     Assert.True(RpfmTsv.CellEquals(t.Rows[r][field], tsv.Rows[r][c], ignoreCase: colour), $"{e.Path} row {r} column {tsv.Columns[c]}");
+                    if (colour) colourCells++;
+                }
             }
-            compared++;
+
+            var merged = columnNames.Where(n => !fields.Any(f => f.Name == n)).ToList();
+            var unnamedGroups = merged.Count(n => n.StartsWith("unnamed colour group", StringComparison.Ordinal));
+            Assert.True(unnamedGroups <= 1, $"{e.Path}: several unnamed colour groups cannot be paired by name");
+            foreach (var column in merged)
+            {
+                bool named = column.EndsWith("_hex", StringComparison.Ordinal);
+                Assert.True(named || column.StartsWith("unnamed colour group", StringComparison.Ordinal), $"{e.Path}: unexpected TSV column '{column}'");
+                var prefix = named ? column[..^"_hex".Length] + "_" : string.Empty;
+                var channels = new int[3];
+                for (int ch = 0; ch < 3; ch++)
+                {
+                    var names = new[] { prefix + "rgb"[ch], prefix + new[] { "red", "green", "blue" }[ch] };
+                    var found = fields.Select((f, i) => (f, i)).Where(x => names.Contains(x.f.Name) && withoutColumn.Contains(x.f.Name)).ToList();
+                    Assert.True(found.Count == 1, $"{e.Path}: column '{column}' has {found.Count} candidates for channel {ch}");
+                    channels[ch] = found[0].i;
+                    withoutColumn.Remove(found[0].f.Name);
+                }
+
+                int tc = columnNames.IndexOf(column);
+                for (int r = 0; r < tsv.Rows.Count; r++)
+                {
+                    var hex = string.Concat(channels.Select(i => (((int)Math.Round(Convert.ToDouble(t.Rows[r][i], CultureInfo.InvariantCulture))) & 0xFF).ToString("X2", CultureInfo.InvariantCulture)));
+                    Assert.True(string.Equals(hex, tsv.Rows[r][tc], StringComparison.OrdinalIgnoreCase), $"{e.Path} row {r} column {column}: {hex} vs {tsv.Rows[r][tc]}");
+                    mergedCells++;
+                }
+            }
+
+            Assert.True(withoutColumn.Count == 0, $"{e.Path}: fields without a TSV column: {string.Join(",", withoutColumn)}");            compared++;
         }
         Assert.True(compared > 1000);
+        Assert.True(colourCells > 0, "no ColourRGB cell was compared");
+        Assert.True(mergedCells > 0, "no merged r/g/b colour cell was compared");
     }
 
     [RpfmFact] public void Loc_files_match_rpfm_cli_tsv()

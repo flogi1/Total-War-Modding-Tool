@@ -12,9 +12,11 @@ public sealed record SchemaLoadResult(GameSchema? Schema, SchemaProblem Problem,
 public static class SchemaLoader
 {
     // The real Warhammer III schema is about 11 MB. A limit keeps a wrong or hostile file from filling the memory.
-    private const long MaxFileBytes = 256L * 1024 * 1024;
+    private const long MaxFileBytes = 64L * 1024 * 1024;
 
-    public static SchemaLoadResult Load(string path)
+    public static SchemaLoadResult Load(string path) => Load(path, MaxFileBytes);
+
+    internal static SchemaLoadResult Load(string path, long maxFileBytes)
     {
         ArgumentNullException.ThrowIfNull(path);
 
@@ -22,9 +24,9 @@ public static class SchemaLoader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length > MaxFileBytes)
+            if (stream.Length > maxFileBytes)
             {
-                return Failure(SchemaProblem.Unreadable, "File is larger than " + MaxFileBytes.ToString(CultureInfo.InvariantCulture) + " bytes: " + path);
+                return Failure(SchemaProblem.Unreadable, "File is larger than " + maxFileBytes.ToString(CultureInfo.InvariantCulture) + " bytes: " + path);
             }
 
             using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);

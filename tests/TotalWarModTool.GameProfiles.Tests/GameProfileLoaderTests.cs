@@ -32,6 +32,13 @@ public class GameProfileLoaderTests
     [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":"one","installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]
     [InlineData("""{"schemaVersion":1,"id":"\ud800","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // lone surrogate in id
     [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["\ud800"]}""")]   // lone surrogate in vanillaPackTypes
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"..\\x","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // dataFolder leaves the install folder
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"C:\\x","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // dataFolder is rooted
+    [InlineData("""{"schemaVersion":1,"id":"Foo","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // id with an upper-case letter
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s\u0000x","vanillaPackTypes":["release"]}""")]   // NUL in schemaFile
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X/Y","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // separator in installFolderName
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"..","packFormat":"PFH5","schemaFile":"s","vanillaPackTypes":["release"]}""")]   // dataFolder is ..
+    [InlineData("""{"schemaVersion":1,"id":"x","displayName":"X","steamAppId":1,"installFolderName":"X","dataFolder":"d","packFormat":"PFH5","schemaFile":"s","vanillaManifestFile":"..\\m.txt","vanillaPackTypes":["release"]}""")]   // vanillaManifestFile leaves the folder
     public void Skips_a_broken_profile_and_keeps_the_good_one(string broken)
     {
         using var dir = new TempDir();

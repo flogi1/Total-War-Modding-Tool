@@ -5,7 +5,8 @@ namespace TotalWarModTool.PackFiles;
 /// <summary>
 /// Reads the header and the file index of PFH5 packs and single entries. Read only: the pack is only opened for reading, and the
 /// index functions never touch the data section; <see cref="ReadEntry"/> reads only the bytes of one entry.
-/// Broken, truncated or hostile files produce a <see cref="PackProblem"/>, never an exception or a partial result.
+/// Broken, truncated or hostile files produce a <see cref="PackProblem"/>, never an exception or a partial result;
+/// <see cref="ReadEntry"/> reports an <see cref="EntryProblem"/> instead and lets only <see cref="OperationCanceledException"/> through.
 /// </summary>
 public static class PackReader
 {
@@ -82,6 +83,7 @@ public static class PackReader
             return fail(PackProblem.Unreadable, ex.Message);
         }
     }
+
     private static FileStream Open(string path) =>
         new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 1);
 
@@ -300,6 +302,7 @@ public static class PackReader
                 }
             }
         }
+
         private bool Fill()
         {
             if (_notYetBuffered == 0)

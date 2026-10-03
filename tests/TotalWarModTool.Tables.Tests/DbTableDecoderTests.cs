@@ -113,6 +113,38 @@ public class DbTableDecoderTests
         Assert.Empty(t.Rows);
     }
 
+    [Fact] public void Row_count_that_the_minimum_row_size_cannot_hold_fails_without_rows()
+    {
+        // 3 rows of (i64, i64) need at least 48 bytes; 20 remain. 20 bytes would pass a one-byte-per-row check.
+        var schema = Schema(("x_tables", 0, [F("a", FieldType.I64), F("b", FieldType.I64)]));
+        var t = DbTableDecoder.Decode(new TableBytes().Rows(3).Raw(new byte[20]).Build(), "x_tables", schema);
+        Assert.Equal(TableDecodeStatus.Failed, t.Status);
+        Assert.Empty(t.Rows);
+        Assert.Contains("Row count 3", t.Detail);
+        Assert.Contains("16 bytes per row", t.Detail);
+    }
+
+    [Fact] public void Row_count_above_the_cell_budget_fails_without_rows()
+    {
+        var schema = Schema(("x_tables", 0, [F("a", FieldType.Boolean), F("b", FieldType.Boolean)]));
+        var data = new TableBytes().Rows(3).Raw(new byte[6]).Build();   // would decode fine: 3 rows x 2 fields = 6 cells
+        Assert.Equal(TableDecodeStatus.Ok, DbTableDecoder.Decode(data, "x_tables", schema, maxCells: 6).Status);
+        var t = DbTableDecoder.Decode(data, "x_tables", schema, maxCells: 5);
+        Assert.Equal(TableDecodeStatus.Failed, t.Status);
+        Assert.Empty(t.Rows);
+        Assert.Contains("3", t.Detail); Assert.Contains("2 fields", t.Detail); Assert.Contains("5", t.Detail);
+    }
+
+    [Fact] public void The_cell_budget_is_50_million() => Assert.Equal(50_000_000L, DbTableDecoder.MaxCells);
+
+    [Fact] public void Rows_of_a_definition_without_fields_share_the_empty_array()
+    {
+        var t = DbTableDecoder.Decode(new TableBytes().Rows(2).Build(), "x_tables", Schema(("x_tables", 0, [])));
+        Assert.Equal(TableDecodeStatus.Ok, t.Status);
+        Assert.Equal(2, t.Rows.Count);
+        Assert.Same(Array.Empty<object?>(), t.Rows[0]);
+    }
+
     [Theory]
     [InlineData(new byte[0])]
     [InlineData(new byte[] { 0xFD, 0xFE, 0xFC, 0xFF, 0x10 })]              // GUID marker cut off

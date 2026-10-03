@@ -4,18 +4,26 @@ using TotalWarModTool.Schema;
 namespace TotalWarModTool.Tables;
 
 /// <summary>
-/// Decodes the binary DB table of Total War: Warhammer III with a definition from the schema. Never throws for the data:
+/// Decodes the binary DB table format with a definition from the schema. Never throws for the data:
 /// a problem becomes a status with a detail text and no rows. Argument errors (null) still throw.
 /// </summary>
 public static class DbTableDecoder
 {
+    /// <summary>Upper bound for rows times fields. Far above every real table; stops decompressed zeros from becoming boxed cells.</summary>
+    public const long MaxCells = 50_000_000;
+
     // A definition without fields has rows of zero bytes, so the remaining bytes cannot bound the row count. This cap does.
     private const uint MaxRowsWithoutFields = 1_000_000;
+
+    // Capacity hint only; the list grows on demand for larger real tables.
+    private const int MaxCapacityHint = 65536;
 
     private static readonly byte[] GuidMarker = [0xFD, 0xFE, 0xFC, 0xFF];
     private static readonly byte[] VersionMarker = [0xFC, 0xFD, 0xFE, 0xFF];
 
-    public static DecodedTable Decode(byte[] data, string tableName, GameSchema schema)
+    public static DecodedTable Decode(byte[] data, string tableName, GameSchema schema) => Decode(data, tableName, schema, MaxCells);
+
+    internal static DecodedTable Decode(byte[] data, string tableName, GameSchema schema, long maxCells)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(tableName);
@@ -51,18 +59,30 @@ public static class DbTableDecoder
             }
         }
 
-        // Every field type takes at least one byte, so more rows than remaining bytes cannot be real.
+        // A row takes at least the sum of the minimum sizes of its fields, so more rows than that cannot be real.
         var fieldCount = definition.Fields.Count;
-        if (fieldCount > 0 ? rowCount > (uint)cursor.Remaining : rowCount > MaxRowsWithoutFields)
+        var minRowSize = 0L;
+        foreach (var field in definition.Fields)
         {
-            return Result(TableDecodeStatus.Failed, tableName, version, hasGuid, definition,
-                $"Row count {rowCount} is larger than the data can hold ({cursor.Remaining} bytes remain)");
+            minRowSize += MinFieldSize(field.Type);
         }
 
-        var rows = new List<object?[]>((int)rowCount);
+        if (minRowSize > 0 ? (ulong)rowCount * (ulong)minRowSize > (ulong)cursor.Remaining : rowCount > MaxRowsWithoutFields)
+        {
+            return Result(TableDecodeStatus.Failed, tableName, version, hasGuid, definition,
+                $"Row count {rowCount} is larger than the data can hold ({cursor.Remaining} bytes remain, at least {minRowSize} bytes per row)");
+        }
+
+        if ((long)rowCount * fieldCount > maxCells)
+        {
+            return Result(TableDecodeStatus.Failed, tableName, version, hasGuid, definition,
+                $"Row count {rowCount} with {fieldCount} fields exceeds the limit of {maxCells} cells");
+        }
+
+        var rows = new List<object?[]>((int)Math.Min(rowCount, MaxCapacityHint));
         for (var r = 0; r < rowCount; r++)
         {
-            var row = new object?[fieldCount];
+            var row = fieldCount == 0 ? Array.Empty<object?>() : new object?[fieldCount];
             for (var c = 0; c < fieldCount; c++)
             {
                 var field = definition.Fields[c];
@@ -84,6 +104,21 @@ public static class DbTableDecoder
 
         return new DecodedTable(TableDecodeStatus.Ok, tableName, version, hasGuid, definition, rows, null);
     }
+
+    private static int MinFieldSize(FieldType type) => type switch
+    {
+        FieldType.Boolean => 1,
+        FieldType.I16 => 2,
+        FieldType.I32 => 4,
+        FieldType.I64 => 8,
+        FieldType.F32 => 4,
+        FieldType.F64 => 8,
+        FieldType.ColourRgb => 4,
+        FieldType.StringU8 => 2,
+        FieldType.StringU16 => 2,
+        FieldType.OptionalStringU8 => 1,
+        _ => 0,
+    };
 
     private static DecodedTable Result(TableDecodeStatus status, string tableName, int version, bool hasGuid, TableDefinition? definition, string detail) =>
         new(status, tableName, version, hasGuid, definition, [], detail);

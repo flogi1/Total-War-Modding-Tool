@@ -47,7 +47,7 @@ public class PackReaderHostileIndexTests
     [InlineData(0x40u, 3)]
     [InlineData(0x40u, 4)]
     [InlineData(0x40u, 5)]  // timestamp is cut
-    [InlineData(0x40u, 9)]  // stored size is cut after 1 byte
+    [InlineData(0x40u, 9)]  // stored size is cut after 2 bytes
     public void Entry_index_that_ends_inside_an_entry_is_InconsistentIndex(uint flags, int cut)
     {
         using var dir = new TempDir();

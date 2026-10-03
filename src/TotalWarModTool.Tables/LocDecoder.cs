@@ -19,7 +19,15 @@ public static class LocDecoder
 
     private static readonly byte[] Marker = [0xFF, 0xFE, 0x4C, 0x4F, 0x43, 0x00];
 
-    public static DecodedLoc Decode(byte[] data)
+    // A row counts as three cells (key, text, flag) against the same budget as a DB table.
+    private const int CellsPerRow = 3;
+
+    // Capacity hint only; the list grows on demand for larger real files.
+    private const int MaxCapacityHint = 65536;
+
+    public static DecodedLoc Decode(byte[] data) => Decode(data, DbTableDecoder.MaxCells);
+
+    internal static DecodedLoc Decode(byte[] data, long maxCells)
     {
         ArgumentNullException.ThrowIfNull(data);
 
@@ -45,7 +53,12 @@ public static class LocDecoder
             return Fail($"Row count {rowCount} is larger than the data can hold ({cursor.Remaining} bytes remain)");
         }
 
-        var rows = new List<LocRow>((int)rowCount);
+        if ((long)rowCount * CellsPerRow > maxCells)
+        {
+            return Fail($"Row count {rowCount} exceeds the limit of {maxCells} cells ({CellsPerRow} cells per row)");
+        }
+
+        var rows = new List<LocRow>((int)Math.Min(rowCount, MaxCapacityHint));
         for (var r = 0; r < rowCount; r++)
         {
             if (!cursor.TryReadStringU16(out var key, out reason))

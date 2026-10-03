@@ -20,7 +20,7 @@ public static class PackCatalog
         IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        ArgumentNullException.ThrowIfNull(installPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(installPath);
         cancellationToken.ThrowIfCancellationRequested();
 
         var dataFolder = Path.Combine(installPath, profile.DataFolder);
