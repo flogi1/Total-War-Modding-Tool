@@ -211,7 +211,9 @@ RPFM-Dialekt wie in 3.3 gemessen, mit diesen Festlegungen:
 - Kodierung UTF-8 ohne BOM. Geschrieben wird `\n` als Zeilenende. Gelesen werden `\n` und `\r\n`
   (Git kann Zeilenenden umstellen).
 - Kommazahlen in der kürzesten exakten Schreibweise, invariante Kultur.
-- Wahrheitswerte `true` und `false`. Farbfelder (`ColourRGB`) als `RRGGBB`.
+- Wahrheitswerte `true` und `false`. Farbfelder (`ColourRGB`) als Hex: geschrieben mit mindestens
+  6 Ziffern in Großbuchstaben (`RRGGBB`; 7 oder 8 Ziffern bei Werten über `FFFFFF`), gelesen mit 1 bis
+  8 Ziffern.
 - r/g/b-Dreiergruppen als eine Hex-Spalte, Regel wie bei RPFM.
 - Geschrieben werden die Spalten in Schema-Reihenfolge, Farbgruppen am Ende. Gelesen wird per Name in
   jeder Reihenfolge.
@@ -221,8 +223,8 @@ RPFM-Dialekt wie in 3.3 gemessen, mit diesen Festlegungen:
 
 Lesen ist tolerant in der Form und streng im Inhalt: Eine Datei, die nicht zum Schema passt, ergibt
 eine Diagnose mit Zeile und Grund, keine Ausnahme und keine stille Reparatur. Fälle: Metazeile fehlt
-oder ist unlesbar, Tabelle oder Version nicht im Schema, Spalte fehlt, Spalte unbekannt, Zeile mit
-falscher Zellenzahl, Wert passt nicht zum Typ.
+oder ist unlesbar, Tabelle oder Version nicht im Schema, Feldtyp nicht unterstützt, Spalte fehlt,
+Spalte unbekannt, Spalte doppelt, Zeile mit falscher Zellenzahl, Wert passt nicht zum Typ.
 
 Dokumentierter Hinweis für Nutzer: Ein TSV-Export aus RPFM rundet Kommazahlen auf 4 Stellen. Wer eine
 Projektdatei damit überschreibt, baut die gerundeten Werte.
@@ -260,6 +262,27 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
    unterscheiden, als Duplikat.
 7. `PackWriter.Validate` lehnt Pfadsegmente `.` und `..`, einzelne Surrogat-Zeichen in Pfaden und
    Abhängigkeiten und Abhängigkeitsnamen über 65.535 Bytes ab.
+8. `TableTsv.Read*` meldet `InvalidValue` für eine Kommazahl, die den Wertebereich sprengt (aus
+   `1e39` wird nie still `Infinity`; nur die Texte `NaN`, `Infinity` und `-Infinity` ergeben diese
+   Werte), und für ein `\r` mitten in einer Textzelle. Ein `\r` oder ein einzelnes Surrogat-Zeichen in
+   der Metazeile ist `InvalidMetaLine`. Damit lässt sich alles, was `Read*` liefert, ohne Ausnahme
+   wieder schreiben und kodieren. Eine sehr kleine Kommazahl wird wie jede Dezimalzahl auf den nächsten
+   darstellbaren Wert gerundet, notfalls auf 0.
+9. `TableTsv.Write` schreibt Farbfelder normalisiert (Großbuchstaben, mindestens 6 Ziffern). Es
+   verweigert außerdem: `NaN` mit abweichendem Bitmuster, einen Farbkanal `-0`, einen Farbtext, der
+   kein Hex ist, eine Definition ohne Spalten, einen Feldnamen mit Tab oder Zeilenumbruch und einen
+   Spaltennamen, der doppelt vorkäme (ein echtes Feld `col_hex` neben `col_r`, `col_g`, `col_b`).
+   Solche Tabellen bleiben beim Import binär.
+10. Bekannte Grenze: In einer Tabelle mit nur einer Spalte ist eine leere letzte Zeile nicht von einem
+    fehlenden Zeilenende zu unterscheiden. Entfernt ein Editor das letzte Zeilenende, geht diese eine
+    leere Zeile verloren.
+11. `PackWriter.Write` versucht das Löschen einer unvollständigen Zieldatei dreimal. Bleibt sie liegen,
+    nennt `Detail` den Pfad. Nach einem Abbruch oder einer unerwarteten Ausnahme muss der Aufrufer
+    selbst prüfen, ob die Datei weg ist.
+12. Für Plan 2: Dateien werden streng als UTF-8 gelesen (ungültige Bytes sind ein Fehler, kein
+    Ersatzzeichen). Tabellenname und Pfad der Metazeile werden mit der Lage der Datei im Projekt
+    verglichen. Pfade aus fremden Packs werden vor `TableTsv.Write` auf Tab und Zeilenumbruch
+    geprüft. Der Fortschritt von `PackWriter` trägt nur die Zahl der geschriebenen Einträge.
 
 ### 5.5 Import
 
