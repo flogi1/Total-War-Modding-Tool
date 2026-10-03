@@ -412,6 +412,9 @@ Festlegungen aus Plan 2:
 - **Feldtypen.** Tabellen mit einem nicht bestätigten Feldtyp bekommen den zusätzlichen Status
   `UnsupportedFieldType`.
 - **Farbwerte.** `ColourRGB` wird als Text `RRGGBB` geliefert.
+- **Strenge Indexprüfung.** Ein Indexeintrag mit einer Kompressionskennung ungleich 0 oder 1
+  oder mit einem Namen (Pfad oder Abhängigkeit) von mehr als 65535 Bytes gilt als `InconsistentIndex`.
+  An den 397 Workshop-Packs und den Packs im `data`-Ordner gemessen trifft das keine echte Datei.
 
 ### 4.3 Spielprofil
 
