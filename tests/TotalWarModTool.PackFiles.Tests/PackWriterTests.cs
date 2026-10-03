@@ -78,11 +78,14 @@ public class PackWriterTests
     {
         using var dir = new TempDir();
         var target = dir.File("mod.pack");
-        var entries = new[] { E("a", 1), new PackWriteEntry("b", declared, () => new MemoryStream([1, 2, 3])) };
+        var opened = new List<MemoryStream>();
+        var entries = new[] { Tracked("a", opened, [1]), Tracked("b", opened, [1, 2, 3], declared) };
         var result = PackWriter.Write(target, [], entries, BuildTime, null, CancellationToken.None);
         Assert.Equal(PackWriteProblem.SourceChanged, result.Problem);
-        Assert.Contains("b", result.Detail);
+        Assert.Contains("'b'", result.Detail);
         Assert.False(File.Exists(target));
+        Assert.Equal(2, opened.Count);
+        Assert.All(opened, s => Assert.False(s.CanRead));   // disposed
     }
 
     [Fact] public void An_unreadable_source_fails_closes_streams_and_leaves_no_file()
@@ -109,9 +112,166 @@ public class PackWriterTests
         using var dir = new TempDir();
         var target = dir.File("mod.pack");
         using var cts = new CancellationTokenSource();
-        var entries = new[] { E("a", 1), new PackWriteEntry("b", 1, () => { cts.Cancel(); return new MemoryStream([2]); }), E("c", 3) };
+        var opened = new List<MemoryStream>();
+        var entries = new[]
+        {
+            Tracked("a", opened, [1]),
+            new PackWriteEntry("b", 1, () => { cts.Cancel(); var s = new MemoryStream([2]); opened.Add(s); return s; }),
+            Tracked("c", opened, [3]),
+        };
         Assert.ThrowsAny<OperationCanceledException>(() => PackWriter.Write(target, [], entries, BuildTime, null, cts.Token));
         Assert.False(File.Exists(target));
+        Assert.Equal(2, opened.Count);
+        Assert.All(opened, s => Assert.False(s.CanRead));   // disposed
+    }
+
+    [Fact] public void A_token_cancelled_before_write_throws_without_opening_or_creating_anything()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("mod.pack");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var opened = new List<MemoryStream>();
+        var entries = Enumerable.Range(0, 1000).Select(i => Tracked($"db/t/{i}", opened, [1])).ToList();
+        Assert.ThrowsAny<OperationCanceledException>(() => PackWriter.Write(target, ["a.pack"], entries, BuildTime, null, cts.Token));
+        Assert.False(File.Exists(target));
+        Assert.Empty(opened);
+    }
+
+    [Fact] public void Cancel_by_the_first_open_stops_before_any_later_open()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("mod.pack");
+        using var cts = new CancellationTokenSource();
+        var opens = new List<string>();
+        PackWriteEntry Cancelling(string path) => new(path, 1, () => { opens.Add(path); cts.Cancel(); return new MemoryStream([1]); });
+        PackWriteEntry Plain(string path) => new(path, 1, () => { opens.Add(path); return new MemoryStream([1]); });
+        var entries = new[] { Cancelling("a"), Plain("b"), Plain("c") };
+        Assert.ThrowsAny<OperationCanceledException>(() => PackWriter.Write(target, [], entries, BuildTime, null, cts.Token));
+        Assert.Equal(["a"], opens);
+        Assert.False(File.Exists(target));
+    }
+
+    [Fact] public void An_unexpected_exception_of_a_source_leaves_after_cleanup()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("mod.pack");
+        var opened = new List<MemoryStream>();
+        var entries = new[] { Tracked("a", opened, [1]), new PackWriteEntry("b", 1, () => { var s = new NotReadableStream(); opened.Add(s); return s; }) };
+        Assert.Throws<NotSupportedException>(() => PackWriter.Write(target, [], entries, BuildTime, null, CancellationToken.None));
+        Assert.False(File.Exists(target));
+        Assert.Equal(2, opened.Count);
+        Assert.All(opened, s => Assert.False(s.CanRead));   // disposed
+    }
+
+    [Fact] public void A_target_that_cannot_be_removed_is_named_in_the_detail()
+    {
+        // A read-only file cannot be deleted on Windows. The attribute is set while the target is open, from the source.
+        if (!OperationSystemSupportsReadOnlyDelete())
+        {
+            return;
+        }
+
+        using var dir = new TempDir();
+        var target = dir.File("mod.pack");
+        try
+        {
+            var entries = new[] { new PackWriteEntry("a", 2, () => { File.SetAttributes(target, FileAttributes.ReadOnly); return new MemoryStream([1]); }) };
+            var result = PackWriter.Write(target, [], entries, BuildTime, null, CancellationToken.None);
+            Assert.Equal(PackWriteProblem.SourceChanged, result.Problem);
+            Assert.Contains("could not be removed", result.Detail);
+            Assert.Contains(target, result.Detail);
+            Assert.True(File.Exists(target));
+        }
+        finally
+        {
+            if (File.Exists(target))
+            {
+                File.SetAttributes(target, FileAttributes.Normal);
+            }
+        }
+    }
+
+    [Fact] public void A_target_that_can_be_removed_adds_nothing_to_the_detail()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("mod.pack");
+        var result = PackWriter.Write(target, [], [new PackWriteEntry("a", 5, () => new MemoryStream([1]))], BuildTime, null, CancellationToken.None);
+        Assert.Equal(PackWriteProblem.SourceChanged, result.Problem);
+        Assert.DoesNotContain("removed", result.Detail);
+        Assert.False(File.Exists(target));
+    }
+
+    [Fact] public void Unicode_paths_beyond_the_bmp_are_written_as_utf8()
+    {
+        using var dir = new TempDir();
+        var target = dir.File("mod.pack");
+        var path = "db/" + char.ConvertFromUtf32(0x1F600) + "/x";
+        Assert.Equal(PackWriteProblem.None, PackWriter.Write(target, [char.ConvertFromUtf32(0x1F600) + ".pack"], [E(path, 1)], BuildTime, null, CancellationToken.None).Problem);
+        var index = PackReader.ReadIndex(target).Index!;
+        Assert.Equal([path], index.Entries.Select(e => e.Path));
+        Assert.Equal([char.ConvertFromUtf32(0x1F600) + ".pack"], index.Dependencies);
+    }
+
+    [Theory]
+    [InlineData("a/../b")] [InlineData("./a")] [InlineData("a/..")] [InlineData(".")] [InlineData("..")] [InlineData(@"a\..\b")] [InlineData("a/./b")]
+    public void Validate_rejects_dot_segments(string path) =>
+        Assert.Equal(PackWriteProblem.InvalidPath, PackWriter.Validate([], [E(path)]).Problem);
+
+    [Fact] public void Validate_accepts_names_that_only_look_like_dot_segments()
+    {
+        Assert.Equal(PackWriteProblem.None, PackWriter.Validate([], [E("a/.../.b/..c/d.")]).Problem);
+    }
+
+    [Fact] public void Validate_rejects_unpaired_surrogates_in_paths_and_dependencies()
+    {
+        var high = ((char)0xD800).ToString();
+        var low = ((char)0xDC00).ToString();
+        Assert.Equal(PackWriteProblem.InvalidPath, PackWriter.Validate([], [E("a" + high)]).Problem);
+        Assert.Equal(PackWriteProblem.InvalidPath, PackWriter.Validate([], [E(low + "a")]).Problem);
+        Assert.Equal(PackWriteProblem.InvalidPath, PackWriter.Validate([], [E("a" + high + "b/c")]).Problem);
+        Assert.Equal(PackWriteProblem.InvalidPath, PackWriter.Validate([], [E("a" + low + high)]).Problem);
+        Assert.Equal(PackWriteProblem.InvalidDependency, PackWriter.Validate(["a" + high], []).Problem);
+        Assert.Equal(PackWriteProblem.InvalidDependency, PackWriter.Validate([low], []).Problem);
+        Assert.Equal(PackWriteProblem.None, PackWriter.Validate([high + low + ".pack"], [E("a/" + high + low)]).Problem);
+    }
+
+    [Fact] public void Validate_limits_the_length_of_a_dependency_name_in_utf8_bytes()
+    {
+        Assert.Equal(PackWriteProblem.None, PackWriter.Validate([new string('a', 65535)], []).Problem);
+        Assert.Equal(PackWriteProblem.InvalidDependency, PackWriter.Validate([new string('a', 65536)], []).Problem);
+        Assert.Equal(PackWriteProblem.InvalidDependency, PackWriter.Validate([new string('ü', 32768)], []).Problem);
+    }
+
+    [Fact] public void A_detail_names_long_paths_shortened_and_never_splits_a_surrogate_pair()
+    {
+        var emoji = char.ConvertFromUtf32(0x1F600);
+        var invalid = PackWriter.Validate([], [E(new string('a', 199) + emoji + "//b")]);
+        Assert.Equal(PackWriteProblem.InvalidPath, invalid.Problem);
+        Assert.True(invalid.Detail!.Length < 400);
+        Assert.Contains("(shortened)", invalid.Detail);
+        Assert.DoesNotContain("\\u", invalid.Detail);
+
+        var huge = PackWriter.Validate([], [E(new string('a', 100_000) + "//b")]);
+        Assert.True(huge.Detail!.Length < 400);
+
+        var tooLong = PackWriter.Validate([], [E(new string('a', 70_000))]);
+        Assert.Equal(PackWriteProblem.PathTooLong, tooLong.Problem);
+        Assert.Contains("70000", tooLong.Detail);
+        Assert.True(tooLong.Detail!.Length < 400);
+
+        var duplicate = PackWriter.Validate([], [E(new string('a', 5000)), E(new string('A', 5000))]);
+        Assert.Equal(PackWriteProblem.DuplicatePath, duplicate.Problem);
+        Assert.True(duplicate.Detail!.Length < 600);
+    }
+
+    [Fact] public void A_detail_shows_zero_characters_and_surrogates_as_escapes()
+    {
+        var result = PackWriter.Validate([], [E("a\0b")]);
+        Assert.Contains("a\\0b", result.Detail);
+        Assert.DoesNotContain('\0', result.Detail!);
+        var lone = PackWriter.Validate([], [E("a" + (char)0xD800)]);
+        Assert.Contains("\\uD800", lone.Detail);
     }
 
     [Fact] public void Progress_counts_the_entries_written()
@@ -120,6 +280,23 @@ public class PackWriterTests
         var seen = new List<int>();
         PackWriter.Write(dir.File("mod.pack"), [], [E("a", 1), E("b", 2), E("c", 3)], BuildTime, new SyncProgress(seen.Add), CancellationToken.None);
         Assert.Equal([1, 2, 3], seen);
+    }
+
+    // Records every stream it opens so a test can check that the writer closed it.
+    private static PackWriteEntry Tracked(string path, List<MemoryStream> opened, byte[] bytes, long? declaredLength = null) =>
+        new(path, declaredLength ?? bytes.Length, () => Open(bytes, opened));
+    private static MemoryStream Open(byte[] bytes, List<MemoryStream> opened)
+    {
+        var stream = new MemoryStream(bytes);
+        opened.Add(stream);
+        return stream;
+    }
+
+    private static bool OperationSystemSupportsReadOnlyDelete() => OperatingSystem.IsWindows();
+
+    private sealed class NotReadableStream : MemoryStream
+    {
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("no read");
     }
 
     private sealed class SyncProgress(Action<int> report) : IProgress<int>

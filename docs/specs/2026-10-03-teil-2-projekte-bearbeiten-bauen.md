@@ -252,10 +252,14 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
 2. `TableTsv.Write` verweigert auch Texte mit `\r`.
 3. `TableTsv.Read*` meldet nur das erste Problem.
 4. `PackWriter.Write` schreibt genau den übergebenen Pfad. Temp-Datei und Umbenennen macht `Projects`.
+   `PackWriter.Write` darf nie auf das lebende Pack zeigen, weil ein fehlgeschlagener Schreibvorgang
+   seine Zieldatei löscht.
 5. Die Encoder lehnen einen Text mit einem einzelnen Surrogat-Zeichen mit `ArgumentException` ab.
    `TableTsv.Write` schreibt eine solche Tabelle nicht, und `TableTsv.Read` meldet `InvalidValue`.
 6. `PackWriter.Validate` behandelt zwei Pfade, die sich nur in Groß-/Kleinschreibung oder im Trenner
    unterscheiden, als Duplikat.
+7. `PackWriter.Validate` lehnt Pfadsegmente `.` und `..`, einzelne Surrogat-Zeichen in Pfaden und
+   Abhängigkeiten und Abhängigkeitsnamen über 65.535 Bytes ab.
 
 ### 5.5 Import
 
