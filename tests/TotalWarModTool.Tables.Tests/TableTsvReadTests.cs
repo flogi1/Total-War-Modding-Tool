@@ -92,6 +92,17 @@ public class TableTsvReadTests
         Assert.False(string.IsNullOrWhiteSpace(read.Problem.Detail));
     }
 
+    [Fact] public void Read_rejects_an_unpaired_surrogate_in_the_meta_line()
+    {
+        // Plain literals, not InlineData: the compiler would replace a lone surrogate in an attribute argument with U+FFFD.
+        foreach (var meta in new[] { "#t_tables;1;p\uD800q", "#t_tables;1;p\uDC00", "#t\uD800_tables;1;p" })
+        {
+            var read = TableTsv.Read("a\ts\n" + meta + "\t\n", Small);
+            Assert.Null(read.Table);
+            Assert.Equal((TsvProblem.InvalidMetaLine, 2), (read.Problem!.Problem, read.Problem.Line));
+        }
+    }
+
     [Theory]
     [InlineData(FieldType.Boolean, "yes")] [InlineData(FieldType.I32, "1e3")] [InlineData(FieldType.I64, "9223372036854775808")]
     [InlineData(FieldType.F32, "1,5")] [InlineData(FieldType.F64, "abc")] [InlineData(FieldType.ColourRgb, "GG0000")]

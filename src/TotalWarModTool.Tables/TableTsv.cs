@@ -566,6 +566,13 @@ public static class TableTsv
             return false;
         }
 
+        if (!ByteWriter.IsWellFormed(cell, out var surrogateReason))
+        {
+            // Write throws for such a table name or pack path, so Read does not accept one either.
+            problem = new TsvDiagnosis(TsvProblem.InvalidMetaLine, 2, "The meta line must be well-formed text: " + surrogateReason);
+            return false;
+        }
+
         var first = cell.IndexOf(';');
         var second = first < 0 ? -1 : cell.IndexOf(';', first + 1);
         if (second < 0 || !int.TryParse(cell.AsSpan(first + 1, second - first - 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var version))

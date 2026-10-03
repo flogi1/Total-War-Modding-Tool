@@ -26,6 +26,17 @@ public class TableTsvLocTests
     [Fact] public void A_pack_path_with_an_unpaired_surrogate_is_an_argument_error() =>
         Assert.Throws<ArgumentException>(() => TableTsv.WriteLoc("a\uD800b", []));
 
+    [Fact] public void ReadLoc_rejects_an_unpaired_surrogate_in_the_meta_line()
+    {
+        // Plain literals, not InlineData: the compiler would replace a lone surrogate in an attribute argument with U+FFFD.
+        foreach (var meta in new[] { "#Loc;1;p\uD800q", "#Loc;1;p\uDC00", "#Lo\uD800c;1;p" })
+        {
+            var read = TableTsv.ReadLoc("key\ttext\ttooltip\n" + meta + "\t\t\n");
+            Assert.Null(read.Loc);
+            Assert.Equal((TsvProblem.InvalidMetaLine, 2), (read.Problem!.Problem, read.Problem.Line));
+        }
+    }
+
     [Fact] public void ReadLoc_rejects_a_carriage_return_inside_a_key_or_text()
     {
         var inText = TableTsv.ReadLoc("key\ttext\ttooltip\n#Loc;1;p\t\t\nk\ta\rb\tfalse\n");
