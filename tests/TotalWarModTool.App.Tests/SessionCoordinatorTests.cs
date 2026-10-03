@@ -13,6 +13,18 @@ public class SessionCoordinatorTests
         await c.LoadAsync();
         return (game, c, new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => { }, c), new SessionStore(game.Paths.RoamingRoot, "testgame"));
     }
+    // Waits for the effect, no fixed sleep.
+    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 8000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (!condition() && Environment.TickCount64 < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition(), "The expected state was not reached in time.");
+    }
+
     private static SessionCoordinator Coordinator(TestGame game, WorkspaceController c, MainViewModel vm, SessionStore store) =>
         new(store, store.Load(), c, vm.Explorer, vm.Tabs, game.Log);
 
@@ -104,7 +116,7 @@ public class SessionCoordinatorTests
             Assert.Equal(2, store.Load().State.Tabs.Count);                            // nothing written while nothing was restored
 
             game.GameSettings.InstallPath = game.InstallPath;                          // the user chooses the folder: refreshed at once by the fake runner
-            await session.RestoreAsync();                                              // the attempt the refresh started (a second call joins it)
+            await WaitUntil(() => vm.Tabs.Tabs.Count == 2);                            // no explicit RestoreAsync: only the coordinator's own retry can do this
             Assert.Equal(["a.txt", "b.txt"], vm.Tabs.Tabs.Select(t => t.Title));
             Assert.Equal("b.txt", vm.Tabs.SelectedTab!.Title);
             Assert.Equal([c.Catalog!.Packs[0].Path], vm.Explorer.ExpandedPackPaths);
@@ -217,6 +229,72 @@ public class SessionCoordinatorTests
             session.Save();
             Assert.False(File.Exists(store.FilePath));
             Assert.Single(game.Log.Warnings);
+        }
+    }
+
+    // Item E: a reload wish that is parked must be carried out before the session is restored, so the restore runs against the new catalog.
+    [Fact] public async Task The_restore_waits_for_a_pending_reload_and_runs_against_the_new_catalog()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1]));
+        var runner = new ManualOperationRunner();
+        var c = game.NewController(runner: runner);
+        var vm = new MainViewModel(game.Texts, game.Paths, _ => { }, runner, () => { }, c);
+        var store = new SessionStore(game.Paths.RoamingRoot, "testgame");
+        store.Save(new SessionState([new(path, "a.txt")], 0, []));
+        var session = Coordinator(game, c, vm, store);
+        var newSpelling = game.InstallPath.ToUpperInvariant();
+        var asked = false;
+        c.Changed += (_, _) =>
+        {
+            if (c.IsBusy && !asked)
+            {
+                asked = true;
+                game.GameSettings.InstallPath = newSpelling;                           // parked: the controller is busy with the load
+            }
+        };
+
+        var load = c.LoadAsync();
+        await runner.WaitForRun().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(["Refresh pack list"], runner.Titles);
+        Assert.Empty(vm.Tabs.Tabs);                                                    // the end of the load must not restore against the old catalog
+        Assert.DoesNotContain(game.Log.Infos, line => line.StartsWith("Session", StringComparison.Ordinal));
+
+        runner.Complete();                                                             // the refresh ends: its Changed starts the restore
+        await load.WaitAsync(TimeSpan.FromSeconds(30));
+        await WaitUntil(() => vm.Tabs.Tabs.Count == 1);
+        Assert.Equal(c.Catalog!.Packs[0].Path, vm.Tabs.Tabs[0].PackPath);              // the spelling of the new catalog
+        Assert.StartsWith(newSpelling, vm.Tabs.Tabs[0].PackPath, StringComparison.Ordinal);
+    }
+
+    // Item F: what was already open when the late restore ended is not in the stored session yet, so it has to be saved.
+    [Fact] public async Task A_restore_that_finds_tabs_already_open_raises_Dirty_once()
+    {
+        var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", [1]), ("b.txt", [1])));
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0];
+            store.Save(new SessionState([new(pack.Path, "a.txt")], 0, []));
+            var session = Coordinator(game, c, vm, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
+            await vm.OpenEntryAsync(pack, "b.txt");                                    // the user was faster than the restore
+            await session.RestoreAsync();
+            Assert.Equal(["b.txt", "a.txt"], vm.Tabs.Tabs.Select(t => t.Title));
+            Assert.Equal(1, dirty);
+        }
+    }
+
+    [Fact] public async Task A_restore_that_finds_packs_already_expanded_raises_Dirty_once()
+    {
+        var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0];
+            store.Save(new SessionState([new(pack.Path, "a.txt")], 0, []));
+            var session = Coordinator(game, c, vm, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
+            vm.Explorer.Groups.SelectMany(g => g.Children).OfType<PackNode>().Single().IsExpanded = true;   // before the restore: silent
+            await session.RestoreAsync();
+            Assert.Equal([pack.Path], vm.Explorer.ExpandedPackPaths);
+            Assert.Equal(1, dirty);
         }
     }
 

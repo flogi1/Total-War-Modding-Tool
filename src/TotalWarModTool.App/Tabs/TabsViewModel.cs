@@ -99,6 +99,18 @@ public sealed class TabsViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Marks every table tab and every hint tab of a table that is not stale yet: the schema changed, the tabs show what the old schema
+    /// made of the entry. They are not decoded again by themselves.
+    /// </summary>
+    public void MarkSchemaStale()
+    {
+        foreach (var tab in Tabs.Where(t => t.IsTableEntry))
+        {
+            tab.MarkSchemaStale();
+        }
+    }
+
     private static bool Matches(TabViewModel tab, string packPath, string entryPath) =>
         string.Equals(tab.PackPath, packPath, StringComparison.OrdinalIgnoreCase)
         && string.Equals(tab.EntryPath, entryPath, StringComparison.OrdinalIgnoreCase);

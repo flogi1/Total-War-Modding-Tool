@@ -34,7 +34,7 @@ public static class TabFactory
             case EntryKind.Table:
                 return new TableTabViewModel(pack, entry.EntryPath, texts, close, entry.Table!);
             case EntryKind.Loc when entry.Loc is not { Status: LocDecodeStatus.Ok }:
-                return Info(t => t.TabInfoNotDecodable, t => t.TableStatusFailed);
+                return Info(t => t.TabInfoLocNotDecodable, t => t.LocStatusFailed);
             case EntryKind.Loc:
                 return new LocTabViewModel(pack, entry.EntryPath, texts, close, entry.Loc!.Rows);
             case EntryKind.Text when entry.Text is { } text:

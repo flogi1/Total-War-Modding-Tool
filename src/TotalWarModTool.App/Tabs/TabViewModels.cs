@@ -14,8 +14,11 @@ namespace TotalWarModTool.App;
 public abstract class TabViewModel : ObservableObject, IDisposable
 {
     private readonly AppTexts _texts;
-    private bool _isStale;
+    private StaleKind _stale;
+    private string _staleText = string.Empty;
     private bool _disposed;
+
+    private enum StaleKind { None, Schema, Pack }
 
     protected TabViewModel(PackSource pack, string entryPath, AppTexts texts, Action<TabViewModel> close)
     {
@@ -45,12 +48,11 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     /// <summary>"&lt;pack name&gt;: &lt;entry path&gt;"; both are data, not UI texts.</summary>
     public string ToolTip { get; }
 
-    /// <summary>True when the pack changed on disk after the tab was opened; the tab shows the old content.</summary>
-    public bool IsStale
-    {
-        get => _isStale;
-        private set => SetProperty(ref _isStale, value);
-    }
+    /// <summary>True when the pack changed on disk or the schema changed after the tab was opened; the tab shows the old content.</summary>
+    public bool IsStale => _stale != StaleKind.None;
+
+    /// <summary>The tooltip of the stale mark in the current language: what changed. Empty while the tab is not stale.</summary>
+    public string StaleText => _staleText;
 
     public ICommand CloseCommand { get; }
 
@@ -64,7 +66,43 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         }
     }
 
-    internal void MarkStale() => IsStale = true;
+    /// <summary>True when the entry is a table (a table tab or the hint tab of a table): a change of the schema affects what it shows.</summary>
+    internal virtual bool IsTableEntry => false;
+
+    /// <summary>The pack changed. This wins over a change of the schema.</summary>
+    internal void MarkStale() => SetStale(StaleKind.Pack);
+
+    /// <summary>The schema changed. Does not replace a mark that is already there.</summary>
+    internal void MarkSchemaStale()
+    {
+        if (_stale == StaleKind.None)
+        {
+            SetStale(StaleKind.Schema);
+        }
+    }
+
+    private void SetStale(StaleKind kind)
+    {
+        if (_stale == kind)
+        {
+            return;
+        }
+
+        var wasStale = IsStale;
+        _stale = kind;
+        SetProperty(ref _staleText, StaleTextFor(kind), nameof(StaleText));
+        if (!wasStale)
+        {
+            OnPropertyChanged(nameof(IsStale));
+        }
+    }
+
+    private string StaleTextFor(StaleKind kind) => kind switch
+    {
+        StaleKind.Pack => _texts.TabStale,
+        StaleKind.Schema => _texts.TabStaleSchema,
+        _ => string.Empty,
+    };
 
     /// <summary>The title, also what screen readers and UI automation call the tab.</summary>
     public override string ToString() => Title;
@@ -72,7 +110,11 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     /// <summary>Computes every text property again in the language that is active now and raises <c>PropertyChanged</c> for those that changed.</summary>
     protected abstract void RefreshTexts();
 
-    private void OnTextsChanged(object? sender, PropertyChangedEventArgs e) => RefreshTexts();
+    private void OnTextsChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        SetProperty(ref _staleText, StaleTextFor(_stale), nameof(StaleText));
+        RefreshTexts();
+    }
 }
 
 /// <summary>A decoded DB table. <see cref="Rows"/> hold boxed cell values in the order of <see cref="Columns"/>.</summary>
@@ -95,6 +137,8 @@ public sealed class TableTabViewModel : TabViewModel
     public IReadOnlyList<string> Columns { get; }
 
     public IReadOnlyList<object?[]> Rows => _table.Rows;
+
+    internal override bool IsTableEntry => true;
 
     protected override void RefreshTexts() => SetProperty(ref _header, HeaderText(), nameof(Header));
 
@@ -190,6 +234,8 @@ public sealed class InfoTabViewModel : TabViewModel
     public string Reason => _reasonText;
 
     public IReadOnlyList<InfoLine> Lines => _lines;
+
+    internal override bool IsTableEntry => _entry.Kind == EntryKind.Table;
 
     protected override void RefreshTexts()
     {

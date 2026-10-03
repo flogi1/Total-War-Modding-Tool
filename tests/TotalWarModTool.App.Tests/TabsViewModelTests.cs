@@ -1,5 +1,7 @@
 using TotalWarModTool.Localization;
 using TotalWarModTool.PackFiles;
+using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App.Tests;
@@ -48,6 +50,44 @@ public class TabsViewModelTests
         tabs.Add(A, Text("a.txt"), null); tabs.Add(B, Text("b.txt"), null);
         tabs.MarkStale(@"D:\DATA\A.PACK");
         Assert.Equal([true, false], tabs.Tabs.Select(t => t.IsStale));
+    }
+
+    private const string SchemaStaleText = "The schema changed. Close this tab and open the entry again to see it with the new schema.";
+    private static readonly TableDefinition Def = new(0, [new("value", FieldType.I32, "I32", false, null)]);
+    private static OpenedEntry TableEntry(string path) => new(path, EntryKind.Table, 1, 1, CompressionFormat.None, EntryProblem.None, null, false,
+        new DecodedTable(TableDecodeStatus.Ok, "x_tables", 0, false, Def, [[1]], null), null, null);
+    private static OpenedEntry TableHint(string path) => new(path, EntryKind.Table, 1, 1, CompressionFormat.None, EntryProblem.None, null, true, null, null, null);
+
+    [Fact] public void MarkSchemaStale_marks_table_tabs_and_table_hints_but_not_other_tabs()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, TableEntry("db/x_tables/data__"), null); tabs.Add(A, TableHint("db/y_tables/data__"), null); tabs.Add(A, Text("a.txt"), null);
+        tabs.MarkSchemaStale();
+        Assert.Equal([true, true, false], tabs.Tabs.Select(t => t.IsStale));
+        Assert.Equal([SchemaStaleText, SchemaStaleText, ""], tabs.Tabs.Select(t => t.StaleText));
+    }
+
+    [Fact] public void A_pack_change_wins_over_a_schema_change_in_either_order()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, TableEntry("db/x_tables/data__"), null); tabs.Add(B, TableEntry("db/x_tables/data__"), null);
+        tabs.MarkSchemaStale(); tabs.MarkStale(A.Path);                           // schema first, then the pack
+        tabs.MarkStale(B.Path); tabs.MarkSchemaStale();                           // pack first: the schema does not replace it
+        Assert.Equal([Texts.TabStale, Texts.TabStale], tabs.Tabs.Select(t => t.StaleText));
+    }
+
+    [Fact] public void The_stale_text_follows_a_language_switch()
+    {
+        var ui = new UiText(System.IO.Path.Combine(RepoRoot.Find(), "locales")); var texts = new AppTexts(ui);
+        var tabs = new TabsViewModel(texts);
+        tabs.Add(A, TableEntry("db/x_tables/data__"), null);
+        var raised = new List<string?>(); tabs.Tabs[0].PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        tabs.MarkSchemaStale();
+        ui.Load("de");
+        Assert.Equal("Das Schema hat sich geändert. Schließe diesen Tab und öffne den Eintrag erneut, um ihn mit dem neuen Schema zu sehen.", tabs.Tabs[0].StaleText);
+        Assert.Contains(nameof(TabViewModel.StaleText), raised);
+        tabs.MarkStale(A.Path);
+        Assert.Equal("Das Pack wurde auf der Platte geändert. Dieser Tab zeigt den alten Inhalt.", tabs.Tabs[0].StaleText);
     }
 
     [Fact] public void Changed_is_raised_for_add_close_and_selection()

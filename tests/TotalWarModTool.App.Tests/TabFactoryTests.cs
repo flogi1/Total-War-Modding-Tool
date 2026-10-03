@@ -69,7 +69,7 @@ public class TabFactoryTests
         var loc = Assert.IsType<LocTabViewModel>(Create(Entry("text/names.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Ok, [new("k", "t", false)], null))));
         Assert.Equal(("1 row(s)", 1), (loc.Header, loc.Rows.Count));
         var failedLoc = Assert.IsType<InfoTabViewModel>(Create(Entry("text/names.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Failed, [], "short"))));
-        Assert.Equal("This table cannot be decoded", failedLoc.Heading);
+        Assert.Equal(("This loc file cannot be decoded", "The file does not have the expected loc format."), (failedLoc.Heading, failedLoc.Reason));
         var text = Assert.IsType<TextTabViewModel>(Create(Entry("a.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", false, 2))));
         Assert.Equal(("hi", "UTF-8, 2 B", (string?)null), (text.Text, text.Header, text.Notice));
         var big = Assert.IsType<TextTabViewModel>(Create(Entry("a.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", true, 8 * 1024 * 1024))));

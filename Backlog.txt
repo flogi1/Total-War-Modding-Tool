@@ -87,6 +87,12 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Ein fehlgeschlagenes erstes Laden zeigt dauerhaft "Die Pack-Liste wird geladen" statt eines Fehlers
 - Tests ergänzen: Vorlagen für ComboBoxItem, Untermenü-Einträge und Kontextmenü-Einträge instanziieren
 - Tests der App brauchen einen interaktiven Desktop und dauern rund 40 s. Für CI einplanen.
+- Aktualisieren abgebrochen oder fehlgeschlagen nach einem geänderten Spielordner: Einstellungen und Pack-Liste stimmen bis zum nächsten Aktualisieren nicht überein, ohne Hinweis
+- Tabs eines Packs, das nach dem Aktualisieren fehlt, und Tabs eines Spiels, das nicht mehr gefunden wird, bleiben ohne Markierung offen
+- Ein Pack, das beim Start nur gesperrt ist, verliert seine Tabs dauerhaft; Session nicht speichern, wenn Tabs wegen „nicht lesbar“ weggefallen sind
+- Aufgeklappte Ordner in einem Pack klappen nach dem Aktualisieren zu
+- Offene Tabs nach einer Schema-Änderung selbst neu dekodieren (bisher nur Markierung)
+- Tests ergänzen: Session (`activeTab` kleiner als -1 oder fehlend), `EntryOpener` (Tabelle ohne Schema liest nachweislich nichts), `EntryText` (UTF-16 BE mit Surrogat, UTF-8 mit BOM und Kürzung, einzelne Folgebytes), `ReadEntryInfo` (Eintrag außerhalb des Packs, geschrumpftes Pack), Katalog (Ordner nicht auflistbar: Datei an Stelle des Ordners), `DebouncedSaver` (`UnauthorizedAccessException`), Explorer (Neuaufbau während eines laufenden Aufklappens, Ausnahme beim Aufklappen), `TabsViewModel.Close` gibt den Tab frei, Einstellungsfenster (gültiger Pfad, Verlassen des Feldes, Schema-Status, deaktivierter Zustand, Ordnerdialog).
 
 == Aus Plan 1 (Gerüst) zurückgestellt ==
 
@@ -112,7 +118,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - ProgressRunner: laufende Arbeit abbrechen, wenn das Fortschrittsfenster nicht geöffnet werden kann (vor Teil 2, bevor Schreiboperationen dazukommen)
 - Fortschrittsfenster: Darstellungslogik aus dem Code-behind in ein ViewModel verlegen (bewusste Ausnahme von "keine Logik in Code-behind" in Plan 1)
 - Debug-Menü, Befehle und Texte aus dem Release-Build entfernen
-- GlobalSettingsStore: Round-Trip-Test über alle Eigenschaften, bevor neue Felder dazukommen
 - Debug-Auslöser für zwei Pfade, die bisher nur per Unit-Test und Code-Review geprüft sind und sich von Hand nicht auslösen lassen: Absturz auf einem Hintergrund-Thread (Dialogtext "muss beendet werden") und fehlgeschlagener Start (Exit-Code 1)
 - Crash-Behandlung: ein fataler Fehler darf nicht von einem schon wartenden nicht-fatalen Dialog verdeckt werden
 

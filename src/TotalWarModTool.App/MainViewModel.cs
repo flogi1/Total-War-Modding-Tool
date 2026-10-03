@@ -16,13 +16,15 @@ public sealed class MainViewModel : ObservableObject
 
     private readonly WorkspaceController _workspace;
     private readonly RelayCommand _refreshCommand;
+    private ResolvedSchema? _seenSchema;
 
     /// <param name="openFolder">Opens a folder in the file explorer. Passed in so the view model stays free of processes and tests need no explorer.</param>
     /// <param name="progress">The runner every user-started operation goes through. The workspace and the debug commands use it.</param>
     /// <param name="openSettings">Opens the settings window (or activates it if it is open). Passed in so the view model knows no windows.</param>
     /// <param name="workspace">The state of the game. The explorer, the tabs and the status line are built on it.</param>
+    /// <param name="openGameSettings">Opens the settings window on the page "Game". The explorer uses it for its button; null: the explorer uses <paramref name="openSettings"/>.</param>
     public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings,
-        WorkspaceController workspace)
+        WorkspaceController workspace, Action? openGameSettings = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         Texts = texts;
@@ -31,13 +33,22 @@ public sealed class MainViewModel : ObservableObject
         OpenLogFolderCommand = new RelayCommand(() => openFolder(paths.LogDirectory));
 
         Tabs = new TabsViewModel(texts);
-        Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openSettings);
+        Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings);
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.
         _refreshCommand = new RelayCommand(async () => await workspace.RefreshAsync(), () => workspace.CanStartOperation && workspace.Profile is not null);
         workspace.PackChanged += (_, pack) => Tabs.MarkStale(pack.Path);
+        _seenSchema = workspace.Schema;
         workspace.Changed += (_, _) =>
         {
+            // Another schema than the one seen at the last change: what the open tables show was decoded with the old one.
+            var schema = workspace.Schema;
+            if (_seenSchema is not null && !ReferenceEquals(schema, _seenSchema))
+            {
+                Tabs.MarkSchemaStale();
+            }
+
+            _seenSchema = schema;
             _refreshCommand.RaiseCanExecuteChanged();
             RaiseStatusChanged();
         };
@@ -72,7 +83,7 @@ public sealed class MainViewModel : ObservableObject
             }
 
             var text = _workspace.Status == GameStatus.NotFound ? Texts.StatusGameNotFound(profile.DisplayName) : Texts.StatusGame(profile.DisplayName);
-            return _workspace.IsBusy && _workspace.Catalog is null ? text + " – " + Texts.StatusLoading : text;
+            return _workspace.IsBusy ? text + " – " + Texts.StatusLoading : text;
         }
     }
 

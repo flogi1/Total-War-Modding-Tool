@@ -47,6 +47,8 @@ public sealed partial class AppTexts
 
     public string TableStatusFailed => T("table.status.failed", "The table does not match the schema. It may come from another game version.");
 
+    public string LocStatusFailed => T("loc.status.failed", "The file does not have the expected loc format.");
+
     public string SchemaProblemNotFound => T("schema.problem.notFound", "file not found");
 
     public string SchemaProblemUnreadable => T("schema.problem.unreadable", "file cannot be read");
@@ -164,6 +166,9 @@ public sealed partial class AppTexts
 
     public string TabStale => T("tab.stale", "The pack was changed on disk. This tab shows the old content.");
 
+    public string TabStaleSchema => T("tab.staleSchema",
+        "The schema changed. Close this tab and open the entry again to see it with the new schema.");
+
     /// <param name="tableName">Name of the table. Data, not a UI text.</param>
     /// <param name="version">Version of the table.</param>
     /// <param name="rowCount">Number of rows.</param>
@@ -187,6 +192,8 @@ public sealed partial class AppTexts
     public string TabTextTruncated(string shown, string total) => F("tab.text.truncated", "Only the first {0} of {1} are shown.", shown, total);
 
     public string TabInfoNotDecodable => T("tab.info.notDecodable", "This table cannot be decoded");
+
+    public string TabInfoLocNotDecodable => T("tab.info.locNotDecodable", "This loc file cannot be decoded");
 
     public string TabInfoNotSupported => T("tab.info.notSupported", "This file type is not supported");
 

@@ -2255,11 +2255,12 @@ Start mit `run.bat` (Debug-Build). Jeder Punkt: erwartet / tatsächlich.
 1. Start: Fenster erscheint sofort. Der Explorer zeigt kurz „Die Pack-Liste wird geladen“, danach drei Gruppen: Spiel, Mods im Datenordner, Workshop, je mit Anzahl. Statuszeile: „Spiel: Total War: WARHAMMER III“ und „Schema: mit der App geliefert, Datum“.
 2. Gruppe „Mods im Datenordner“ ist aufgeklappt und zeigt die sechs `flogi*.pack`. Workshop-Packs tragen die Workshop-ID in Klammern.
 3. Ein `flogi*.pack` aufklappen: Dateibaum erscheint, Ordner zuerst. Jedes der sechs öffnet ohne Fehler (Erfolgskriterium der Spec).
+3a. In einem aufgeklappten großen Pack (z. B. `data.pack`) mehrere Ordner aufklappen und weit scrollen: aufgeklappte Ordner bleiben aufgeklappt, keine fremden Ordner klappen auf. Die Zeile unter der Maus und die ausgewählte Zeile sind in beiden Themes lesbar. Doppelklick und Enter öffnen einen Eintrag.
 4. `data.pack` oder `db.pack` aufklappen: Baum erscheint; dauert es länger als einen Moment, erscheint das Fortschrittsfenster und verschwindet von selbst.
 5. `audio_base_m.pack`: trägt eine Markierung, Tooltip „Verschlüsseltes Pack, nicht unterstützt“.
 
 **Tabs**
-6. In `db.pack` eine Tabelle doppelklicken (z. B. `db/land_units_tables/data__`): Tab mit Raster, Kopfzeile mit Tabellenname, Version, Zeilenanzahl. Spaltenköpfe zeigen Unterstriche. Klick auf einen Spaltenkopf sortiert.
+6. In `db.pack` eine Tabelle doppelklicken (z. B. `db/land_units_tables/data__`): Tab mit Raster, Kopfzeile mit Tabellenname, Version, Zeilenanzahl. Spaltenköpfe zeigen Unterstriche. Klick auf einen Spaltenkopf sortiert. Der Pfeil im Spaltenkopf zeigt bei aufsteigender Sortierung nach oben.
 7. Breite Tabelle (z. B. `main_units_tables`): Zeit bis zur Anzeige notieren (Annahme 14, erwartet rund 1,2 s). Scrollen ist flüssig.
 8. Loc-Datei aus `local_en.pack` (die größte): Zeit bis zur Anzeige notieren (Annahme 5). Drei Spalten.
 9. Eine `.lua`-Datei: Text-Tab, nicht editierbar, Kodierung und Größe in der Kopfzeile. Eine Textdatei über 5 MB, falls vorhanden: Hinweis auf die Kürzung, Fenster bleibt bedienbar (Annahme 16).
@@ -2268,18 +2269,20 @@ Start mit `run.bat` (Debug-Build). Jeder Punkt: erwartet / tatsächlich.
 12. Denselben Eintrag zweimal öffnen: kein zweiter Tab, der vorhandene wird aktiv. Tab schließen mit dem Knopf, mit Mittelklick und mit Strg+W.
 
 **Session**
-13. Drei Tabs offen, ein Pack aufgeklappt, App schließen und neu starten: dieselben Tabs, derselbe aktive Tab, dasselbe Pack aufgeklappt. Beim Start erscheint kein Fortschrittsfenster.
+13. Drei Tabs offen, ein Pack aufgeklappt, App schließen und neu starten: dieselben Tabs, derselbe aktive Tab, dasselbe Pack aufgeklappt. Beim Start erscheint kein Fortschrittsfenster. Während des Wiederherstellens zeigt die Statuszeile „Wird geladen“; Aufklappen und Doppelklick wirken erst danach.
 14. App schließen, ein eigenes Test-Pack mit offenem Tab umbenennen, App starten: Der Tab fehlt, die anderen sind da, kein Fehlerdialog. Pack zurückbenennen.
+14a. App schließen, in `%APPDATA%\TotalWarModTool\games\warhammer_3\game-settings.json` einen Ordner ohne `data` eintragen, starten: Der Explorer zeigt die Meldung mit dem Knopf „Einstellungen öffnen“, es gibt keine Tabs, `session.json` bleibt unverändert. Der Knopf öffnet die Seite „Spiel“ mit der Fehlermeldung am Spielordner. „Automatisch erkennen“ wählen: Die Liste lädt, die Tabs und aufgeklappten Packs der letzten Sitzung erscheinen ohne Neustart.
 
 **Änderungen von außen**
-15. Ein eigenes Pack aufklappen, einen Eintrag öffnen, das Pack in RPFM ändern und speichern, in TWMT einen anderen Eintrag desselben Packs öffnen: Der neue Tab zeigt den neuen Stand, der alte Tab trägt die Markierung „veraltet“.
+15. Ein eigenes Pack aufklappen, einen Eintrag öffnen, das Pack in RPFM ändern und speichern, in TWMT einen anderen Eintrag desselben Packs öffnen: Der neue Tab zeigt den neuen Stand, der alte Tab trägt die Markierung „veraltet“. Gibt es den Eintrag im geänderten Pack nicht mehr, erscheint ein Hinweis-Tab statt eines Fehlerdialogs.
+15a. Ein Pack mit offenem Tab ändern, ohne dass es aufgeklappt ist, dann F5: Der Tab trägt die Markierung „veraltet“.
 16. Werkzeuge → Pack-Liste aktualisieren (oder F5): Fortschritt mit Zählstand bei kaltem Cache, die Liste stimmt danach. Abbrechen lässt die alte Liste stehen.
 17. Spiel starten, währenddessen in TWMT ein Vanilla-Pack aufklappen und eine Tabelle öffnen (Annahme 10): funktioniert, oder es erscheint eine verständliche Meldung, dass das Pack gesperrt ist.
 
 **Einstellungen**
 18. Einstellungen → Spiel: Spielordner leer, Info „Automatisch erkannt: …“. Einen falschen Ordner wählen: Meldung, dass der Ordner `data` fehlt; die Pack-Liste bleibt. Den richtigen Ordner wählen: Liste lädt neu. „Automatisch erkennen“: Feld leer, Liste wie vorher.
-19. Schema-Ordner auf den RPFM-Schema-Ordner (`%APPDATA%\FrodoWazEre\rpfm\config\schemas`) setzen: Status und Statuszeile zeigen „aus dem Schema-Ordner, Datum“. Auf einen leeren Ordner setzen: Hinweis in Statuszeile und Einstellungen, Tabellen öffnen weiter mit dem mitgelieferten Schema. „Mitgeliefertes Schema nutzen“ stellt zurück.
-20. Sprache auf Deutsch und zurück: Explorer-Gruppen, Statuszeile, Tab-Kopfzeilen und Hinweise wechseln sofort. Theme Hell / Dunkel: Raster, Explorer, Statuszeile und Tabs sind in beiden lesbar.
+19. Schema-Ordner auf den RPFM-Schema-Ordner (`%APPDATA%\FrodoWazEre\rpfm\config\schemas`) setzen: Status und Statuszeile zeigen „aus dem Schema-Ordner, Datum“. Auf einen leeren Ordner setzen: Hinweis in Statuszeile und Einstellungen, Tabellen öffnen weiter mit dem mitgelieferten Schema. „Mitgeliefertes Schema nutzen“ stellt zurück. Bereits offene Tabellen-Tabs tragen danach die Markierung „veraltet“ mit dem Hinweis auf das geänderte Schema; Tab schließen und neu öffnen zeigt das Ergebnis mit dem neuen Schema.
+20. Sprache auf Deutsch und zurück: Explorer-Gruppen, Explorer-Meldung, Statuszeile, Tab-Kopfzeilen, Hinweis-Tabs und die Meldungen der Seite „Spiel“ wechseln sofort. Die Tooltips der Pack-Knoten wechseln erst nach F5 (Backlog). Theme Hell / Dunkel: Raster, Explorer, Statuszeile und Tabs sind in beiden lesbar.
 
 **Schreibgrenze**
 21. Nach der Sitzung: Im Spielordner, im Workshop-Ordner und im RPFM-Ordner hat sich keine Datei geändert (Änderungsdatum der Ordner prüfen). Unter `%APPDATA%\TotalWarModTool\games\warhammer_3\` liegen `session.json` und, nach Punkt 18, `game-settings.json`.

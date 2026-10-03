@@ -102,7 +102,7 @@
             <DataTemplate DataType="{x:Type local:TabViewModel}">
                 <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding ToolTip}">
                     <Ellipse Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Theme.Warning}"
-                             ToolTip="{Binding DataContext.Texts.TabStale, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                             ToolTip="{Binding StaleText}"
                              Visibility="{Binding IsStale, Converter={StaticResource BoolToVisibility}}" />
                     <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
                     <Button Command="{Binding CloseCommand}" Margin="8,0,0,0" Padding="3" BorderThickness="0" Background="Transparent"

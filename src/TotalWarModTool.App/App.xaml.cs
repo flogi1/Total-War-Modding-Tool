@@ -140,9 +140,19 @@ public partial class App : Application
         // The main view model needs the way to open the settings window, and the settings window needs the main window as its owner.
         // The owner is only read when the window is opened, which is after mainWindow is set below.
         Window? mainWindow = null;
-        var settingsWindows = new SettingsWindowService(() => new SettingsWindow(settingsViewModel) { Owner = mainWindow });
+        var settingsWindows = new SettingsWindowService(() =>
+        {
+            // A window that is opened again shows the stored values, not what was typed into the one before.
+            settingsViewModel.ResetInputs();
+            return new SettingsWindow(settingsViewModel) { Owner = mainWindow };
+        });
 
-        var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace);
+        // The button of the explorer ("game not found") leads to the page "Game"; the menu entry keeps the page that was shown last.
+        var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace, () =>
+        {
+            settingsViewModel.SelectedCategory = SettingsViewModel.GameCategory;
+            settingsWindows.ShowOrActivate();
+        });
 
         SessionCoordinator? session = null;
         if (sessionStore is not null)

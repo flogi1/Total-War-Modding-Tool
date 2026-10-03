@@ -75,7 +75,8 @@ public sealed class SessionCoordinator
     /// Brings back the packs and tabs of the stored session, silently. Call once, after <see cref="WorkspaceController.LoadAsync"/>.
     /// When that is not possible (no catalog because the game was not found, or the controller reports "not restored"), the session is
     /// not touched and nothing is saved; the restore is tried again when a new catalog arrives. A call while a restore runs joins it, and
-    /// after a successful restore it does nothing. What no longer exists is left out (the controller logs each such case);
+    /// after a successful restore it does nothing. While a reload that a settings change asked for is parked, it does nothing either: the
+    /// change that follows that reload restores against the new catalog. What no longer exists is left out (the controller logs each such case);
     /// <see cref="Dirty"/> then comes once at the end.
     /// </summary>
     public Task RestoreAsync()
@@ -83,6 +84,11 @@ public sealed class SessionCoordinator
         if (_restored || _attempting)
         {
             return _current;
+        }
+
+        if (_workspace.HasPendingReload)
+        {
+            return Task.CompletedTask;
         }
 
         _current = AttemptAsync();
@@ -123,7 +129,11 @@ public sealed class SessionCoordinator
             }
 
             _restored = true;
-            if (result.Tabs.Count < _loaded.State.Tabs.Count || result.Packs.Count < _loaded.State.ExpandedPacks.Count)
+
+            // Once at the end: something was left out, or the user already had tabs or packs open that the stored session does not know.
+            var leftOut = result.Tabs.Count < _loaded.State.Tabs.Count || result.Packs.Count < _loaded.State.ExpandedPacks.Count;
+            var alreadyOpen = _tabs.Tabs.Count != result.Tabs.Count || _explorer.ExpandedPackPaths.Count != result.Packs.Count;
+            if (leftOut || alreadyOpen)
             {
                 Dirty?.Invoke(this, EventArgs.Empty);
             }

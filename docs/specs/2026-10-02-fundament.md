@@ -565,6 +565,7 @@ Festlegungen aus Plan 3:
   das erste. Ein Wähler kommt mit dem zweiten Profil (Backlog).
 - **Sprachwechsel.** Offene Tabs, Explorer und Statuszeile folgen einem Sprachwechsel sofort. Die
   Tooltips der Pack-Knoten erst nach dem nächsten Neuaufbau (Backlog).
+- **Schemawechsel.** Nach einer Änderung des Schemas werden offene Tabellen-Tabs als „veraltet“ markiert, mit eigenem Hinweis; sie werden nicht von selbst neu dekodiert.
 - **Unbekannte Dateitypen** werden nicht gelesen, nur ihre ersten Bytes (`ReadEntryInfo`); der
   Hinweis-Tab öffnet deshalb sofort, auch bei großen Dateien.
 

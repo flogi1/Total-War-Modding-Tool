@@ -1,5 +1,6 @@
 using System.Windows;
 using TotalWarModTool.Localization;
+using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
 using TotalWarModTool.Workspace;
 
@@ -204,6 +205,89 @@ public class MainViewModelWorkspaceTests
             Assert.Equal([true, false], vm.Tabs.Tabs.Select(t => t.IsStale));
             Assert.Equal("two!", Assert.IsType<TextTabViewModel>(vm.Tabs.Tabs[1]).Text);
         }
+    }
+
+    // Item A: the silent restore ignores clicks, so the user must see that the app is busy.
+    [Fact] public async Task The_status_line_says_loading_during_the_silent_restore_only()
+    {
+        var (game, c, vm) = Create(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            await c.LoadAsync();
+            Assert.Equal("Game: Test Game", vm.StatusGame);
+            var during = new List<string>();
+            c.Changed += (_, _) => { if (c.IsBusy) during.Add(vm.StatusGame); };
+            await c.RestoreAsync(SessionState.Empty);
+            Assert.Equal("Game: Test Game – Loading", Assert.Single(during));
+            Assert.Equal("Game: Test Game", vm.StatusGame);
+        }
+    }
+
+    // Item B
+    private const string SchemaStaleText = "The schema changed. Close this tab and open the entry again to see it with the new schema.";
+    private const string PackStaleText = "The pack was changed on disk. This tab shows the old content.";
+
+    private static string UseOtherSchemaInstance(TestGame game)
+    {
+        var folder = game.Root.File("override"); Directory.CreateDirectory(folder);
+        File.Copy(Path.Combine(game.Paths.SchemasDirectory, "schema_test.ron"), Path.Combine(folder, "schema_test.ron"));
+        return folder;
+    }
+
+    [Fact] public async Task A_schema_reload_marks_open_table_tabs_but_not_text_tabs_and_new_tabs_are_fresh()
+    {
+        var (game, c, vm) = Create(g => g.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes), ("db/y_tables/data__", TestGame.TableBytes),
+            ("db/x_tables/more__", TestGame.TableBytes), ("a.txt", "one"u8.ToArray())));
+        using (game)
+        {
+            await c.LoadAsync();
+            var pack = Pack(c, "a.pack");
+            foreach (var entry in new[] { "db/x_tables/data__", "db/y_tables/data__", "a.txt" })
+            {
+                await vm.OpenEntryAsync(pack, entry);
+            }
+
+            Assert.IsType<TableTabViewModel>(vm.Tabs.Tabs[0]); Assert.IsType<InfoTabViewModel>(vm.Tabs.Tabs[1]); Assert.IsType<TextTabViewModel>(vm.Tabs.Tabs[2]);
+            Assert.Equal([false, false, false], vm.Tabs.Tabs.Select(t => t.IsStale));
+
+            game.Settings.SchemaFolder = UseOtherSchemaInstance(game);                  // the fake runner reloads the schema at once
+            Assert.Equal([true, true, false], vm.Tabs.Tabs.Select(t => t.IsStale));
+            Assert.Equal([SchemaStaleText, SchemaStaleText, ""], vm.Tabs.Tabs.Select(t => t.StaleText));
+
+            await vm.OpenEntryAsync(pack, "db/x_tables/more__");
+            Assert.False(vm.Tabs.Tabs[3].IsStale);
+        }
+    }
+
+    [Fact] public async Task A_pack_change_after_a_schema_change_switches_the_hint_to_the_pack_text()
+    {
+        var (game, c, vm) = Create(g => g.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes), ("b.txt", "two"u8.ToArray())));
+        using (game)
+        {
+            await c.LoadAsync();
+            var pack = Pack(c, "a.pack");
+            await vm.OpenEntryAsync(pack, "db/x_tables/data__");
+            game.Settings.SchemaFolder = UseOtherSchemaInstance(game);
+            Assert.Equal(SchemaStaleText, vm.Tabs.Tabs[0].StaleText);
+
+            new PackBuilder().AddEntry("db/x_tables/data__", TestGame.TableBytes).AddEntry("b.txt", "two!!!"u8.ToArray()).WriteTo(pack.Path);
+            await vm.OpenEntryAsync(pack, "b.txt");
+            Assert.Equal((true, PackStaleText), (vm.Tabs.Tabs[0].IsStale, vm.Tabs.Tabs[0].StaleText));
+        }
+    }
+
+    // Item H.2: the button of the explorer leads to the page "Game"; the menu entry keeps its own action.
+    [Fact] public void The_explorer_has_its_own_settings_action_when_one_is_given_else_it_shares_the_menu_action()
+    {
+        using var game = new TestGame(); var c = game.NewController();
+        var calls = new List<string>();
+        var vm = new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => calls.Add("menu"), c, () => calls.Add("game"));
+        vm.Explorer.OpenSettingsCommand.Execute(null); vm.OpenSettingsCommand.Execute(null);
+        Assert.Equal(["game", "menu"], calls);
+
+        var shared = new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => calls.Add("shared"), c);
+        shared.Explorer.OpenSettingsCommand.Execute(null);
+        Assert.Equal("shared", calls[^1]);
     }
 
     // The status line and the explorer both follow a language switch (the explorer has its own test).

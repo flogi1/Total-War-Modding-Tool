@@ -179,6 +179,82 @@ public class SettingsViewModelGameTests
         }
     }
 
+    // Item D.2: a committed folder is stored the way Windows writes it, so the same folder is never stored in two spellings of the separators.
+    [Fact] public async Task A_committed_game_folder_is_stored_normalised()
+    {
+        var (game, c, vm, _) = await Create();
+        using (game)
+        {
+            var second = game.Root.File("second"); Directory.CreateDirectory(Path.Combine(second, "packs"));
+            vm.GamePath = second.Replace('\\', '/') + "/";
+            Assert.Equal((second, second, GameStatus.Found), (game.GameSettings.InstallPath, vm.GamePath, c.Status));
+            Assert.Null(vm.GamePathError);
+        }
+    }
+
+    [Fact] public async Task A_game_folder_that_cannot_be_a_path_is_rejected_as_invalid()
+    {
+        var (game, _, vm, _) = await Create();
+        using (game)
+        {
+            vm.GamePath = "folder\0name";
+            Assert.NotNull(vm.GamePathError);
+            Assert.Equal(game.InstallPath, game.GameSettings.InstallPath);
+        }
+    }
+
+    [Fact] public async Task A_committed_schema_folder_is_stored_normalised_and_one_that_cannot_be_a_path_is_rejected()
+    {
+        var (game, _, vm, _) = await Create();
+        using (game)
+        {
+            var folder = game.Root.File("schemas"); Directory.CreateDirectory(folder);
+            vm.SchemaFolder = folder.Replace('\\', '/') + "/";
+            Assert.Equal((folder, folder, (string?)null), (game.Settings.SchemaFolder, vm.SchemaFolder, vm.SchemaFolderError));
+            vm.SchemaFolder = "folder\0name";
+            Assert.Equal(("This folder does not exist.", folder), (vm.SchemaFolderError, game.Settings.SchemaFolder));
+        }
+    }
+
+    // Item H.1: the folder in game-settings.json can be wrong from the start; the page says so without being asked to commit anything.
+    [Fact] public async Task A_stored_game_folder_without_a_data_folder_shows_the_message_until_it_is_fixed_or_cleared()
+    {
+        using var game = new TestGame(); game.AddPack("a.pack");
+        var stored = game.Root.File("elsewhere"); Directory.CreateDirectory(stored);
+        game.GameSettings.InstallPath = stored;
+        var c = game.NewController(); await c.LoadAsync();
+        var vm = new SettingsViewModel(game.Settings, game.Texts, [new("en", "English")], game.GameSettings, c, _ => null);
+        const string message = "This folder has no \"packs\" folder. Choose the folder that contains it.";
+        Assert.Equal((stored, message), (vm.GamePath, vm.GamePathError));
+
+        vm.GamePath = game.InstallPath;                                                // fixed
+        Assert.Equal(((string?)null, game.InstallPath), (vm.GamePathError, vm.GamePath));
+
+        game.GameSettings.InstallPath = stored;                                        // wrong again, from outside
+        Assert.Equal((stored, message), (vm.GamePath, vm.GamePathError));
+        vm.ClearGamePathCommand.Execute(null);                                         // cleared
+        Assert.Equal(((string?)null, ""), (vm.GamePathError, vm.GamePath));
+    }
+
+    // Item H.3: a window that is opened again must not show what was typed into the one before.
+    [Fact] public async Task ResetInputs_shows_the_stored_values_again()
+    {
+        var (game, _, vm, _) = await Create();
+        using (game)
+        {
+            vm.GamePath = game.Root.File("wrong");
+            vm.SchemaFolder = game.Root.File("missing");
+            Assert.NotNull(vm.GamePathError); Assert.NotNull(vm.SchemaFolderError);
+            var changed = new List<string?>(); vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+            vm.ResetInputs();
+
+            Assert.Equal((game.InstallPath, (string?)null, "", (string?)null), (vm.GamePath, vm.GamePathError, vm.SchemaFolder, vm.SchemaFolderError));
+            Assert.All(new[] { nameof(SettingsViewModel.GamePath), nameof(SettingsViewModel.GamePathError), nameof(SettingsViewModel.SchemaFolder),
+                nameof(SettingsViewModel.SchemaFolderError) }, name => Assert.Contains(name, changed));
+        }
+    }
+
     [Fact] public void Without_a_profile_the_game_controls_are_off()
     {
         using var game = new TestGame();

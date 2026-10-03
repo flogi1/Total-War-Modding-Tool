@@ -100,6 +100,9 @@ public sealed class WorkspaceController
     /// <summary>True during <see cref="LoadAsync"/> and <see cref="RestoreAsync"/>, the silent runs.</summary>
     public bool IsBusy { get; private set; }
 
+    /// <summary>True while a reload that a settings change asked for is parked because a run was busy; it starts when that run ends and raises <see cref="Changed"/> then.</summary>
+    public bool HasPendingReload => _pendingRefresh || _pendingSchemaReload;
+
     public bool CanStartOperation => !IsBusy && !_runner.IsRunning;
 
     /// <summary>Status, location, catalog, schema or <see cref="IsBusy"/> changed.</summary>
@@ -136,7 +139,10 @@ public sealed class WorkspaceController
         catch (Exception ex)
         {
             _log.Error("Loading the game failed.", ex);
-            Catalog = null;
+            if (_generation == generation)
+            {
+                Catalog = null;
+            }
         }
         finally
         {
@@ -383,39 +389,10 @@ public sealed class WorkspaceController
             {
                 // Packs and tabs of an older pack list or schema must not come back.
                 _log.Info("Session restore skipped: the pack list or the schema changed in the meantime.");
-                return null;
             }
-
-            foreach (var restoredPack in restored.Result.Packs)
+            else
             {
-                _cache[restoredPack.Pack.Path] = restoredPack.Content;
-                _indexProblems.Remove(restoredPack.Pack.Path);
-            }
-
-            foreach (var (isWarning, text) in restored.Notes)
-            {
-                if (isWarning)
-                {
-                    _log.Warn(text);
-                }
-                else
-                {
-                    _log.Info(text);
-                }
-            }
-
-            foreach (var tab in restored.Result.Tabs)
-            {
-                LogEntryProblem(tab.Pack, tab.Entry);
-            }
-
-            result = restored.Result;
-            foreach (var (readPack, fingerprint) in restored.Fingerprints)
-            {
-                if (NoticeFingerprint(readPack.Path, fingerprint))
-                {
-                    RaisePackChanged(readPack, "its file differs from the last state seen");
-                }
+                result = ApplyRestore(restored);
             }
         }
         catch (Exception ex)
@@ -430,6 +407,43 @@ public sealed class WorkspaceController
 
         _ = RunPending();
         return result;
+    }
+
+    // Applies what a restore read: caches the open packs, logs what was left out and notices changed packs. Returns the result for the caller.
+    private RestoreResult ApplyRestore(RestoreRun restored)
+    {
+        foreach (var restoredPack in restored.Result.Packs)
+        {
+            _cache[restoredPack.Pack.Path] = restoredPack.Content;
+            _indexProblems.Remove(restoredPack.Pack.Path);
+        }
+
+        foreach (var (isWarning, text) in restored.Notes)
+        {
+            if (isWarning)
+            {
+                _log.Warn(text);
+            }
+            else
+            {
+                _log.Info(text);
+            }
+        }
+
+        foreach (var tab in restored.Result.Tabs)
+        {
+            LogEntryProblem(tab.Pack, tab.Entry);
+        }
+
+        foreach (var (readPack, fingerprint) in restored.Fingerprints)
+        {
+            if (NoticeFingerprint(readPack.Path, fingerprint))
+            {
+                RaisePackChanged(readPack, "its file differs from the last state seen");
+            }
+        }
+
+        return restored.Result;
     }
 
     // ---- state -----------------------------------------------------------------------------------------------------------------
@@ -481,7 +495,7 @@ public sealed class WorkspaceController
             {
                 _cache.Remove(path);
             }
-            else if (current.Fingerprint != content.Index.Fingerprint)
+            else if (current.Fingerprint is not { } fingerprint || !SameFile(fingerprint, content.Index.Fingerprint))
             {
                 _cache.Remove(path);
                 changed.Add(current);
@@ -766,7 +780,7 @@ public sealed class WorkspaceController
         }
 
         var freshFingerprint = cached is null ? index.Fingerprint : null;
-        var first = OpenFrom(index, entryPath, schema, cancellationToken);
+        var first = OpenFrom(index, entryPath, schema, EntryProblem.Corrupt, cancellationToken);
         if (first.ReadProblem != EntryProblem.PackChanged)
         {
             return new EntryRun(first, false, null, Fingerprint: freshFingerprint);
@@ -780,13 +794,15 @@ public sealed class WorkspaceController
         }
 
         var replacement = cached is null ? null : new PackContent(newIndex, PackTree.Build(newIndex.Entries, cancellationToken));
-        return new EntryRun(OpenFrom(newIndex, entryPath, schema, cancellationToken), true, replacement, Fingerprint: newIndex.Fingerprint);
+        return new EntryRun(OpenFrom(newIndex, entryPath, schema, EntryProblem.PackChanged, cancellationToken), true, replacement,
+            Fingerprint: newIndex.Fingerprint);
     }
 
-    private static OpenedEntry OpenFrom(PackIndex index, string entryPath, GameSchema? schema, CancellationToken cancellationToken) =>
+    // An entry that is not in the index is damaged, unless the index was read again because the pack changed: then the pack changed under it.
+    private static OpenedEntry OpenFrom(PackIndex index, string entryPath, GameSchema? schema, EntryProblem missing, CancellationToken cancellationToken) =>
         index.Find(entryPath) is { } entry
             ? EntryOpener.Open(index, entry, schema, cancellationToken)
-            : ProblemEntry(entryPath, EntryProblem.Corrupt, EntryMissingDetail);
+            : ProblemEntry(entryPath, missing, EntryMissingDetail);
 
     // The index of a pack that is not open could not be read: the entry shows it as the matching entry problem.
     private static OpenedEntry IndexProblemEntry(string entryPath, PackIndexResult read) =>

@@ -547,6 +547,66 @@ public class WorkspaceControllerTests
         Assert.Equal(["a.pack", "b.pack"], changed);
     }
 
+    // ---- final fix wave ------------------------------------------------------------------------------------------------------------
+
+    // Item D.1: the same file is the same file, however the path of the install folder is spelled.
+    [Fact] public async Task A_refresh_with_a_differently_spelled_install_path_keeps_the_indexes_and_reports_no_change()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var spelledBefore = Pack(c, "a.pack").Path;
+        var content = await c.OpenPackAsync(Pack(c, "a.pack"));
+        var changed = new List<string>(); c.PackChanged += (_, p) => changed.Add(p.Name);
+
+        game.GameSettings.InstallPath = game.InstallPath.ToUpperInvariant();       // refreshed at once by the fake runner
+
+        Assert.Equal(["Open a.pack", "Refresh pack list"], game.Runner.Titles);
+        Assert.NotEqual(spelledBefore, Pack(c, "a.pack").Path);                    // the catalog has the other spelling now
+        Assert.Same(content, c.OpenContent(Pack(c, "a.pack")));
+        Assert.Empty(changed);
+    }
+
+    // Item E
+    [Fact] public async Task A_reload_wish_during_the_silent_load_is_pending_until_the_reload_ran()
+    {
+        using var game = new TestGame();
+        var c = game.NewController();
+        var asked = false; var pendingDuringLoad = false;
+        c.Changed += (_, _) =>
+        {
+            if (c.IsBusy && !asked)
+            {
+                asked = true;
+                game.Settings.SchemaFolder = game.Root.File("no-schemas");   // the controller is busy: the wish is parked
+                pendingDuringLoad = c.HasPendingReload;
+            }
+        };
+        Assert.False(c.HasPendingReload);
+        await c.LoadAsync();
+        Assert.True(pendingDuringLoad);
+        Assert.False(c.HasPendingReload);
+    }
+
+    // Item I.2: a pack that changed under an open index no longer has the entry: that is a pack change, not a damaged entry.
+    [Fact] public async Task An_entry_that_is_gone_from_a_pack_that_changed_is_reported_as_a_pack_change()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", "old"u8.ToArray()), ("b.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+        await c.OpenPackAsync(pack);
+        var changed = new List<PackSource>(); c.PackChanged += (_, p) => changed.Add(p);
+        new PackBuilder().AddEntry("b.txt", [1, 2]).WriteTo(path);
+
+        var opened = await c.OpenEntryAsync(pack, "a.txt");
+
+        Assert.Equal(EntryProblem.PackChanged, opened!.ReadProblem);
+        Assert.Equal(pack, Assert.Single(changed));
+    }
+
     // ---- a restore that did not happen -------------------------------------------------------------------------------------------
 
     [Fact] public async Task A_restore_that_fails_returns_null_and_logs_the_error()

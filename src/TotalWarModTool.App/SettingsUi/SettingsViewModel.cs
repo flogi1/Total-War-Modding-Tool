@@ -80,7 +80,10 @@ public sealed class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<UiLanguageOption> Languages { get; }
 
-    /// <summary>The chosen page of the window: 0 General, 1 Game.</summary>
+    /// <summary>The page "Game" of the window, see <see cref="SelectedCategory"/>.</summary>
+    public const int GameCategory = 1;
+
+    /// <summary>The chosen page of the window: 0 General, 1 Game (<see cref="GameCategory"/>).</summary>
     public int SelectedCategory
     {
         get => _selectedCategory;
@@ -111,9 +114,16 @@ public sealed class SettingsViewModel : ObservableObject
         set => CommitGamePath(value);
     }
 
-    /// <summary>Why the last input of <see cref="GamePath"/> was rejected; null when it was not.</summary>
+    /// <summary>
+    /// Why the last input of <see cref="GamePath"/> was rejected, or why the stored game folder shown in the box has no data folder; null when
+    /// there is nothing to say.
+    /// </summary>
     public string? GamePathError =>
-        _gamePathInvalid && _workspace.Profile is { } profile ? Texts.SettingsGamePathInvalid(profile.DataFolder) : null;
+        (_gamePathInvalid || StoredPathInvalid) && _workspace.Profile is { } profile ? Texts.SettingsGamePathInvalid(profile.DataFolder) : null;
+
+    // The box shows the stored folder (the user has not typed something else) and the workspace found no data folder in it.
+    private bool StoredPathInvalid =>
+        _workspace.ManualPathInvalid && _gameSettings.InstallPath is { } stored && string.Equals(_gamePath, stored, StringComparison.Ordinal);
 
     /// <summary>What the automatic detection found, or that it found nothing; empty while a manual folder is set.</summary>
     public string GamePathInfo
@@ -156,6 +166,18 @@ public sealed class SettingsViewModel : ObservableObject
                 ? Texts.SettingsSchemaStatusOverrideFailed(source, profile.SchemaFile, Texts.SchemaProblemText(failed.Problem))
                 : Texts.SettingsSchemaStatus(source);
         }
+    }
+
+    /// <summary>
+    /// Shows the stored values in the two path boxes and forgets the input that was rejected. Called when a settings window is opened, so it
+    /// does not show what was typed into the window before.
+    /// </summary>
+    public void ResetInputs()
+    {
+        _gamePathInvalid = false;
+        _schemaFolderMissing = false;
+        ShowGameSetting();
+        ShowSchemaFolderSetting();
     }
 
     public ICommand BrowseSchemaFolderCommand { get; }
@@ -240,7 +262,7 @@ public sealed class SettingsViewModel : ObservableObject
             _gamePathInvalid = false;
             _gameSettings.InstallPath = null;
         }
-        else if (GameLocator.FromInstallPath(profile, text) is null)
+        else if (Normalize(text) is not { } folder || GameLocator.FromInstallPath(profile, folder) is null)
         {
             // The box keeps what was typed, the setting stays: the user can see and correct the input.
             _gamePath = text;
@@ -252,7 +274,7 @@ public sealed class SettingsViewModel : ObservableObject
         else
         {
             _gamePathInvalid = false;
-            _gameSettings.InstallPath = text;
+            _gameSettings.InstallPath = folder;
         }
 
         ShowGameSetting();
@@ -285,18 +307,36 @@ public sealed class SettingsViewModel : ObservableObject
     private void CommitSchemaFolder(string? input)
     {
         var text = input?.Trim() ?? string.Empty;
-        if (text.Length > 0 && !Directory.Exists(text))
+        string? folder = null;
+        if (text.Length > 0)
         {
-            _schemaFolder = text;
-            _schemaFolderMissing = true;
-            OnPropertyChanged(nameof(SchemaFolder));
-            OnPropertyChanged(nameof(SchemaFolderError));
-            return;
+            folder = Normalize(text);
+            if (folder is null || !Directory.Exists(folder))
+            {
+                _schemaFolder = text;
+                _schemaFolderMissing = true;
+                OnPropertyChanged(nameof(SchemaFolder));
+                OnPropertyChanged(nameof(SchemaFolderError));
+                return;
+            }
         }
 
         _schemaFolderMissing = false;
-        _settings.SchemaFolder = text.Length == 0 ? null : text;
+        _settings.SchemaFolder = folder;
         ShowSchemaFolderSetting();
+    }
+
+    // The folder as it is stored: full path, without a trailing separator. Null for text that cannot be a path.
+    private static string? Normalize(string text)
+    {
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(text));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     private void BrowseSchemaFolder()
