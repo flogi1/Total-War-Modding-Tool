@@ -1107,16 +1107,17 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.ControlHover}" />
                         </Trigger>
+                        <!-- The path is a triangle with its tip on top: that is ascending; descending turns it around. -->
                         <Trigger Property="SortDirection" Value="Ascending">
+                            <Setter TargetName="SortArrow" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="SortDirection" Value="Descending">
                             <Setter TargetName="SortArrow" Property="Visibility" Value="Visible" />
                             <Setter TargetName="SortArrow" Property="RenderTransform">
                                 <Setter.Value>
                                     <ScaleTransform ScaleY="-1" CenterY="2" />
                                 </Setter.Value>
                             </Setter>
-                        </Trigger>
-                        <Trigger Property="SortDirection" Value="Descending">
-                            <Setter TargetName="SortArrow" Property="Visibility" Value="Visible" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

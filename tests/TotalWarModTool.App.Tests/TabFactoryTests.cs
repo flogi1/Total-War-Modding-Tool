@@ -1,0 +1,80 @@
+using TotalWarModTool.Localization;
+using TotalWarModTool.PackFiles;
+using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
+using TotalWarModTool.Workspace;
+
+namespace TotalWarModTool.App.Tests;
+
+public class TabFactoryTests
+{
+    private static readonly AppTexts Texts = new(new UiText(@"X:\none"));
+    private static readonly PackSource Pack = new(@"D:\data\a.pack", "a.pack", PackOrigin.DataFolderMod, null, null, null, PackProblem.None, null);
+    private static OpenedEntry Entry(string path, EntryKind kind, EntryProblem problem = EntryProblem.None, string? detail = null, bool schemaMissing = false,
+        DecodedTable? table = null, DecodedLoc? loc = null, TextContent? text = null, CompressionFormat format = CompressionFormat.None, long stored = 10, long size = 20) =>
+        new(path, kind, stored, size, format, problem, detail, schemaMissing, table, loc, text);
+    private static TabViewModel Create(OpenedEntry e, ResolvedSchema? schema = null) => TabFactory.Create(Pack, e, schema, Texts, _ => { });
+    private static readonly TableDefinition Def = new(3, [new("unit_key", FieldType.StringU8, "StringU8", true, null), new("cost", FieldType.I32, "I32", false, null)]);
+
+    [Theory]
+    [InlineData(0, "0 B")] [InlineData(1023, "1023 B")] [InlineData(1024, "1.0 KB")] [InlineData(1536, "1.5 KB")]
+    [InlineData(5 * 1024 * 1024, "5.0 MB")] [InlineData(1181116006, "1.1 GB")]
+    public void FormatSize_uses_binary_units(long bytes, string expected) => Assert.Equal(expected, TabFactory.FormatSize(bytes));
+
+    [Fact] public void Table_tab_has_columns_rows_and_header()
+    {
+        var table = new DecodedTable(TableDecodeStatus.Ok, "units_tables", 3, false, Def, [["a", 1], ["b", 2]], null);
+        var tab = Assert.IsType<TableTabViewModel>(Create(Entry("db/units_tables/data__", EntryKind.Table, table: table)));
+        Assert.Equal(("data__", "a.pack: db/units_tables/data__", "units_tables, version 3, 2 row(s)", Pack.Path), (tab.Title, tab.ToolTip, tab.Header, tab.PackPath));
+        Assert.Equal(["unit_key", "cost"], tab.Columns);
+        Assert.Equal(2, tab.Rows.Count);
+    }
+
+    [Fact] public void Table_that_does_not_decode_becomes_an_info_tab_with_table_version_and_schema()
+    {
+        var table = new DecodedTable(TableDecodeStatus.VersionNotInSchema, "units_tables", 9, false, null, [], "Version 9 is not in the schema.");
+        var schema = new ResolvedSchema(null, SchemaOrigin.Shipped, @"X:\s.ron", new DateTime(2026, 9, 24, 12, 0, 0, DateTimeKind.Local).ToUniversalTime(), null, null);
+        var tab = Assert.IsType<InfoTabViewModel>(Create(Entry("db/units_tables/data__", EntryKind.Table, table: table, format: CompressionFormat.Zstd), schema));
+        Assert.Equal(("This table cannot be decoded", "The schema does not know this version of the table."), (tab.Heading, tab.Reason));
+        Assert.Equal([new("Table", "units_tables"), new("Version", "9"), new("Size in the pack", "10 B"), new("Size", "20 B"), new("Compression", "zstd"),
+            new("Schema", "shipped with the app, 2026-09-24"), new InfoLine("Technical detail", "Version 9 is not in the schema.")], tab.Lines);
+    }
+
+    [Fact] public void Table_without_schema_names_the_missing_schema()
+    {
+        var tab = Assert.IsType<InfoTabViewModel>(Create(Entry("db/units_tables/data__", EntryKind.Table, schemaMissing: true)));
+        Assert.StartsWith("No schema is loaded", tab.Reason);
+        Assert.Contains(new InfoLine("Schema", "none"), tab.Lines);
+        Assert.DoesNotContain(tab.Lines, l => l.Label == "Version");
+    }
+
+    [Fact] public void Unsupported_type_lists_type_sizes_and_compression()
+    {
+        var tab = Assert.IsType<InfoTabViewModel>(Create(Entry("movies/Intro.CA_VP8", EntryKind.Other, format: CompressionFormat.Lz4, stored: 2048, size: 4096)));
+        Assert.Equal(("This file type is not supported", ""), (tab.Heading, tab.Reason));
+        Assert.Equal([new("Type", ".ca_vp8"), new("Size in the pack", "2.0 KB"), new("Size", "4.0 KB"), new InfoLine("Compression", "LZ4")], tab.Lines);
+    }
+
+    [Fact] public void Read_problem_wins_over_the_kind()
+    {
+        var tab = Assert.IsType<InfoTabViewModel>(Create(Entry("script/main.lua", EntryKind.Text, EntryProblem.UnsupportedCompression, "LZMA is not supported.", format: CompressionFormat.Lzma)));
+        Assert.Equal(("This entry cannot be opened", "This compression format is not supported yet."), (tab.Heading, tab.Reason));
+        Assert.Contains(new InfoLine("Compression", "LZMA"), tab.Lines);
+        Assert.Contains(new InfoLine("Technical detail", "LZMA is not supported."), tab.Lines);
+    }
+
+    [Fact] public void Loc_and_text_tabs()
+    {
+        var loc = Assert.IsType<LocTabViewModel>(Create(Entry("text/names.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Ok, [new("k", "t", false)], null))));
+        Assert.Equal(("1 row(s)", 1), (loc.Header, loc.Rows.Count));
+        var failedLoc = Assert.IsType<InfoTabViewModel>(Create(Entry("text/names.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Failed, [], "short"))));
+        Assert.Equal("This table cannot be decoded", failedLoc.Heading);
+        var text = Assert.IsType<TextTabViewModel>(Create(Entry("a.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", false, 2))));
+        Assert.Equal(("hi", "UTF-8, 2 B", (string?)null), (text.Text, text.Header, text.Notice));
+        var big = Assert.IsType<TextTabViewModel>(Create(Entry("a.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", true, 8 * 1024 * 1024))));
+        Assert.Equal("Only the first 5.0 MB of 8.0 MB are shown.", big.Notice);
+    }
+
+    [Fact] public void File_without_extension_says_so() =>
+        Assert.Contains(new InfoLine("Type", "(no extension)"), Assert.IsType<InfoTabViewModel>(Create(Entry("misc/blob", EntryKind.Other))).Lines);
+}

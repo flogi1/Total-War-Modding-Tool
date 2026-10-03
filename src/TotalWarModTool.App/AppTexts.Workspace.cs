@@ -1,3 +1,4 @@
+using System.Globalization;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
@@ -133,6 +134,83 @@ public sealed partial class AppTexts
         SchemaProblem.InvalidStructure => SchemaProblemInvalidStructure,
         _ => string.Empty,
     };
+
+    public string TabClose => T("tab.close", "Close");
+
+    public string TabStale => T("tab.stale", "The pack was changed on disk. This tab shows the old content.");
+
+    /// <param name="tableName">Name of the table. Data, not a UI text.</param>
+    /// <param name="version">Version of the table.</param>
+    /// <param name="rowCount">Number of rows.</param>
+    public string TabTableHeader(string tableName, int version, int rowCount) =>
+        F("tab.table.header", "{0}, version {1}, {2} row(s)", tableName, version, rowCount);
+
+    public string TabLocHeader(int rowCount) => F("tab.loc.header", "{0} row(s)", rowCount);
+
+    public string TabLocKey => T("tab.loc.key", "Key");
+
+    public string TabLocText => T("tab.loc.text", "Text");
+
+    public string TabLocTooltip => T("tab.loc.tooltip", "Tooltip");
+
+    /// <param name="encodingName">Name of the text encoding. Data, not a UI text.</param>
+    /// <param name="size">Size of the text, e.g. "2.0 KB".</param>
+    public string TabTextHeader(string encodingName, string size) => F("tab.text.header", "{0}, {1}", encodingName, size);
+
+    /// <param name="shown">Size of the part that is shown, e.g. "5.0 MB".</param>
+    /// <param name="total">Size of the whole text.</param>
+    public string TabTextTruncated(string shown, string total) => F("tab.text.truncated", "Only the first {0} of {1} are shown.", shown, total);
+
+    public string TabInfoNotDecodable => T("tab.info.notDecodable", "This table cannot be decoded");
+
+    public string TabInfoNotSupported => T("tab.info.notSupported", "This file type is not supported");
+
+    public string TabInfoNotReadable => T("tab.info.notReadable", "This entry cannot be opened");
+
+    public string TabInfoNoSchema => T("tab.info.noSchema",
+        "No schema is loaded, so tables cannot be decoded. Check the schema folder in the settings.");
+
+    public string TabInfoType => T("tab.info.type", "Type");
+
+    public string TabInfoTypeNone => T("tab.info.type.none", "(no extension)");
+
+    public string TabInfoStoredSize => T("tab.info.storedSize", "Size in the pack");
+
+    public string TabInfoSize => T("tab.info.size", "Size");
+
+    public string TabInfoCompression => T("tab.info.compression", "Compression");
+
+    public string TabInfoCompressionNone => T("tab.info.compression.none", "none");
+
+    public string TabInfoCompressionUnknown => T("tab.info.compression.unknown", "unknown");
+
+    public string TabInfoTable => T("tab.info.table", "Table");
+
+    public string TabInfoVersion => T("tab.info.version", "Version");
+
+    public string TabInfoSchema => T("tab.info.schema", "Schema");
+
+    public string TabInfoDetail => T("tab.info.detail", "Technical detail");
+
+    /// <param name="date">Date of the schema file, <c>yyyy-MM-dd</c>.</param>
+    public string SchemaSourceShipped(string date) => F("schema.source.shipped", "shipped with the app, {0}", date);
+
+    /// <param name="date">Date of the schema file, <c>yyyy-MM-dd</c>.</param>
+    public string SchemaSourceOverride(string date) => F("schema.source.override", "from the schema folder, {0}", date);
+
+    public string SchemaSourceNone => T("schema.source.none", "none");
+
+    /// <summary>Where the schema comes from, with the date of its file in local time; "none" without a schema.</summary>
+    public string SchemaSourceText(ResolvedSchema? schema)
+    {
+        var date = schema?.FileDateUtc?.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        return schema?.Origin switch
+        {
+            SchemaOrigin.Shipped => SchemaSourceShipped(date),
+            SchemaOrigin.Override => SchemaSourceOverride(date),
+            _ => SchemaSourceNone,
+        };
+    }
 
     public string OriginName(PackOrigin origin) => origin switch
     {

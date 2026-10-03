@@ -114,6 +114,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Plan 3: Zellformen: Zeilen sind `object?[]`; `ColourRgb` ist ein Hex-Text; fehlendes `OptionalStringU8` ist ein leerer Text; das Loc-Flag heißt `Tooltip`.
 
 - Plan 3: Der Explorer baut Gruppennamen, Tooltips und Meldungen beim Aufbau des Baums in der aktuellen Sprache. Ein Sprachwechsel zur Laufzeit zeigt sie erst nach dem nächsten Neuaufbau (Aktualisieren) in der neuen Sprache.
+- Plan 3: Die Tabs bauen Kopfzeile, Überschrift, Grund und Tooltip beim Öffnen in der aktuellen Sprache. Ein Sprachwechsel zur Laufzeit zeigt sie in offenen Tabs erst nach erneutem Öffnen (Spaltenköpfe der Loc-Tabelle und Tooltips der Tab-Leiste folgen dem Wechsel sofort).
 - Plan 3: Lange Tooltips der Pack-Knoten (Problemtext plus technisches Detail) brechen nicht um.
 
 == Wartet auf ein öffentliches Remote ==

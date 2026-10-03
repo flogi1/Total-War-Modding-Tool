@@ -1,0 +1,117 @@
+<UserControl x:Class="TotalWarModTool.App.TabsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:TotalWarModTool.App">
+    <!--
+        DataContext is the TabsViewModel. The content of a tab comes from the data template of its view model type. The texts of the view
+        (tooltips, column headers) are read through TabsViewModel.Texts, so they follow a change of the language.
+    -->
+    <UserControl.InputBindings>
+        <KeyBinding Key="W" Modifiers="Control" Command="{Binding CloseSelectedCommand}" />
+    </UserControl.InputBindings>
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <!-- A table: the line above the grid, then the grid. The grid builds its columns from the names. -->
+        <DataTemplate DataType="{x:Type local:TableTabViewModel}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
+                <local:TableGrid ColumnNames="{Binding Columns}" ItemsSource="{Binding Rows}" />
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- A loc file: three fixed columns. The headers are elements so that they can read the texts of the view. -->
+        <DataTemplate DataType="{x:Type local:LocTabViewModel}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
+                <local:TableGrid ItemsSource="{Binding Rows}">
+                    <local:TableGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding Key, Mode=OneWay}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="{Binding DataContext.Texts.TabLocKey, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding Text, Mode=OneWay}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="{Binding DataContext.Texts.TabLocText, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridCheckBoxColumn Binding="{Binding Tooltip, Mode=OneWay}" IsReadOnly="True">
+                            <DataGridCheckBoxColumn.Header>
+                                <TextBlock Text="{Binding DataContext.Texts.TabLocTooltip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                            </DataGridCheckBoxColumn.Header>
+                        </DataGridCheckBoxColumn>
+                    </local:TableGrid.Columns>
+                </local:TableGrid>
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- A text: the notice (only when the text was cut) in the colour of a warning, then the text without wrapping. -->
+        <DataTemplate DataType="{x:Type local:TextTabViewModel}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Notice}" Margin="6,0,6,4" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Theme.Warning}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Notice}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" />
+            </DockPanel>
+        </DataTemplate>
+
+        <!-- A hint: heading, reason, then label and value per line. The values are read-only boxes so that they can be selected and copied. -->
+        <DataTemplate DataType="{x:Type local:InfoTabViewModel}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="12">
+                    <TextBlock Text="{Binding Heading}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Reason}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <ItemsControl ItemsSource="{Binding Lines}" Grid.IsSharedSizeScope="True" Margin="0,12,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type local:InfoLine}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="InfoLabel" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Label}" Margin="0,0,16,0" VerticalAlignment="Top" Padding="0,1"
+                                               Foreground="{DynamicResource Theme.TextMuted}" />
+                                    <TextBox Grid.Column="1" Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" BorderThickness="0"
+                                             Background="Transparent" TextWrapping="Wrap" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                MouseDown="OnTabControlMouseDown">
+        <!-- The header of a tab: the mark of an outdated tab (the colour of a warning), the title and the close button. -->
+        <TabControl.ItemTemplate>
+            <DataTemplate DataType="{x:Type local:TabViewModel}">
+                <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding ToolTip}">
+                    <Ellipse Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Theme.Warning}"
+                             ToolTip="{Binding DataContext.Texts.TabStale, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                             Visibility="{Binding IsStale, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
+                    <Button Command="{Binding CloseCommand}" Margin="8,0,0,0" Padding="3" BorderThickness="0" Background="Transparent"
+                            Focusable="False" VerticalAlignment="Center"
+                            ToolTip="{Binding DataContext.Texts.TabClose, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}">
+                        <Path Data="M0,0 L8,8 M8,0 L0,8" Stroke="{DynamicResource Theme.Text}" StrokeThickness="1.5" />
+                    </Button>
+                </StackPanel>
+            </DataTemplate>
+        </TabControl.ItemTemplate>
+    </TabControl>
+</UserControl>
