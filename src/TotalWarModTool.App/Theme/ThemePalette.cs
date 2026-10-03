@@ -25,5 +25,6 @@ public static class ThemePalette
         new("SelectionText", "#000000", "#FFFFFF"),
         new("InactiveSelection", "#E0E0E0", "#3A3D41"),
         new("Separator", "#A0A0A0", "#4A4D50"),
+        new("Warning", "#B45309", "#E0A040"),
     ];
 }

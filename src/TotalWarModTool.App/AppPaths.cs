@@ -7,7 +7,7 @@ namespace TotalWarModTool.App;
 /// </summary>
 /// <param name="RoamingRoot">User data (settings): <c>%APPDATA%\TotalWarModTool</c>.</param>
 /// <param name="LocalRoot">Large or machine-bound data (logs): <c>%LocalAppData%\TotalWarModTool</c>.</param>
-/// <param name="ProgramRoot">The program folder, read-only at run time (locale files).</param>
+/// <param name="ProgramRoot">The program folder, read-only at run time (locale files, game profiles, schemas).</param>
 public sealed record AppPaths(string RoamingRoot, string LocalRoot, string ProgramRoot)
 {
     public const string AppFolderName = "TotalWarModTool";
@@ -20,4 +20,8 @@ public sealed record AppPaths(string RoamingRoot, string LocalRoot, string Progr
     public string LogDirectory => Path.Combine(LocalRoot, "logs");
 
     public string LocalesDirectory => Path.Combine(ProgramRoot, "locales");
+
+    public string ProfilesDirectory => Path.Combine(ProgramRoot, "profiles");
+
+    public string SchemasDirectory => Path.Combine(ProgramRoot, "schemas");
 }

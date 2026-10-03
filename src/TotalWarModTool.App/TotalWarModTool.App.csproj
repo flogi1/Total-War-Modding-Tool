@@ -9,15 +9,25 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\TotalWarModTool.GameProfiles\TotalWarModTool.GameProfiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Session\TotalWarModTool.Session.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Settings\TotalWarModTool.Settings.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Storage\TotalWarModTool.Storage.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Workspace\TotalWarModTool.Workspace.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="..\..\locales\*.json" Link="locales\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\profiles\*.json" Link="profiles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\schemas\*" Link="schemas\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

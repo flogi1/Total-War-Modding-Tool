@@ -164,4 +164,15 @@ public class ProgressRunnerTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => runner.RunAsync("b", (_, _) => 0));
         gate.Set(); await first;
     });
+
+    [Fact] public void IsRunning_is_true_only_during_a_run() => Sta.RunAsync(async () =>
+    {
+        var (runner, _, _, _) = Create(Never);
+        Assert.False(runner.IsRunning);
+        var seen = false;
+        var run = runner.RunAsync("t", (_, _) => { Thread.Sleep(50); return 1; });
+        seen = runner.IsRunning;
+        await run;
+        Assert.True(seen); Assert.False(runner.IsRunning);
+    });
 }

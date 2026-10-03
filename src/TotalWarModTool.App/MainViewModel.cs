@@ -15,7 +15,7 @@ public sealed class MainViewModel : ObservableObject
     /// <param name="openFolder">Opens a folder in the file explorer. Passed in so the view model stays free of processes and tests need no explorer.</param>
     /// <param name="progress">The runner every user-started operation goes through. Only the debug commands use it for now.</param>
     /// <param name="openSettings">Opens the settings window (or activates it if it is open). Passed in so the view model knows no windows.</param>
-    public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, ProgressRunner progress, Action openSettings)
+    public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings)
     {
         Texts = texts;
         OpenSettingsCommand = new RelayCommand(openSettings);

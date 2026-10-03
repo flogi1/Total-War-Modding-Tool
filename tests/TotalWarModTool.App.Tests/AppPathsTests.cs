@@ -8,4 +8,10 @@ public class AppPathsTests
         Assert.EndsWith(@"\TotalWarModTool", p.RoamingRoot); Assert.EndsWith(@"\TotalWarModTool", p.LocalRoot);
         Assert.Equal(Path.Combine(p.ProgramRoot, "locales"), p.LocalesDirectory);
     }
+
+    [Fact] public void Profiles_and_schemas_are_below_the_program_folder()
+    {
+        var paths = new AppPaths(@"X:\roaming", @"X:\local", @"X:\program");
+        Assert.Equal((@"X:\program\profiles", @"X:\program\schemas"), (paths.ProfilesDirectory, paths.SchemasDirectory));
+    }
 }

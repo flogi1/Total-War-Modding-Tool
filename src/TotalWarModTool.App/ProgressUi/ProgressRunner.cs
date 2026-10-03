@@ -17,7 +17,7 @@ public sealed record OperationOutcome<T>(OperationStatus Status, T? Value, Excep
 /// flash a window. Errors are logged and reported, cancelling is reported as <see cref="OperationStatus.Cancelled"/>, and the lock is
 /// released in every case.
 /// </summary>
-public sealed class ProgressRunner
+public sealed class ProgressRunner : IOperationRunner
 {
     /// <summary>Time a run may take before its progress window appears. The one place to change it.</summary>
     public static readonly TimeSpan DefaultShowDelay = TimeSpan.FromMilliseconds(150);
@@ -40,6 +40,9 @@ public sealed class ProgressRunner
         _reportError = reportError;
         _showDelay = showDelay ?? DefaultShowDelay;
     }
+
+    /// <summary>True from the start of <see cref="RunAsync{T}"/> until its input lock is released.</summary>
+    public bool IsRunning => _running;
 
     /// <summary>Raised on the UI thread when the progress window is loaded. It only exists for runs that outlast the show delay.</summary>
     public event EventHandler<ProgressWindow>? WindowShown;

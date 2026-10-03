@@ -7,9 +7,9 @@ namespace TotalWarModTool.App.Tests;
 
 public class ThemeTests
 {
-    [Fact] public void Palette_has_15_tokens_with_valid_hex_values()
+    [Fact] public void Palette_has_16_tokens_with_valid_hex_values()
     {
-        Assert.Equal(15, ThemePalette.All.Count);
+        Assert.Equal(16, ThemePalette.All.Count);
         Assert.All(ThemePalette.All, t => { Assert.Matches("^#[0-9A-F]{6}$", t.Light); Assert.Matches("^#[0-9A-F]{6}$", t.Dark); });
         Assert.Equal(ThemePalette.All.Count, ThemePalette.All.Select(t => t.Key).Distinct().Count());
     }
@@ -45,4 +45,7 @@ public class ThemeTests
         new ThemeManager(res, new FakeSystemTheme(systemDark)).Apply(ThemeChoice.System);
         Assert.Equal((Color)ColorConverter.ConvertFromString(expected), ((SolidColorBrush)res["Theme.WindowBackground"]).Color);
     });
+
+    [Fact] public void Warning_token_exists_in_both_themes() =>
+        Assert.Contains(ThemePalette.All, t => t.Key == "Warning" && t.Light == "#B45309" && t.Dark == "#E0A040");
 }

@@ -100,7 +100,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Fortschrittsfenster: Darstellungslogik aus dem Code-behind in ein ViewModel verlegen (bewusste Ausnahme von "keine Logik in Code-behind" in Plan 1)
 - Debug-Menü, Befehle und Texte aus dem Release-Build entfernen
 - GlobalSettingsStore: Round-Trip-Test über alle Eigenschaften, bevor neue Felder dazukommen
-- Tests: WindowPlacementTracker; alle Vorlagen aus Controls.xaml einmal instanziieren (zu Beginn von Plan 3)
 - Debug-Auslöser für zwei Pfade, die bisher nur per Unit-Test und Code-Review geprüft sind und sich von Hand nicht auslösen lassen: Absturz auf einem Hintergrund-Thread (Dialogtext "muss beendet werden") und fehlgeschlagener Start (Exit-Code 1)
 - Crash-Behandlung: ein fataler Fehler darf nicht von einem schon wartenden nicht-fatalen Dialog verdeckt werden
 
@@ -109,11 +108,8 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Plan 2: Arbeitsfunktionen müssen das CancellationToken häufig prüfen. Sonst bleibt das Fortschrittsfenster auf "Wird abgebrochen" stehen.
 - Plan 2: festlegen, wie UI-freie Libraries loggen (Diagnosen zurückgeben oder Referenz auf Logging). Die Spec sagt bei GameProfiles "übersprungen und geloggt", die Modultabelle nennt keine Referenz.
 - Plan 3: ProgressRunner.RunAsync lehnt einen zweiten Lauf mit InvalidOperationException ab. Zeit- oder sessiongesteuerte Aufrufer brauchen eine Abfrage, ob ein Lauf aktiv ist.
-- Plan 3: entscheiden, ob ViewModels weiter den konkreten ProgressRunner bekommen (Tests brauchen dann Sta und ein echtes Fenster) oder eine kleine Schnittstelle mit Fake.
-- Plan 3: Controls.xaml hat keinen Stil für DataGrid. Die Tabellen-Tabs brauchen einen.
 - Plan 3: Der Pack-Katalog kann einen nicht lesbaren Daten- oder Workshop-Ordner nicht von einem fehlenden unterscheiden. PackCatalogResult soll Ordnerprobleme melden, damit die UI sie anzeigen kann.
 - Tests der App brauchen einen interaktiven Desktop und dauern rund 30 s. Für CI einplanen.
-- Plan 3: `profiles/` und `schemas/` (mit `schemas/LICENSE`) sowie `THIRD-PARTY-NOTICES.md` als Content in die App-Ausgabe kopieren.
 - Plan 3: `FileFingerprint` vergleicht den Pfad ordinal: `PackSource.Path` unverändert an `ReadIndex` geben; Pfade aus der Session ohne Groß-/Kleinschreibung gegen den Katalog abgleichen und dessen Schreibweise übernehmen.
 - Plan 3: Der kurze Wiederholversuch für ein gesperrtes Pack (Spec 5) steckt in keiner Library: festlegen, wo er lebt.
 - Plan 3: `ReadHeader`, `ReadIndex`, `SchemaLoader.Load` und die Dekoder haben kein `CancellationToken` und keinen Fortschritt: Balken unbestimmt, Abbruch wirkt zwischen den Aufrufen.
