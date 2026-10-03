@@ -91,6 +91,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Tabs eines Packs, das nach dem Aktualisieren fehlt, und Tabs eines Spiels, das nicht mehr gefunden wird, bleiben ohne Markierung offen
 - Ein Pack, das beim Start nur gesperrt ist, verliert seine Tabs dauerhaft; Session nicht speichern, wenn Tabs wegen „nicht lesbar“ weggefallen sind
 - Aufgeklappte Ordner in einem Pack klappen nach dem Aktualisieren zu
+- Ein aufgeklapptes Pack, das auf der Platte geändert wurde, klappt zu, statt seinen neuen Baum zu zeigen
 - Offene Tabs nach einer Schema-Änderung selbst neu dekodieren (bisher nur Markierung)
 - Tests ergänzen: Session (`activeTab` kleiner als -1 oder fehlend), `EntryOpener` (Tabelle ohne Schema liest nachweislich nichts), `EntryText` (UTF-16 BE mit Surrogat, UTF-8 mit BOM und Kürzung, einzelne Folgebytes), `ReadEntryInfo` (Eintrag außerhalb des Packs, geschrumpftes Pack), Katalog (Ordner nicht auflistbar: Datei an Stelle des Ordners), `DebouncedSaver` (`UnauthorizedAccessException`), Explorer (Neuaufbau während eines laufenden Aufklappens, Ausnahme beim Aufklappen), `TabsViewModel.Close` gibt den Tab frei, Einstellungsfenster (gültiger Pfad, Verlassen des Feldes, Schema-Status, deaktivierter Zustand, Ordnerdialog).
 

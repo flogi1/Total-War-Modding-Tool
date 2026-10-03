@@ -43,7 +43,7 @@ public sealed class MainViewModel : ObservableObject
         {
             // Another schema than the one seen at the last change: what the open tables show was decoded with the old one.
             var schema = workspace.Schema;
-            if (_seenSchema is not null && !ReferenceEquals(schema, _seenSchema))
+            if (_seenSchema is not null && SchemaDiffers(_seenSchema, schema))
             {
                 Tabs.MarkSchemaStale();
             }
@@ -131,6 +131,14 @@ public sealed class MainViewModel : ObservableObject
             Tabs.Add(pack, opened, _workspace.Schema);
         }
     }
+
+    // A reload that resolves the same file with the same date is no change: a refresh alone must not mark any tab.
+    private static bool SchemaDiffers(ResolvedSchema before, ResolvedSchema? after) =>
+        after is null
+        || before.Origin != after.Origin
+        || !string.Equals(before.Path, after.Path, StringComparison.OrdinalIgnoreCase)
+        || before.FileDateUtc != after.FileDateUtc
+        || (before.Schema is null) != (after.Schema is null);
 
     private void RaiseStatusChanged()
     {

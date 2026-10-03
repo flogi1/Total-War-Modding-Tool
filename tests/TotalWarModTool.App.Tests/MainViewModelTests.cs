@@ -259,6 +259,44 @@ public class MainViewModelWorkspaceTests
         }
     }
 
+    // A reload that resolves the same file with the same date is not a change of the schema.
+    [Fact] public async Task A_refresh_with_an_unchanged_schema_marks_no_table_tab()
+    {
+        var (game, c, vm) = Create(g => g.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes)));
+        using (game)
+        {
+            await c.LoadAsync();
+            await vm.OpenEntryAsync(Pack(c, "a.pack"), "db/x_tables/data__");
+            var schemaBefore = c.Schema;
+
+            vm.RefreshCommand.Execute(null);                                            // new schema instance, same file and date
+            await c.ReloadSchemaAsync();
+
+            Assert.NotSame(schemaBefore, c.Schema);
+            Assert.False(vm.Tabs.Tabs[0].IsStale);
+        }
+    }
+
+    [Fact] public async Task A_schema_file_with_another_date_marks_the_open_table_tabs()
+    {
+        var (game, c, vm) = Create(g => g.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes)));
+        using (game)
+        {
+            await c.LoadAsync();
+            var folder = UseOtherSchemaInstance(game);
+            game.Settings.SchemaFolder = folder;                                        // shipped to override
+            await vm.OpenEntryAsync(Pack(c, "a.pack"), "db/x_tables/data__");
+            Assert.False(vm.Tabs.Tabs[0].IsStale);
+
+            var file = Path.Combine(folder, "schema_test.ron");
+            File.AppendAllText(file, "\n");
+            File.SetLastWriteTimeUtc(file, File.GetLastWriteTimeUtc(file).AddHours(1));
+            await c.ReloadSchemaAsync();
+
+            Assert.Equal((true, SchemaStaleText), (vm.Tabs.Tabs[0].IsStale, vm.Tabs.Tabs[0].StaleText));
+        }
+    }
+
     [Fact] public async Task A_pack_change_after_a_schema_change_switches_the_hint_to_the_pack_text()
     {
         var (game, c, vm) = Create(g => g.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes), ("b.txt", "two"u8.ToArray())));
