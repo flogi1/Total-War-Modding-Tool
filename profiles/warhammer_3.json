@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "warhammer_3",
+  "displayName": "Total War: WARHAMMER III",
+  "steamAppId": 1142710,
+  "installFolderName": "Total War WARHAMMER III",
+  "dataFolder": "data",
+  "packFormat": "PFH5",
+  "schemaFile": "schema_wh3.ron",
+  "vanillaPackTypes": ["boot", "release", "patch"],
+  "vanillaManifestFile": "manifest.txt"
+}
