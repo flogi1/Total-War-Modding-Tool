@@ -111,7 +111,8 @@ internal sealed class ByteWriter
     }
 
     // An unpaired surrogate is no valid text: UTF-8 would silently turn it into U+FFFD, so every string path rejects it.
-    private static bool IsWellFormed(string value, out string? reason)
+    // Internal so that TableTsv applies the very same rule when it reads text.
+    internal static bool IsWellFormed(string value, out string? reason)
     {
         for (var i = 0; i < value.Length; i++)
         {

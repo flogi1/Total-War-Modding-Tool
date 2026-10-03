@@ -50,7 +50,7 @@ public class TableTsvReadTests
     [Fact] public void Read_accepts_crlf_bom_missing_final_newline_and_any_column_order()
     {
         var schema = Schema("t_tables", 1, F("a", FieldType.I32), F("s", FieldType.StringU8), F("r", FieldType.I32), F("g", FieldType.I32), F("b", FieldType.I32), F("on", FieldType.Boolean));
-        var text = "﻿unnamed colour group_1\ton\ts\ta\r\n#t_tables;1;p\t\t\t\r\n0A0B0C\tTRUE\tx\t5\r\nffffff\tFalse\t\t-1";
+        var text = "\uFEFFunnamed colour group_1\ton\ts\ta\r\n#t_tables;1;p\t\t\t\r\n0A0B0C\tTRUE\tx\t5\r\nffffff\tFalse\t\t-1";
         var read = TableTsv.Read(text, schema);
         Assert.Null(read.Problem);
         Assert.Equal(new object?[][] { [5, "x", 10, 11, 12, true], [-1, "", 255, 255, 255, false] }, read.Table!.Rows);
@@ -111,6 +111,46 @@ public class TableTsvReadTests
         var unsupported = Schema("t_tables", 1, new FieldDefinition("x", FieldType.Unsupported, "SequenceU32", false, null));
         var problem = TableTsv.Read("x\n#t_tables;1;p\n", unsupported).Problem!;
         Assert.Equal((TsvProblem.UnsupportedFieldType, 2), (problem.Problem, problem.Line));
+    }
+
+    [Fact] public void A_backslash_before_a_tab_or_line_break_round_trips()
+    {
+        var schema = Schema("t_tables", 1, F("s", FieldType.StringU8));
+        object?[][] rows = [["\\\t"], ["x\\\ny"], ["\\\\\t\\"], ["end\\"]];
+        var read = TableTsv.Read(TableTsv.Write("t_tables", 1, "p", schema.Find("t_tables", 1)!, rows).Text!, schema);
+        Assert.Null(read.Problem);
+        Assert.Equal(rows, read.Table!.Rows);
+    }
+
+    [Fact] public void A_pack_path_with_a_semicolon_round_trips()
+    {
+        var read = TableTsv.Read(TableTsv.Write("t_tables", 1, "db/a;b/c;d", Small.Find("t_tables", 1)!, []).Text!, Small);
+        Assert.Null(read.Problem);
+        Assert.Equal("db/a;b/c;d", read.Table!.PackPath);
+    }
+
+    [Fact] public void Read_rejects_a_carriage_return_inside_a_text_cell()
+    {
+        var read = TableTsv.Read("a\ts\n#t_tables;1;p\t\n1\ta\rb\n", Small);
+        Assert.Equal((TsvProblem.InvalidValue, 3), (read.Problem!.Problem, read.Problem.Line));
+    }
+
+    [Theory]
+    [InlineData(FieldType.F32, "1e39")] [InlineData(FieldType.F32, "-1e39")] [InlineData(FieldType.F64, "1e400")] [InlineData(FieldType.F64, "-1e400")]
+    [InlineData(FieldType.F32, "+Infinity")]
+    public void Read_rejects_a_number_that_overflows_to_infinity(FieldType type, string value)
+    {
+        var read = TableTsv.Read($"v\n#t_tables;1;p\n{value}\n", Schema("t_tables", 1, F("v", type)));
+        Assert.Equal((TsvProblem.InvalidValue, 3), (read.Problem!.Problem, read.Problem.Line));
+    }
+
+    [Theory]
+    [InlineData(FieldType.F32, "Infinity")] [InlineData(FieldType.F32, "-Infinity")] [InlineData(FieldType.F32, "NaN")]
+    [InlineData(FieldType.F64, "Infinity")] [InlineData(FieldType.F64, "-Infinity")] [InlineData(FieldType.F64, "NaN")] [InlineData(FieldType.F64, "infinity")]
+    public void Read_accepts_the_named_non_finite_numbers(FieldType type, string value)
+    {
+        var read = TableTsv.Read($"v\n#t_tables;1;p\n{value}\n", Schema("t_tables", 1, F("v", type)));
+        Assert.Null(read.Problem);
     }
 
     [Fact] public void Read_rejects_a_text_with_an_unpaired_surrogate()

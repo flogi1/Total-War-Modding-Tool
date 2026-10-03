@@ -25,8 +25,6 @@ public static class TableTsv
     private const string LocText = "text";
     private const string LocTooltip = "tooltip";
 
-    private static readonly (string Red, string Green, string Blue)[] ChannelNames = [("r", "g", "b"), ("red", "green", "blue")];
-
     // One TSV column: a single field, or (Group not null) the three channel fields of a colour group. Index is the field index.
     private sealed record Column(string Name, FieldType Type, int Index, ColourGroup? Group);
 
@@ -297,6 +295,8 @@ public static class TableTsv
             firstByName.TryAdd(fields[i].Name, i);
         }
 
+        // Tried in this order for every field; a local, so that no caller can change the naming.
+        (string Red, string Green, string Blue)[] channelNames = [("r", "g", "b"), ("red", "green", "blue")];
         var grouped = new bool[fields.Count];
         var groups = new List<ColourGroup>();
         var unnamed = 0;
@@ -307,7 +307,7 @@ public static class TableTsv
                 continue;
             }
 
-            foreach (var (red, green, blue) in ChannelNames)
+            foreach (var (red, green, blue) in channelNames)
             {
                 var name = fields[i].Name;
                 string prefix;
@@ -421,14 +421,14 @@ public static class TableTsv
                 sb.Append(v.ToString("R", CultureInfo.InvariantCulture));
                 return true;
             case FieldType.ColourRgb when value is string v:
-                if (!IsHex(v, 1, MaxColourDigits))
+                // Written as Read returns it: uppercase, at least six digits.
+                if (!TryParseColour(v, out var colour))
                 {
-                    throw new ArgumentException(
-                        $"Row {row.ToString(CultureInfo.InvariantCulture)}, column '{field.Name}' ({field.RawType}): '{v}' is not a colour of 1 to {MaxColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits",
-                        "rows");
+                    refusal = $"'{v}' is not a colour of 1 to {MaxColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
+                    return false;
                 }
 
-                sb.Append(v);
+                sb.Append(colour.ToString("X6", CultureInfo.InvariantCulture));
                 return true;
             case FieldType.StringU8 or FieldType.OptionalStringU8 when value is string v:
                 return TryAppendText(sb, v, utf8: true, out refusal);
@@ -507,7 +507,7 @@ public static class TableTsv
     // line end at the very end does not add a line.
     private static List<string> SplitLines(string text)
     {
-        var start = text.Length > 0 && text[0] == '﻿' ? 1 : 0;
+        var start = text.Length > 0 && text[0] == '\uFEFF' ? 1 : 0;
         var lines = new List<string>();
         while (true)
         {
@@ -667,25 +667,37 @@ public static class TableTsv
                 reason = "not a 64-bit integer";
                 return false;
             case FieldType.F32:
-                if (float.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var f32))
+                if (!float.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var f32))
                 {
-                    value = f32;
-                    return true;
+                    reason = "not a number";
+                    return false;
                 }
 
-                reason = "not a number";
-                return false;
+                if (!IsFiniteOrNamed(f32, cell))
+                {
+                    reason = "the number is too large for a 32-bit float";
+                    return false;
+                }
+
+                value = f32;
+                return true;
             case FieldType.F64:
-                if (double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var f64))
+                if (!double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var f64))
                 {
-                    value = f64;
-                    return true;
+                    reason = "not a number";
+                    return false;
                 }
 
-                reason = "not a number";
-                return false;
+                if (!IsFiniteOrNamed(f64, cell))
+                {
+                    reason = "the number is too large for a 64-bit float";
+                    return false;
+                }
+
+                value = f64;
+                return true;
             case FieldType.ColourRgb:
-                if (IsHex(cell, 1, MaxColourDigits) && uint.TryParse(cell, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var colour))
+                if (TryParseColour(cell, out var colour))
                 {
                     value = colour.ToString("X6", CultureInfo.InvariantCulture);
                     return true;
@@ -697,7 +709,10 @@ public static class TableTsv
             case FieldType.OptionalStringU8:
             case FieldType.StringU16:
                 var text = cell.Replace("\\\\t", "\t", StringComparison.Ordinal).Replace("\\\\n", "\n", StringComparison.Ordinal);
-                reason = BinaryTextProblem(text, utf8: type != FieldType.StringU16);
+                // Write refuses a carriage return, so Read does not accept one either.
+                reason = text.Contains('\r')
+                    ? "the text contains a carriage return"
+                    : BinaryTextProblem(text, utf8: type != FieldType.StringU16);
                 value = text;
                 return reason is null;
             default:
@@ -705,6 +720,17 @@ public static class TableTsv
                 return false;
         }
     }
+
+    private static bool TryParseColour(string cell, out uint colour)
+    {
+        colour = 0;
+        return IsHex(cell, 1, MaxColourDigits) && uint.TryParse(cell, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out colour);
+    }
+
+    // A parse that overflows gives an infinity. That is only accepted when the cell is one of the forms Write emits for it.
+    private static bool IsFiniteOrNamed(double parsed, string cell) =>
+        double.IsFinite(parsed)
+        || cell.Equals(double.IsNaN(parsed) ? "NaN" : parsed > 0 ? "Infinity" : "-Infinity", StringComparison.OrdinalIgnoreCase);
 
     private static bool TryParseGroup(string cell, out uint rgb)
     {
@@ -744,16 +770,9 @@ public static class TableTsv
     // encoded. Mirrors the rules of the encoders: no unpaired surrogate, at most 65535 UTF-8 bytes or UTF-16 units.
     private static string? BinaryTextProblem(string value, bool utf8)
     {
-        for (var i = 0; i < value.Length; i++)
+        if (!ByteWriter.IsWellFormed(value, out var reason))
         {
-            if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
-            {
-                i++;
-            }
-            else if (char.IsSurrogate(value[i]))
-            {
-                return $"the text has an unpaired surrogate at index {i.ToString(CultureInfo.InvariantCulture)}";
-            }
+            return reason;
         }
 
         if (utf8)

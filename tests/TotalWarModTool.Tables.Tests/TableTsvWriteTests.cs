@@ -68,6 +68,54 @@ public class TableTsvWriteTests
         Assert.False(string.IsNullOrWhiteSpace(r.Detail));
     }
 
+    [Fact] public void A_nan_with_a_payload_cannot_be_written()
+    {
+        var def32 = new TableDefinition(1, [F("a", FieldType.F32)]);
+        var def64 = new TableDefinition(1, [F("a", FieldType.F64)]);
+        Assert.Null(TableTsv.Write("t_tables", 1, "p", def32, [[BitConverter.Int32BitsToSingle(0x7FC00001)]]).Text);
+        Assert.Null(TableTsv.Write("t_tables", 1, "p", def64, [[BitConverter.Int64BitsToDouble(0x7FF8000000000001)]]).Text);
+    }
+
+    [Fact] public void A_negative_zero_channel_cannot_be_written()
+    {
+        var def = new TableDefinition(1, [F("r", FieldType.F32), F("g", FieldType.F32), F("b", FieldType.F32)]);
+        var r = TableTsv.Write("t_tables", 1, "p", def, [[-0f, 0f, 0f]]);
+        Assert.Null(r.Text);
+        Assert.False(string.IsNullOrWhiteSpace(r.Detail));
+    }
+
+    [Fact] public void A_text_over_the_length_limit_cannot_be_written()
+    {
+        var u8 = new TableDefinition(1, [F("s", FieldType.StringU8)]);
+        var u16 = new TableDefinition(1, [F("s", FieldType.StringU16)]);
+        Assert.NotNull(TableTsv.Write("t_tables", 1, "p", u8, [[new string('a', 65535)]]).Text);
+        Assert.Null(TableTsv.Write("t_tables", 1, "p", u8, [[new string('ü', 32768)]]).Text);
+        Assert.Null(TableTsv.Write("t_tables", 1, "p", u16, [[new string('a', 65536)]]).Text);
+    }
+
+    [Fact] public void A_definition_without_columns_cannot_be_written()
+    {
+        var r = TableTsv.Write("t_tables", 1, "p", new TableDefinition(1, []), []);
+        Assert.Null(r.Text);
+        Assert.False(string.IsNullOrWhiteSpace(r.Detail));
+    }
+
+    [Fact] public void A_colour_text_is_written_as_uppercase_six_digits()
+    {
+        var def = new TableDefinition(1, [F("c", FieldType.ColourRgb)]);
+        Assert.Equal("c\n#t_tables;1;p\n0000FF\n000ABC\n1FFFFFF\n", TableTsv.Write("t_tables", 1, "p", def, [["ff"], ["abc"], ["1fffffF"]]).Text);
+    }
+
+    [Theory]
+    [InlineData("zz")] [InlineData("")] [InlineData("123456789")]
+    public void A_colour_text_that_is_not_hex_cannot_be_written(string value)
+    {
+        var def = new TableDefinition(1, [F("c", FieldType.ColourRgb)]);
+        var r = TableTsv.Write("t_tables", 1, "p", def, [[value]]);
+        Assert.Null(r.Text);
+        Assert.False(string.IsNullOrWhiteSpace(r.Detail));
+    }
+
     [Fact] public void A_text_with_an_unpaired_surrogate_cannot_be_written()
     {
         var def = new TableDefinition(1, [F("s", FieldType.StringU16)]);

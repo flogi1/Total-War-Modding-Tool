@@ -23,6 +23,14 @@ public class TableTsvLocTests
         Assert.False(string.IsNullOrWhiteSpace(r.Detail));
     }
 
+    [Fact] public void ReadLoc_rejects_a_carriage_return_inside_a_key_or_text()
+    {
+        var inText = TableTsv.ReadLoc("key\ttext\ttooltip\n#Loc;1;p\t\t\nk\ta\rb\tfalse\n");
+        Assert.Equal((TsvProblem.InvalidValue, 3), (inText.Problem!.Problem, inText.Problem.Line));
+        var inKey = TableTsv.ReadLoc("key\ttext\ttooltip\n#Loc;1;p\t\t\nk\rk\tt\tfalse\n");
+        Assert.Equal((TsvProblem.InvalidValue, 3), (inKey.Problem!.Problem, inKey.Problem.Line));
+    }
+
     [Fact] public void ReadLoc_rejects_a_text_with_an_unpaired_surrogate()
     {
         var read = TableTsv.ReadLoc("key\ttext\ttooltip\n#Loc;1;p\t\t\nk\ta\uD800b\tfalse\n");
