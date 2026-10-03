@@ -93,6 +93,10 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Aufgeklappte Ordner in einem Pack klappen nach dem Aktualisieren zu
 - Ein aufgeklapptes Pack, das auf der Platte geändert wurde, klappt zu, statt seinen neuen Baum zu zeigen
 - Offene Tabs nach einer Schema-Änderung selbst neu dekodieren (bisher nur Markierung)
+- Einstellungen, Seite Spiel: Die Meldung zu einem ungültigen gespeicherten Spielordner bleibt stehen, bis das Neuladen nach einer gültigen Eingabe fertig ist (bei Abbruch dauerhaft)
+- Session: Wird das Spiel erst nach dem Start gefunden und das dabei geparkte Neuladen abgebrochen oder schlägt es fehl, wartet das Wiederherstellen bis zum nächsten erfolgreichen Aktualisieren
+- Nach einer Schema-Änderung tragen auch Hinweis-Tabs von Tabellen die Schema-Markierung, deren Problem nichts mit dem Schema zu tun hat (gesperrtes oder verschlüsseltes Pack)
+- Einstellungen: Ein relativ eingegebener Ordner wird gegen das Arbeitsverzeichnis des Prozesses aufgelöst; relative Eingaben ablehnen
 - Tests ergänzen: Session (`activeTab` kleiner als -1 oder fehlend), `EntryOpener` (Tabelle ohne Schema liest nachweislich nichts), `EntryText` (UTF-16 BE mit Surrogat, UTF-8 mit BOM und Kürzung, einzelne Folgebytes), `ReadEntryInfo` (Eintrag außerhalb des Packs, geschrumpftes Pack), Katalog (Ordner nicht auflistbar: Datei an Stelle des Ordners), `DebouncedSaver` (`UnauthorizedAccessException`), Explorer (Neuaufbau während eines laufenden Aufklappens, Ausnahme beim Aufklappen), `TabsViewModel.Close` gibt den Tab frei, Einstellungsfenster (gültiger Pfad, Verlassen des Feldes, Schema-Status, deaktivierter Zustand, Ordnerdialog).
 
 == Aus Plan 1 (Gerüst) zurückgestellt ==
