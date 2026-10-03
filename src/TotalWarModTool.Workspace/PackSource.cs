@@ -25,5 +25,12 @@ public sealed record PackSource(
     PackProblem Problem,
     string? Detail);
 
-/// <summary><see cref="UsedManifest"/> is true when the vanilla packs were taken from the manifest file of the profile.</summary>
-public sealed record PackCatalogResult(IReadOnlyList<PackSource> Packs, bool UsedManifest);
+/// <summary>A folder that exists but could not be listed. <see cref="Detail"/> is short technical English, not a UI text.</summary>
+public sealed record CatalogFolderProblem(string Path, string Detail);
+
+/// <summary>
+/// <see cref="UsedManifest"/> is true when the vanilla packs were taken from the manifest file of the profile.
+/// <see cref="FolderProblems"/> has one item per folder that exists but could not be listed (data folder, workshop folder, a workshop
+/// sub folder); a missing folder is not a problem.
+/// </summary>
+public sealed record PackCatalogResult(IReadOnlyList<PackSource> Packs, bool UsedManifest, IReadOnlyList<CatalogFolderProblem> FolderProblems);

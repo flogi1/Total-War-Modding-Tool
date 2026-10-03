@@ -9,6 +9,8 @@
     <ProjectReference Include="..\..\src\TotalWarModTool.GameProfiles\TotalWarModTool.GameProfiles.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
   </ItemGroup>
 
 </Project>

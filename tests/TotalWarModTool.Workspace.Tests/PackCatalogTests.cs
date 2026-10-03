@@ -152,4 +152,11 @@ public class PackCatalogTests
         using var cts = new CancellationTokenSource(); cts.Cancel();
         Assert.Throws<OperationCanceledException>(() => PackCatalog.Scan(Profile(null), l.Install, null, null, cts.Token));
     }
+
+    [Fact] public void Missing_folders_are_no_folder_problems()
+    {
+        using var dir = new TempDir();
+        var result = PackCatalog.Scan(Profile(null), dir.Path, Path.Combine(dir.Path, "no-workshop"), null, CancellationToken.None);
+        Assert.Empty(result.FolderProblems);
+    }
 }

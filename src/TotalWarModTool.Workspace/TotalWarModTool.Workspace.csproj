@@ -5,9 +5,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TotalWarModTool.Workspace.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TotalWarModTool.GameProfiles\TotalWarModTool.GameProfiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
   </ItemGroup>
 
 </Project>

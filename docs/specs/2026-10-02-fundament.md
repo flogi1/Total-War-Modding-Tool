@@ -355,7 +355,7 @@ Solution `TotalWarModTool` (Anzeigename „Total War Modding Tool“, Kürzel TW
 | `TotalWarModTool.PackFiles` | Pack-Header und Index lesen, Eintrag lesen, Dekompression | – (NuGet `ZstdSharp.Port`) |
 | `TotalWarModTool.Schema` | RON-Teilmenge parsen, Schema-Modell, Schema-Quelle wählen | – |
 | `TotalWarModTool.Tables` | DB-Tabellen und Loc-Dateien dekodieren | `Schema` |
-| `TotalWarModTool.Workspace` | `PackCatalog`: Pack-Quellen eines Spiels mit Herkunft | `GameProfiles`, `PackFiles`, `Operations` |
+| `TotalWarModTool.Workspace` | `PackCatalog`: Pack-Quellen eines Spiels mit Herkunft; Eintrag öffnen, Dateibaum, Wiederholversuch | `GameProfiles`, `PackFiles`, `Operations`, `Schema`, `Tables` |
 | `TotalWarModTool.Session` | Offene Tabs, aktiver Tab und aufgeklappte Packs speichern und laden | `Storage` |
 | `TotalWarModTool.App` | WPF, Composition Root, Views und ViewModels, `ProgressRunner`, Theme | alle |
 

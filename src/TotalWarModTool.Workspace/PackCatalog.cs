@@ -26,8 +26,9 @@ public static class PackCatalog
         var dataFolder = Path.Combine(installPath, profile.DataFolder);
         var manifestPacks = ReadManifestPacks(profile, dataFolder, cancellationToken);
 
-        var dataCandidates = ListPacks(dataFolder, workshopId: null, cancellationToken);
-        var workshopCandidates = ListWorkshopPacks(workshopPath, cancellationToken);
+        var folderProblems = new List<CatalogFolderProblem>();
+        var dataCandidates = ListPacks(dataFolder, workshopId: null, folderProblems, cancellationToken);
+        var workshopCandidates = ListWorkshopPacks(workshopPath, folderProblems, cancellationToken);
         var total = dataCandidates.Count + workshopCandidates.Count;
 
         var vanillaTypes = new HashSet<string>(profile.VanillaPackTypes, StringComparer.OrdinalIgnoreCase);
@@ -46,7 +47,7 @@ public static class PackCatalog
         }
 
         packs.Sort(Compare);
-        return new PackCatalogResult(packs, manifestPacks is not null);
+        return new PackCatalogResult(packs, manifestPacks is not null, folderProblems);
     }
 
     private static bool IsVanilla(string name, PackHeaderResult header, HashSet<string>? manifestPacks, HashSet<string> vanillaTypes) =>
@@ -67,7 +68,9 @@ public static class PackCatalog
     }
 
     // A folder that cannot be listed completely contributes no packs: a partial list would be a half result.
-    private static List<Candidate> ListPacks(string folder, string? workshopId, CancellationToken cancellationToken)
+    // A missing folder is not a problem; a folder that exists but cannot be listed is reported in folderProblems.
+    private static List<Candidate> ListPacks(string folder, string? workshopId, List<CatalogFolderProblem> folderProblems,
+        CancellationToken cancellationToken)
     {
         var result = new List<Candidate>();
         try
@@ -83,21 +86,31 @@ public static class PackCatalog
                 }
             }
         }
-        catch (IOException)
+        catch (DirectoryNotFoundException)
         {
-            // A missing or locked folder counts as empty; the catalog never fails because of it (see Backlog: folder problems).
+            // A missing folder counts as empty and is no problem.
             return [];
         }
-        catch (UnauthorizedAccessException)
+        catch (IOException ex)
         {
-            // Same as above: an inaccessible folder counts as empty.
-            return [];
+            return NoPacks(folder, ex, folderProblems);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return NoPacks(folder, ex, folderProblems);
         }
 
         return result;
     }
 
-    private static List<Candidate> ListWorkshopPacks(string? workshopPath, CancellationToken cancellationToken)
+    private static List<Candidate> NoPacks(string folder, Exception reason, List<CatalogFolderProblem> folderProblems)
+    {
+        folderProblems.Add(new CatalogFolderProblem(folder, reason.Message));
+        return [];
+    }
+
+    private static List<Candidate> ListWorkshopPacks(string? workshopPath, List<CatalogFolderProblem> folderProblems,
+        CancellationToken cancellationToken)
     {
         var result = new List<Candidate>();
         if (string.IsNullOrEmpty(workshopPath))
@@ -110,21 +123,24 @@ public static class PackCatalog
         {
             folders = Directory.EnumerateDirectories(workshopPath).ToList();
         }
-        catch (IOException)
+        catch (DirectoryNotFoundException)
         {
-            // A missing or locked workshop folder counts as empty, without partial results.
+            // A missing workshop folder counts as empty and is no problem.
             return result;
         }
-        catch (UnauthorizedAccessException)
+        catch (IOException ex)
         {
-            // Same as above: an inaccessible workshop folder counts as empty.
-            return result;
+            return NoPacks(workshopPath, ex, folderProblems);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return NoPacks(workshopPath, ex, folderProblems);
         }
 
         foreach (var folder in folders)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            result.AddRange(ListPacks(folder, Path.GetFileName(folder), cancellationToken));
+            result.AddRange(ListPacks(folder, Path.GetFileName(folder), folderProblems, cancellationToken));
         }
 
         return result;

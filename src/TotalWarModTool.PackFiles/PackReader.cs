@@ -54,6 +54,18 @@ public static class PackReader
         return EntryReader.Read(index, entry, cancellationToken, maxBytes);
     }
 
+    /// <summary>
+    /// Reads at most 8 bytes of one entry: its format and uncompressed size. Same checks as <see cref="ReadEntry"/> up to the size
+    /// probe. LZMA and unknown formats are reported in <see cref="EntryInfo.Format"/> without a problem. Only
+    /// <see cref="OperationCanceledException"/> and argument errors are thrown.
+    /// </summary>
+    public static EntryInfo ReadEntryInfo(PackIndex index, PackEntry entry, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(entry);
+        return EntryReader.ReadInfo(index, entry, cancellationToken);
+    }
+
     // Only the exception types that the file system raises for a missing, locked, inaccessible or shrinking file are translated.
     private static T WithStream<T>(string path, Func<FileStream, T> read, Func<PackProblem, string, T> fail)
     {

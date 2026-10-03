@@ -21,7 +21,49 @@ internal static class EntryReader
         return content;
     }
 
-    private static EntryContent ReadCore(PackIndex index, PackEntry entry, CancellationToken cancellationToken, long maxBytes)
+    /// <summary>Reads the size prefix and the format id of an entry (at most 8 bytes) and nothing else.</summary>
+    public static EntryInfo ReadInfo(PackIndex index, PackEntry entry, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var info = ReadInfoCore(index, entry);
+        cancellationToken.ThrowIfCancellationRequested();
+        return info;
+    }
+
+    private static EntryInfo ReadInfoCore(PackIndex index, PackEntry entry)
+    {
+        if (CheckAccess(index, entry) is { } failure)
+        {
+            return ToInfo(failure);
+        }
+
+        if (!entry.IsCompressed)
+        {
+            return new EntryInfo(CompressionFormat.None, entry.StoredSize, EntryProblem.None, null);
+        }
+
+        if (entry.StoredSize == 0)
+        {
+            return new EntryInfo(CompressionFormat.None, 0, EntryProblem.None, null);
+        }
+
+        if (entry.StoredSize <= ProbeLength)
+        {
+            return ToInfo(Fail(EntryProblem.Corrupt, $"A compressed entry needs more than {ProbeLength} bytes but has {entry.StoredSize}."));
+        }
+
+        return ToInfo(WithStream(index, entry, stream =>
+        {
+            Span<byte> probe = stackalloc byte[ProbeLength];
+            stream.ReadExactly(probe);
+            return new EntryContent(null, DetectFormat(probe[SizePrefixLength..]), BitConverter.ToUInt32(probe[..SizePrefixLength]), EntryProblem.None, null);
+        }));
+    }
+
+    private static EntryInfo ToInfo(EntryContent content) => new(content.Format, content.UncompressedSize, content.Problem, content.Detail);
+
+    // The checks both readers start with: the pack is unchanged, not encrypted, and the entry lies inside it.
+    private static EntryContent? CheckAccess(PackIndex index, PackEntry entry)
     {
         if (FileFingerprint.TryRead(index.Fingerprint.Path) != index.Fingerprint)
         {
@@ -36,6 +78,16 @@ internal static class EntryReader
         if (entry.Offset < 0 || entry.StoredSize < 0 || entry.Offset > index.Fingerprint.Length - entry.StoredSize)
         {
             return Fail(EntryProblem.Corrupt, "The entry does not lie inside the pack file.");
+        }
+
+        return null;
+    }
+
+    private static EntryContent ReadCore(PackIndex index, PackEntry entry, CancellationToken cancellationToken, long maxBytes)
+    {
+        if (CheckAccess(index, entry) is { } failure)
+        {
+            return failure;
         }
 
         var limit = Math.Min(maxBytes, Array.MaxLength);
