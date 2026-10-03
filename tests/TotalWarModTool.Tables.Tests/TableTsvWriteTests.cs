@@ -123,4 +123,50 @@ public class TableTsvWriteTests
         Assert.Null(r.Text);
         Assert.False(string.IsNullOrWhiteSpace(r.Detail));
     }
+
+    [Theory]
+    [InlineData("a\tb")] [InlineData("a\nb")] [InlineData("a\rb")]
+    public void A_field_name_the_reader_would_split_cannot_be_written(string name)
+    {
+        var def = new TableDefinition(1, [F("ok", FieldType.I32), F(name, FieldType.I32)]);
+        var r = TableTsv.Write("t_tables", 1, "p", def, [[1, 2]]);
+        Assert.Null(r.Text);
+        Assert.Contains("field name", r.Detail);
+    }
+
+    [Fact] public void A_cut_inside_a_surrogate_pair_leaves_no_lone_surrogate_in_the_detail()
+    {
+        var schema = new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>> { ["t_tables"] = [new TableDefinition(1, [F("a", FieldType.I16)])] });
+        // Index 49 is the high surrogate of a pair, so a plain cut after 50 characters would split it.
+        var read = TableTsv.Read("a\n#t_tables;1;p\n" + new string('x', 49) + "\U0001F600" + "yyy\n", schema);
+        Assert.Equal(TsvProblem.InvalidValue, read.Problem!.Problem);
+        Assert.True(ByteWriter.IsWellFormed(read.Problem.Detail, out _));
+    }
+
+    [Fact] public void Control_characters_in_a_detail_are_shown_as_escapes()
+    {
+        var schema = new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>> { ["t_tables"] = [new TableDefinition(1, [F("a", FieldType.I16)])] });
+        var read = TableTsv.Read("a\n#t_tables;1;p\nx\u0001y\n", schema);
+        Assert.DoesNotContain('\u0001', read.Problem!.Detail);
+        Assert.Contains("\\u0001", read.Problem.Detail);
+    }
+
+    [Fact] public void A_long_non_hex_colour_gives_a_short_detail()
+    {
+        var def = new TableDefinition(1, [F("c", FieldType.ColourRgb)]);
+        var r = TableTsv.Write("t_tables", 1, "p", def, [[new string('z', 10000)]]);
+        Assert.Null(r.Text);
+        Assert.True(r.Detail!.Length < 300);
+    }
+
+    [Fact] public void A_pack_path_or_table_name_with_an_unpaired_surrogate_is_an_argument_error()
+    {
+        // Not an InlineData argument: the compiler would replace a lone surrogate there with U+FFFD.
+        var def = new TableDefinition(1, [F("a", FieldType.I32)]);
+        foreach (var value in new[] { "a\uD800b", "a\uDC00" })
+        {
+            Assert.Throws<ArgumentException>(() => TableTsv.Write("t_tables", 1, value, def, []));
+            Assert.Throws<ArgumentException>(() => TableTsv.Write(value, 1, "p", def, []));
+        }
+    }
 }

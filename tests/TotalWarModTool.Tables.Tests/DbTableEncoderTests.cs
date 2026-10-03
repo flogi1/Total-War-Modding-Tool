@@ -61,7 +61,8 @@ public class DbTableEncoderTests
         Assert.Throws<ArgumentException>(() => DbTableEncoder.Encode(unsupported, 1, null, []));
     }
 
-    // Built from char values: a lone surrogate in an attribute argument or literal would be turned into U+FFFD by the compiler.
+    // Built from char values and shared as a field: the compiler replaces a lone surrogate with U+FFFD in attribute
+    // arguments such as InlineData, so they cannot go there; a plain string literal would keep it.
     private const char High = (char)0xD800;
     private const char Low = (char)0xDC00;
     private static readonly string[] Unpaired = ["a" + High + "b", "a" + High, "a" + Low + "b", "" + Low + High, "" + High + High + Low];

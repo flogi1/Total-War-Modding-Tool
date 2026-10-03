@@ -71,6 +71,7 @@ public class TableTsvReadTests
     [InlineData("a\ts\n1\tx\n", TsvProblem.MissingMetaLine, 2)]
     [InlineData("a\ts\n#t_tables;1\t\n", TsvProblem.InvalidMetaLine, 2)]
     [InlineData("a\ts\n#t_tables;one;p\t\n", TsvProblem.InvalidMetaLine, 2)]
+    [InlineData("a\ts\n#t_tables;1;p\rq\t\n1\tx\n", TsvProblem.InvalidMetaLine, 2)]
     [InlineData("a\ts\n#other_tables;1;p\t\n", TsvProblem.TableNotInSchema, 2)]
     [InlineData("a\ts\n#t_tables;9;p\t\n", TsvProblem.VersionNotInSchema, 2)]
     [InlineData("a\ts\ta\n#t_tables;1;p\t\t\n", TsvProblem.DuplicateColumn, 1)]

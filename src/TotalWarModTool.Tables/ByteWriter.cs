@@ -10,7 +10,8 @@ namespace TotalWarModTool.Tables;
 /// </summary>
 internal sealed class ByteWriter
 {
-    private const int MaxLength = ushort.MaxValue;
+    /// <summary>The u16 length field of a string: at most this many UTF-8 bytes or UTF-16 units.</summary>
+    internal const int MaxTextLength = ushort.MaxValue;
 
     private readonly MemoryStream _stream = new();
 
@@ -72,18 +73,13 @@ internal sealed class ByteWriter
     /// <summary>A u16 byte count followed by UTF-8 bytes. Writes nothing when the text needs more than 65535 bytes or has an unpaired surrogate.</summary>
     public bool TryWriteStringU8(string value, out string? reason)
     {
-        if (!IsWellFormed(value, out reason))
+        reason = EncodingProblem(value, utf8: true);
+        if (reason is not null)
         {
             return false;
         }
 
         var bytes = Encoding.UTF8.GetBytes(value);
-        if (bytes.Length > MaxLength)
-        {
-            reason = $"text needs {bytes.Length.ToString(CultureInfo.InvariantCulture)} UTF-8 bytes, the limit is {MaxLength.ToString(CultureInfo.InvariantCulture)}";
-            return false;
-        }
-
         WriteUInt16((ushort)bytes.Length);
         _stream.Write(bytes);
         reason = null;
@@ -93,21 +89,39 @@ internal sealed class ByteWriter
     /// <summary>A u16 code-unit count followed by UTF-16LE code units. Writes nothing when the text has more than 65535 units or an unpaired surrogate.</summary>
     public bool TryWriteStringU16(string value, out string? reason)
     {
-        if (!IsWellFormed(value, out reason))
+        reason = EncodingProblem(value, utf8: false);
+        if (reason is not null)
         {
-            return false;
-        }
-
-        if (value.Length > MaxLength)
-        {
-            reason = $"text has {value.Length.ToString(CultureInfo.InvariantCulture)} UTF-16 units, the limit is {MaxLength.ToString(CultureInfo.InvariantCulture)}";
             return false;
         }
 
         WriteUInt16((ushort)value.Length);
         _stream.Write(Encoding.Unicode.GetBytes(value));
-        reason = null;
         return true;
+    }
+
+    /// <summary>
+    /// Why the text cannot be written as a u8 string (<paramref name="utf8"/>) or a u16 string (otherwise), or null when it can: an
+    /// unpaired surrogate, or more than 65535 UTF-8 bytes or UTF-16 units. The one rule behind both writers and the TSV code.
+    /// </summary>
+    internal static string? EncodingProblem(string value, bool utf8)
+    {
+        if (!IsWellFormed(value, out var reason))
+        {
+            return reason;
+        }
+
+        if (utf8)
+        {
+            var bytes = Encoding.UTF8.GetByteCount(value);
+            return bytes > MaxTextLength
+                ? $"text needs {bytes.ToString(CultureInfo.InvariantCulture)} UTF-8 bytes, the limit is {MaxTextLength.ToString(CultureInfo.InvariantCulture)}"
+                : null;
+        }
+
+        return value.Length > MaxTextLength
+            ? $"text has {value.Length.ToString(CultureInfo.InvariantCulture)} UTF-16 units, the limit is {MaxTextLength.ToString(CultureInfo.InvariantCulture)}"
+            : null;
     }
 
     // An unpaired surrogate is no valid text: UTF-8 would silently turn it into U+FFFD, so every string path rejects it.

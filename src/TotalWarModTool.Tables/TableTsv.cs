@@ -16,8 +16,6 @@ namespace TotalWarModTool.Tables;
 public static class TableTsv
 {
     private const char Tab = '\t';
-    private const int MaxTextLength = ushort.MaxValue;
-    private const int MaxColourDigits = 8;
     private const int GroupColourDigits = 6;
     private const int MaxDetailValueLength = 50;
     private const string LocName = "Loc";
@@ -46,13 +44,24 @@ public static class TableTsv
             throw new ArgumentException("The table name must not contain a tab, a line break or ';'", nameof(tableName));
         }
 
+        RequireWellFormed(tableName, nameof(tableName));
         RequireSingleLineCells(packPath, nameof(packPath));
+        RequireWellFormed(packPath, nameof(packPath));
 
         foreach (var field in definition.Fields)
         {
             if (field.Type == FieldType.Unsupported)
             {
-                return Refused($"field '{field.Name}' has the unsupported type '{field.RawType}'");
+                return Refused($"field '{Shorten(field.Name)}' has the unsupported type '{Shorten(field.RawType)}'");
+            }
+        }
+
+        foreach (var field in definition.Fields)
+        {
+            // The reader splits the header line at tabs and line breaks, so such a name would not come back.
+            if (field.Name.AsSpan().IndexOfAny(Tab, '\n', '\r') >= 0)
+            {
+                return Refused($"the field name '{Shorten(field.Name)}' contains a tab or a line break");
             }
         }
 
@@ -64,7 +73,7 @@ public static class TableTsv
 
         if (FirstDuplicateName(columns) is { } duplicate)
         {
-            return Refused($"the column name '{duplicate}' occurs twice");
+            return Refused($"the column name '{Shorten(duplicate)}' occurs twice");
         }
 
         var sb = new StringBuilder();
@@ -94,12 +103,12 @@ public static class TableTsv
                     refusal = TryAppendGroup(sb, r, fields, group, row, out var channelField);
                     if (refusal is not null)
                     {
-                        return Refused($"row {r.ToString(CultureInfo.InvariantCulture)}, field '{fields[channelField].Name}': {refusal}");
+                        return Refused($"row {r.ToString(CultureInfo.InvariantCulture)}, field '{Shorten(fields[channelField].Name)}': {refusal}");
                     }
                 }
                 else if (!TryAppendCell(sb, r, fields[column.Index], row[column.Index], out refusal))
                 {
-                    return Refused($"row {r.ToString(CultureInfo.InvariantCulture)}, field '{fields[column.Index].Name}': {refusal}");
+                    return Refused($"row {r.ToString(CultureInfo.InvariantCulture)}, field '{Shorten(fields[column.Index].Name)}': {refusal}");
                 }
             }
 
@@ -122,28 +131,28 @@ public static class TableTsv
 
         if (!schema.Tables.ContainsKey(meta.Name))
         {
-            return Failed(TsvProblem.TableNotInSchema, 2, "Table is not in the schema: " + meta.Name);
+            return Failed(TsvProblem.TableNotInSchema, 2, "Table is not in the schema: " + Shorten(meta.Name));
         }
 
         var definition = schema.Find(meta.Name, meta.Version);
         if (definition is null)
         {
             return Failed(TsvProblem.VersionNotInSchema, 2,
-                "Version " + meta.Version.ToString(CultureInfo.InvariantCulture) + " of the table is not in the schema: " + meta.Name);
+                "Version " + meta.Version.ToString(CultureInfo.InvariantCulture) + " of the table is not in the schema: " + Shorten(meta.Name));
         }
 
         foreach (var field in definition.Fields)
         {
             if (field.Type == FieldType.Unsupported)
             {
-                return Failed(TsvProblem.UnsupportedFieldType, 2, $"Field '{field.Name}' has the unsupported type '{field.RawType}'");
+                return Failed(TsvProblem.UnsupportedFieldType, 2, $"Field '{Shorten(field.Name)}' has the unsupported type '{Shorten(field.RawType)}'");
             }
         }
 
         var columns = ColumnsOf(definition);
         if (FirstDuplicateName(columns) is { } duplicate)
         {
-            return Failed(TsvProblem.DuplicateColumn, 1, $"The definition of the table has the column name '{duplicate}' twice");
+            return Failed(TsvProblem.DuplicateColumn, 1, $"The definition of the table has the column name '{Shorten(duplicate)}' twice");
         }
 
         if (!TryReadFrame(lines, columns, out var frame, out problem))
@@ -196,6 +205,7 @@ public static class TableTsv
         ArgumentNullException.ThrowIfNull(packPath);
         ArgumentNullException.ThrowIfNull(rows);
         RequireSingleLineCells(packPath, nameof(packPath));
+        RequireWellFormed(packPath, nameof(packPath));
 
         var sb = new StringBuilder();
         AppendHeader(sb, [LocKey, LocText, LocTooltip], LocName, LocDecoder.SupportedVersion, packPath);
@@ -278,6 +288,15 @@ public static class TableTsv
         if (value.AsSpan().IndexOfAny(Tab, '\n', '\r') >= 0)
         {
             throw new ArgumentException("The value must not contain a tab or a line break", parameter);
+        }
+    }
+
+    // A text with an unpaired surrogate would turn into U+FFFD when the TSV text is saved as UTF-8.
+    private static void RequireWellFormed(string value, string parameter)
+    {
+        if (!ByteWriter.IsWellFormed(value, out var reason))
+        {
+            throw new ArgumentException("The value must be well-formed text: " + reason, parameter);
         }
     }
 
@@ -422,9 +441,9 @@ public static class TableTsv
                 return true;
             case FieldType.ColourRgb when value is string v:
                 // Written as Read returns it: uppercase, at least six digits.
-                if (!TryParseColour(v, out var colour))
+                if (!ColourText.TryParse(v, out var colour))
                 {
-                    refusal = $"'{v}' is not a colour of 1 to {MaxColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
+                    refusal = $"'{Shorten(v)}' is not a colour of 1 to {ColourText.MaxDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
                     return false;
                 }
 
@@ -491,7 +510,7 @@ public static class TableTsv
             return false;
         }
 
-        refusal = BinaryTextProblem(value, utf8);
+        refusal = ByteWriter.EncodingProblem(value, utf8);
         if (refusal is not null)
         {
             return false;
@@ -540,6 +559,13 @@ public static class TableTsv
         var line = lines[1];
         var tab = line.IndexOf(Tab);
         var cell = tab < 0 ? line[1..] : line[1..tab];
+        if (cell.Contains('\r'))
+        {
+            // Write cannot write a carriage return into the meta cell, so Read does not accept one either.
+            problem = new TsvDiagnosis(TsvProblem.InvalidMetaLine, 2, "The meta line must not contain a carriage return");
+            return false;
+        }
+
         var first = cell.IndexOf(';');
         var second = first < 0 ? -1 : cell.IndexOf(';', first + 1);
         if (second < 0 || !int.TryParse(cell.AsSpan(first + 1, second - first - 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var version))
@@ -569,7 +595,7 @@ public static class TableTsv
         {
             if (!seen.Add(name))
             {
-                problem = new TsvDiagnosis(TsvProblem.DuplicateColumn, 1, $"Column '{name}' occurs twice");
+                problem = new TsvDiagnosis(TsvProblem.DuplicateColumn, 1, $"Column '{Shorten(name)}' occurs twice");
                 return false;
             }
         }
@@ -578,7 +604,7 @@ public static class TableTsv
         {
             if (!byName.ContainsKey(name))
             {
-                problem = new TsvDiagnosis(TsvProblem.UnknownColumn, 1, $"Column '{name}' is not a column of the table");
+                problem = new TsvDiagnosis(TsvProblem.UnknownColumn, 1, $"Column '{Shorten(name)}' is not a column of the table");
                 return false;
             }
         }
@@ -587,7 +613,7 @@ public static class TableTsv
         {
             if (!seen.Contains(column.Name))
             {
-                problem = new TsvDiagnosis(TsvProblem.MissingColumn, 1, $"Column '{column.Name}' is missing");
+                problem = new TsvDiagnosis(TsvProblem.MissingColumn, 1, $"Column '{Shorten(column.Name)}' is missing");
                 return false;
             }
         }
@@ -611,10 +637,38 @@ public static class TableTsv
         return true;
     }
 
-    private static string InvalidValueDetail(string column, string cell, string reason)
+    private static string InvalidValueDetail(string column, string cell, string reason) =>
+        $"Column '{Shorten(column)}', value '{Shorten(cell)}': {reason}";
+
+    // A cell value or model text for a Detail: at most MaxDetailValueLength characters, never cut inside a surrogate pair, control
+    // characters and unpaired surrogates written as \uXXXX, "..." when it was cut.
+    private static string Shorten(string value)
     {
-        var shown = cell.Length > MaxDetailValueLength ? cell[..MaxDetailValueLength] + "..." : cell;
-        return $"Column '{column}', value '{shown}': {reason}";
+        var length = Math.Min(value.Length, MaxDetailValueLength);
+        if (length < value.Length && char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
+        {
+            length--;
+        }
+
+        var sb = new StringBuilder(length + 3);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            if (char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(value[i + 1]))
+            {
+                sb.Append(c).Append(value[++i]);
+            }
+            else if (char.IsControl(c) || char.IsSurrogate(c))
+            {
+                sb.Append("\\u").Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return length < value.Length ? sb.Append("...").ToString() : sb.ToString();
     }
 
     // On failure reason names what is wrong; otherwise reason is null. Never throws for the cell.
@@ -697,13 +751,13 @@ public static class TableTsv
                 value = f64;
                 return true;
             case FieldType.ColourRgb:
-                if (TryParseColour(cell, out var colour))
+                if (ColourText.TryParse(cell, out var colour))
                 {
                     value = colour.ToString("X6", CultureInfo.InvariantCulture);
                     return true;
                 }
 
-                reason = $"not a colour of 1 to {MaxColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
+                reason = $"not a colour of 1 to {ColourText.MaxDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
                 return false;
             case FieldType.StringU8:
             case FieldType.OptionalStringU8:
@@ -712,19 +766,13 @@ public static class TableTsv
                 // Write refuses a carriage return, so Read does not accept one either.
                 reason = text.Contains('\r')
                     ? "the text contains a carriage return"
-                    : BinaryTextProblem(text, utf8: type != FieldType.StringU16);
+                    : ByteWriter.EncodingProblem(text, utf8: type != FieldType.StringU16);
                 value = text;
                 return reason is null;
             default:
                 reason = "the field type is not supported";
                 return false;
         }
-    }
-
-    private static bool TryParseColour(string cell, out uint colour)
-    {
-        colour = 0;
-        return IsHex(cell, 1, MaxColourDigits) && uint.TryParse(cell, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out colour);
     }
 
     // A parse that overflows gives an infinity. That is only accepted when the cell is one of the forms Write emits for it.
@@ -734,8 +782,7 @@ public static class TableTsv
 
     private static bool TryParseGroup(string cell, out uint rgb)
     {
-        rgb = 0;
-        return IsHex(cell, GroupColourDigits, GroupColourDigits) && uint.TryParse(cell, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out rgb);
+        return ColourText.TryParse(cell, GroupColourDigits, GroupColourDigits, out rgb);
     }
 
     // The arms are boxed one by one: without the casts the switch would have the common type double and box every channel as one.
@@ -747,44 +794,4 @@ public static class TableTsv
         FieldType.F32 => (object)(float)channel,
         _ => (object)(double)channel,
     };
-
-    private static bool IsHex(string value, int minLength, int maxLength)
-    {
-        if (value.Length < minLength || value.Length > maxLength)
-        {
-            return false;
-        }
-
-        foreach (var c in value)
-        {
-            if (!char.IsAsciiHexDigit(c))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    // Why the binary format cannot hold the text (null when it can). Shared by Write and Read, so that whatever Read returns can be
-    // encoded. Mirrors the rules of the encoders: no unpaired surrogate, at most 65535 UTF-8 bytes or UTF-16 units.
-    private static string? BinaryTextProblem(string value, bool utf8)
-    {
-        if (!ByteWriter.IsWellFormed(value, out var reason))
-        {
-            return reason;
-        }
-
-        if (utf8)
-        {
-            var bytes = Encoding.UTF8.GetByteCount(value);
-            return bytes > MaxTextLength
-                ? $"the text needs {bytes.ToString(CultureInfo.InvariantCulture)} UTF-8 bytes, the limit is {MaxTextLength.ToString(CultureInfo.InvariantCulture)}"
-                : null;
-        }
-
-        return value.Length > MaxTextLength
-            ? $"the text has {value.Length.ToString(CultureInfo.InvariantCulture)} UTF-16 units, the limit is {MaxTextLength.ToString(CultureInfo.InvariantCulture)}"
-            : null;
-    }
 }

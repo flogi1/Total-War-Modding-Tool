@@ -9,8 +9,6 @@ namespace TotalWarModTool.Tables;
 /// </summary>
 public static class DbTableEncoder
 {
-    private const int MaxColourDigits = 8;
-
     /// <summary>
     /// Writes the header (GUID block only when <paramref name="guid"/> is not null, version block only when
     /// <paramref name="version"/> is not 0), then the rows. An empty optional text is written as absent.
@@ -95,10 +93,9 @@ public static class DbTableEncoder
                 writer.WriteDouble(v);
                 return true;
             case FieldType.ColourRgb when value is string v:
-                if (v.Length is < 1 or > MaxColourDigits
-                    || !uint.TryParse(v, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var colour))
+                if (!ColourText.TryParse(v, out var colour))
                 {
-                    reason = $"'{v}' is not a colour of 1 to {MaxColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
+                    reason = $"'{v}' is not a colour of 1 to {ColourText.MaxDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
                     return false;
                 }
 

@@ -11,6 +11,7 @@ public class PackWriterRealDataTests
         Assert.Equal(PackWriteProblem.None, PackWriter.Write(target, source.Dependencies, entries, DateTimeOffset.UnixEpoch, null, CancellationToken.None).Problem);
         var rebuilt = PackReader.ReadIndex(target).Index!;
         Assert.Equal(source.Entries.Count, rebuilt.Entries.Count);
+        Assert.Equal(source.Dependencies, rebuilt.Dependencies);
         foreach (var e in source.Entries)
             Assert.True(PackReader.ReadEntry(source, e, CancellationToken.None).Bytes!.AsSpan().SequenceEqual(
                 PackReader.ReadEntry(rebuilt, rebuilt.Find(e.Path)!, CancellationToken.None).Bytes), e.Path);

@@ -23,6 +23,9 @@ public class TableTsvLocTests
         Assert.False(string.IsNullOrWhiteSpace(r.Detail));
     }
 
+    [Fact] public void A_pack_path_with_an_unpaired_surrogate_is_an_argument_error() =>
+        Assert.Throws<ArgumentException>(() => TableTsv.WriteLoc("a\uD800b", []));
+
     [Fact] public void ReadLoc_rejects_a_carriage_return_inside_a_key_or_text()
     {
         var inText = TableTsv.ReadLoc("key\ttext\ttooltip\n#Loc;1;p\t\t\nk\ta\rb\tfalse\n");
@@ -41,6 +44,7 @@ public class TableTsvLocTests
     [Theory]
     [InlineData("key\ttext\ttooltip\n#Loc;2;p\t\t\n", TsvProblem.InvalidMetaLine, 2)]
     [InlineData("key\ttext\ttooltip\n#units_tables;1;p\t\t\n", TsvProblem.InvalidMetaLine, 2)]
+    [InlineData("key\ttext\ttooltip\n#Loc;1;p\rq\t\t\n", TsvProblem.InvalidMetaLine, 2)]
     [InlineData("key\ttext\n#Loc;1;p\t\n", TsvProblem.MissingColumn, 1)]
     [InlineData("key\ttext\ttooltip\textra\n#Loc;1;p\t\t\t\n", TsvProblem.UnknownColumn, 1)]
     [InlineData("key\ttext\ttooltip\n#Loc;1;p\t\t\nk\tt\n", TsvProblem.WrongCellCount, 3)]

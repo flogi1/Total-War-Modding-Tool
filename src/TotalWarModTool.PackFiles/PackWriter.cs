@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace TotalWarModTool.PackFiles;
@@ -54,7 +55,7 @@ public static class PackWriter
             var bytes = Encoding.UTF8.GetByteCount(name);
             if (bytes > MaxNameBytes)
             {
-                return Fail(PackWriteProblem.InvalidDependency, $"The dependency name {Quote(name)} has {bytes} UTF-8 bytes, more than {MaxNameBytes}.");
+                return Fail(PackWriteProblem.InvalidDependency, $"The dependency name {Quote(name)} has {Inv(bytes)} UTF-8 bytes, more than {Inv(MaxNameBytes)}.");
             }
         }
 
@@ -71,7 +72,7 @@ public static class PackWriter
             var bytes = Encoding.UTF8.GetByteCount(entry.Path);
             if (bytes > MaxNameBytes)
             {
-                return Fail(PackWriteProblem.PathTooLong, $"The path {Quote(entry.Path)} has {bytes} UTF-8 bytes, more than {MaxNameBytes}.");
+                return Fail(PackWriteProblem.PathTooLong, $"The path {Quote(entry.Path)} has {Inv(bytes)} UTF-8 bytes, more than {Inv(MaxNameBytes)}.");
             }
         }
 
@@ -89,14 +90,14 @@ public static class PackWriter
         {
             if (entry.Length > uint.MaxValue)
             {
-                return Fail(PackWriteProblem.EntryTooLarge, $"The entry {Quote(entry.Path)} is larger than {uint.MaxValue} bytes.");
+                return Fail(PackWriteProblem.EntryTooLarge, $"The entry {Quote(entry.Path)} is larger than {Inv(uint.MaxValue)} bytes.");
             }
         }
 
         var (dependencyIndexSize, entryIndexSize) = ComputeIndexSizes(dependencies, entries);
         if (dependencyIndexSize > uint.MaxValue || entryIndexSize > uint.MaxValue)
         {
-            return Fail(PackWriteProblem.IndexTooLarge, $"An index would be larger than {uint.MaxValue} bytes (dependencies {dependencyIndexSize}, entries {entryIndexSize}).");
+            return Fail(PackWriteProblem.IndexTooLarge, $"An index would be larger than {Inv(uint.MaxValue)} bytes (dependencies {Inv(dependencyIndexSize)}, entries {Inv(entryIndexSize)}).");
         }
 
         return new PackWriteResult(PackWriteProblem.None, null);
@@ -249,7 +250,7 @@ public static class PackWriter
 
                 if (read == 0)
                 {
-                    return Fail(PackWriteProblem.SourceChanged, $"Entry {Quote(entry.Path)} gave {entry.Length - remaining} bytes, but {entry.Length} were announced.");
+                    return Fail(PackWriteProblem.SourceChanged, $"Entry {Quote(entry.Path)} gave {Inv(entry.Length - remaining)} bytes, but {Inv(entry.Length)} were announced.");
                 }
 
                 target.Write(buffer, 0, read);
@@ -264,7 +265,7 @@ public static class PackWriter
 
             return extra == 0
                 ? new PackWriteResult(PackWriteProblem.None, null)
-                : Fail(PackWriteProblem.SourceChanged, $"Entry {Quote(entry.Path)} gave more than the {entry.Length} announced bytes.");
+                : Fail(PackWriteProblem.SourceChanged, $"Entry {Quote(entry.Path)} gave more than the {Inv(entry.Length)} announced bytes.");
         }
         finally
         {
@@ -372,7 +373,7 @@ public static class PackWriter
             }
             else if (char.IsSurrogate(c))
             {
-                builder.Append("\\u").Append(((int)c).ToString("X4"));
+                builder.Append("\\u").Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
             }
             else
             {
@@ -390,6 +391,9 @@ public static class PackWriter
     }
 
     private static PackWriteResult Fail(PackWriteProblem problem, string detail) => new(problem, detail);
+
+    // Numbers in a Detail never depend on the culture of the machine.
+    private static string Inv(long value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static void WriteUInt32(Stream stream, uint value)
     {
