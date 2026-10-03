@@ -2,7 +2,8 @@
 
 Stand: 2026-10-02. Status: vom Nutzer am 2026-10-02 freigegeben.
 Pläne: `docs/plans/2026-10-02-fundament-plan-1-geruest.md` (Gerüst, umgesetzt),
-`docs/plans/2026-10-02-fundament-plan-2-lese-libraries.md` (Lese-Libraries).
+`docs/plans/2026-10-02-fundament-plan-2-lese-libraries.md` (Lese-Libraries, umgesetzt),
+`docs/plans/2026-10-03-fundament-plan-3-explorer-und-tabs.md` (Explorer und Tabs).
 
 Diese Spec ist die erste von mehreren. Sie beschreibt das Fundament, auf dem alle späteren Teile
 aufbauen. Abschnitt 1 hält das Gesamtbild und die Architekturentscheidungen fest, die für alle Teile
