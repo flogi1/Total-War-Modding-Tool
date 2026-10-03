@@ -87,6 +87,27 @@ public class SessionCoordinatorTests
         }
     }
 
+    // The game is missing at the start and found later: the stored session was never restored, so it must not be overwritten.
+    [Fact] public async Task A_game_found_after_a_restore_without_catalog_does_not_overwrite_the_stored_session()
+    {
+        var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", [1]), ("b.txt", [1])));
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0];
+            store.Save(new SessionState([new(pack.Path, "a.txt"), new(pack.Path, "b.txt")], 1, []));
+            game.GameSettings.InstallPath = game.Root.File("nowhere");                 // not found at the start
+            Assert.Null(c.Catalog);
+            var session = Coordinator(game, c, vm, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
+            await session.RestoreAsync();
+            game.GameSettings.InstallPath = game.InstallPath;                          // the user chooses the folder: refreshed at once by the fake runner
+            Assert.NotNull(c.Catalog);
+            await vm.OpenEntryAsync(c.Catalog!.Packs[0], "a.txt");
+            session.Save();
+            Assert.Equal(0, dirty);                                                    // the restore did not end: no Dirty either
+            Assert.Equal(["a.txt", "b.txt"], store.Load().State.Tabs.Select(t => t.EntryPath));
+        }
+    }
+
     [Fact] public async Task A_session_file_of_a_newer_version_is_never_overwritten()
     {
         var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", [1])));

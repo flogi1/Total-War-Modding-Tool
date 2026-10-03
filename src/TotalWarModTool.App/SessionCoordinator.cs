@@ -6,8 +6,9 @@ namespace TotalWarModTool.App;
 
 /// <summary>
 /// Connects the tabs and the explorer with session.json: brings the stored session back after the start and writes the current one.
-/// Lives on the UI thread. It never writes before the restore ended, never without a pack catalog (a session without a found game would
-/// erase the stored tabs) and never over a file of a newer version or one that could not be read.
+/// Lives on the UI thread. It never writes before the restore ended (a restore that found no catalog, or whose result was discarded, has not
+/// ended), never without a pack catalog (a session without a found game would erase the stored tabs) and never over a file of a newer
+/// version or one that could not be read.
 /// </summary>
 public sealed class SessionCoordinator
 {
@@ -65,47 +66,40 @@ public sealed class SessionCoordinator
     /// </summary>
     public async Task RestoreAsync()
     {
-        var dropped = false;
-        try
+        // Nothing is restored without a catalog, and then the restore has not ended: no Dirty, no write in this session. Otherwise a game that
+        // is found later (folder chosen in the settings) would let the first change overwrite the stored session that was never brought back.
+        var catalog = _workspace.Catalog;
+        if (catalog is null)
         {
-            var catalog = _workspace.Catalog;
-            if (catalog is null)
-            {
-                return;
-            }
-
-            var schema = _workspace.Schema;
-            var result = await _workspace.RestoreAsync(_loaded.State);
-
-            // A restore of an older pack list or schema comes back empty. That is no reason to write: the stored session stays as it is.
-            if (!ReferenceEquals(catalog, _workspace.Catalog) || !ReferenceEquals(schema, _workspace.Schema))
-            {
-                return;
-            }
-
-            _explorer.ApplyRestored(result.Packs);
-            foreach (var restored in result.Tabs)
-            {
-                if (!_tabs.Tabs.Any(tab => IsTabOf(tab, restored)))
-                {
-                    _tabs.Add(restored.Pack, restored.Entry, schema, select: false);
-                }
-            }
-
-            // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
-            if (result.ActiveTab >= 0 && result.ActiveTab < result.Tabs.Count)
-            {
-                _tabs.SelectedTab = _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, result.Tabs[result.ActiveTab])) ?? _tabs.SelectedTab;
-            }
-
-            dropped = result.Tabs.Count < _loaded.State.Tabs.Count || result.Packs.Count < _loaded.State.ExpandedPacks.Count;
-        }
-        finally
-        {
-            _restored = true;
+            return;
         }
 
-        if (dropped)
+        var schema = _workspace.Schema;
+        var result = await _workspace.RestoreAsync(_loaded.State);
+
+        // A restore of an older pack list or schema comes back empty. It has not ended either: the stored session must stay as it is.
+        if (!ReferenceEquals(catalog, _workspace.Catalog) || !ReferenceEquals(schema, _workspace.Schema))
+        {
+            return;
+        }
+
+        _explorer.ApplyRestored(result.Packs);
+        foreach (var restored in result.Tabs)
+        {
+            if (!_tabs.Tabs.Any(tab => IsTabOf(tab, restored)))
+            {
+                _tabs.Add(restored.Pack, restored.Entry, schema, select: false);
+            }
+        }
+
+        // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
+        if (result.ActiveTab >= 0 && result.ActiveTab < result.Tabs.Count)
+        {
+            _tabs.SelectedTab = _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, result.Tabs[result.ActiveTab])) ?? _tabs.SelectedTab;
+        }
+
+        _restored = true;
+        if (result.Tabs.Count < _loaded.State.Tabs.Count || result.Packs.Count < _loaded.State.ExpandedPacks.Count)
         {
             Dirty?.Invoke(this, EventArgs.Empty);
         }
