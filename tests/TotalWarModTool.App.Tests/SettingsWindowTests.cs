@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Threading;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Settings;
@@ -24,7 +26,7 @@ public class SettingsWindowTests
         theme.Apply(settings.Theme);
         _ = new SettingsApplier(settings, ui, theme, new FakeAppLog());
 
-        var viewModel = new SettingsViewModel(settings, texts, Languages);
+        var viewModel = SettingsViewModelTests.NewViewModel(settings, texts, Languages);
         var window = new SettingsWindow(viewModel);
         window.Show();
         Pump(window);
@@ -44,6 +46,19 @@ public class SettingsWindowTests
     }
 
     private static T Find<T>(Window window, string name) where T : class => Assert.IsType<T>(window.FindName(name));
+
+    // The window over the view model of a loaded TestGame, shown. The game controls are on the second page.
+    private static async Task<(TestGame Game, SettingsViewModel ViewModel, SettingsWindow Window)> CreateWithGame()
+    {
+        var game = new TestGame(); game.AddPack("a.pack");
+        var controller = game.NewController();
+        await controller.LoadAsync();
+        var viewModel = new SettingsViewModel(game.Settings, game.Texts, Languages, game.GameSettings, controller, _ => null);
+        var window = new SettingsWindow(viewModel);
+        window.Show();
+        Pump(window);
+        return (game, viewModel, window);
+    }
 
     private static IEnumerable<object> LogicalDescendants(DependencyObject root)
     {
@@ -77,7 +92,8 @@ public class SettingsWindowTests
         Assert.Equal(ThemeChoice.Dark, ((ThemeOption)themeBox.SelectedItem).Value);
 
         // Changes apply at once, so there is nothing to confirm. The logical tree has no template parts (the drop-down toggle of a combo box).
-        Assert.DoesNotContain(LogicalDescendants(window), element => element is ButtonBase);
+        // Only the general page: the game page has buttons that open the folder dialog and clear a path, which confirm nothing.
+        Assert.DoesNotContain(LogicalDescendants(Find<Grid>(window, "GeneralPage")), element => element is ButtonBase);
     });
 
     [Fact] public void Choosing_in_the_selection_boxes_writes_the_settings() => Sta.Run(() =>
@@ -121,5 +137,70 @@ public class SettingsWindowTests
         Assert.Equal(["Same as Windows", "Light", "Dark"], themeBox.Items.Cast<ThemeOption>().Select(option => option.Name));
         AssertSelected(themeBox, 1, setup.ViewModel.SelectedTheme);
         AssertSelected(languageBox, 0, setup.ViewModel.SelectedLanguage);
+    });
+
+    [Fact] public void Game_category_shows_the_game_controls() => Sta.RunAsync(async () =>
+    {
+        var (game, viewModel, window) = await CreateWithGame();
+        using (game)
+        {
+            Assert.Equal((0, true, false), (viewModel.SelectedCategory, Find<ComboBox>(window, "LanguageBox").IsVisible, Find<TextBox>(window, "GamePathBox").IsVisible));
+
+            Find<ListBox>(window, "CategoryList").SelectedIndex = 1;
+            Pump(window);
+
+            Assert.Equal(1, viewModel.SelectedCategory);
+            foreach (var name in new[] { "GamePathBox", "BrowseGamePathButton", "ClearGamePathButton", "SchemaFolderBox", "BrowseSchemaFolderButton", "ClearSchemaFolderButton" })
+            {
+                var control = Assert.IsAssignableFrom<Control>(window.FindName(name));
+                Assert.True(control.IsVisible && control.IsEnabled, name);
+            }
+
+            Assert.Equal(("Test Game", game.InstallPath), (Find<TextBlock>(window, "GameNameText").Text, Find<TextBox>(window, "GamePathBox").Text));
+            Assert.False(Find<TextBlock>(window, "NoGameText").IsVisible);
+            Assert.False(Find<ComboBox>(window, "LanguageBox").IsVisible);
+            Assert.False(Find<ComboBox>(window, "ThemeBox").IsVisible);
+            Assert.Equal(Visibility.Collapsed, Find<Grid>(window, "GeneralPage").Visibility);
+
+            // And back: the category of the view model drives the list as well.
+            viewModel.SelectedCategory = 0;
+            Pump(window);
+            Assert.True(Find<ComboBox>(window, "LanguageBox").IsVisible);
+            Assert.False(Find<TextBox>(window, "GamePathBox").IsVisible);
+        }
+    });
+
+    [Fact] public void Game_path_box_commits_on_enter_and_shows_the_error() => Sta.RunAsync(async () =>
+    {
+        var (game, _, window) = await CreateWithGame();
+        using (game)
+        {
+            Find<ListBox>(window, "CategoryList").SelectedIndex = 1;
+            Pump(window);
+            var box = Find<TextBox>(window, "GamePathBox");
+            var error = Find<TextBlock>(window, "GamePathErrorText");
+            Assert.False(error.IsVisible);
+
+            var wrong = game.Root.File("wrong"); Directory.CreateDirectory(wrong);
+            box.Focus();
+            box.Text = wrong;
+            Assert.Equal(game.InstallPath, game.GameSettings.InstallPath);    // typing alone commits nothing
+            box.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(box)!, 0, Key.Enter) { RoutedEvent = Keyboard.KeyDownEvent });
+            Pump(window);
+
+            Assert.Equal((true, "This folder has no \"packs\" folder. Choose the folder that contains it."), (error.IsVisible, error.Text));
+            Assert.Equal((game.InstallPath, wrong), (game.GameSettings.InstallPath, box.Text));
+        }
+    });
+
+    [Fact] public void Text_boxes_are_labeled_for_screen_readers() => Sta.RunAsync(async () =>
+    {
+        var (game, _, window) = await CreateWithGame();
+        using (game)
+        {
+            var gameLabel = Assert.IsType<TextBlock>(AutomationProperties.GetLabeledBy(Find<TextBox>(window, "GamePathBox")));
+            var schemaLabel = Assert.IsType<TextBlock>(AutomationProperties.GetLabeledBy(Find<TextBox>(window, "SchemaFolderBox")));
+            Assert.Equal(("Game folder", "Schema folder"), (gameLabel.Text, schemaLabel.Text));
+        }
     });
 }

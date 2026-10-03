@@ -69,4 +69,43 @@ public sealed partial class AppTexts(UiText ui) : TextsBase(ui)
     public string SettingsThemeLight => T("settings.theme.light", "Light");
 
     public string SettingsThemeDark => T("settings.theme.dark", "Dark");
+
+    public string SettingsCategoryGame => T("settings.category.game", "Game");
+
+    public string SettingsGamePath => T("settings.gamePath", "Game folder");
+
+    public string SettingsGamePathBrowse => T("settings.gamePath.browse", "Choose folder");
+
+    public string SettingsGamePathClear => T("settings.gamePath.clear", "Detect automatically");
+
+    /// <param name="dataFolder">Name of the data folder the game profile expects. Data, not a UI text.</param>
+    public string SettingsGamePathInvalid(string dataFolder) =>
+        F("settings.gamePath.invalid", "This folder has no \"{0}\" folder. Choose the folder that contains it.", dataFolder);
+
+    /// <param name="path">The install folder that was found. Data, not a UI text.</param>
+    public string SettingsGamePathDetected(string path) => F("settings.gamePath.detected", "Detected automatically: {0}", path);
+
+    public string SettingsGamePathNotDetected => T("settings.gamePath.notDetected", "The game was not found automatically. Choose the game folder.");
+
+    public string SettingsNoGame => T("settings.noGame", "No game profile was found, so there is nothing to set here.");
+
+    public string SettingsSchemaFolder => T("settings.schemaFolder", "Schema folder");
+
+    public string SettingsSchemaFolderBrowse => T("settings.schemaFolder.browse", "Choose folder");
+
+    public string SettingsSchemaFolderClear => T("settings.schemaFolder.clear", "Use the shipped schema");
+
+    public string SettingsSchemaFolderMissing => T("settings.schemaFolder.missing", "This folder does not exist.");
+
+    public string SettingsSchemaFolderHelp => T("settings.schemaFolder.help",
+        "A folder with RPFM schema files, for example the schema folder of RPFM. A usable file from this folder is used instead of the shipped one.");
+
+    /// <param name="source">Where the schema comes from, see <see cref="SchemaSourceText"/>.</param>
+    public string SettingsSchemaStatus(string source) => F("settings.schemaStatus", "In use: {0}", source);
+
+    /// <param name="source">Where the schema comes from, see <see cref="SchemaSourceText"/>.</param>
+    /// <param name="fileName">Name of the schema file the profile expects. Data, not a UI text.</param>
+    /// <param name="problem">The problem of the file in the schema folder, see <see cref="SchemaProblemText"/>.</param>
+    public string SettingsSchemaStatusOverrideFailed(string source, string fileName, string problem) =>
+        F("settings.schemaStatus.overrideFailed", "In use: {0}. The schema folder has no usable {1} ({2}).", source, fileName, problem);
 }

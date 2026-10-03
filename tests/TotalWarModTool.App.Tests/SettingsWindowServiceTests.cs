@@ -9,7 +9,7 @@ public class SettingsWindowServiceTests
     private static (SettingsWindowService Service, List<SettingsWindow> Created) NewService()
     {
         var texts = new AppTexts(new UiText(@"X:\none"));
-        var viewModel = new SettingsViewModel(new GlobalSettings(), texts, [new UiLanguageOption("en", "English")]);
+        var viewModel = SettingsViewModelTests.NewViewModel(new GlobalSettings(), texts);
         var created = new List<SettingsWindow>();
         var service = new SettingsWindowService(() =>
         {

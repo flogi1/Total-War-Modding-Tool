@@ -1,9 +1,10 @@
 # Spec: Fundament (Packs und Tabellen lesen, App-Gerüst)
 
-Stand: 2026-10-02. Status: vom Nutzer am 2026-10-02 freigegeben.
+Stand: 2026-10-03. Status: vom Nutzer am 2026-10-02 freigegeben; Plan 3 am 2026-10-03 angepasst.
 Pläne: `docs/plans/2026-10-02-fundament-plan-1-geruest.md` (Gerüst, umgesetzt),
 `docs/plans/2026-10-02-fundament-plan-2-lese-libraries.md` (Lese-Libraries, umgesetzt),
-`docs/plans/2026-10-03-fundament-plan-3-explorer-und-tabs.md` (Explorer und Tabs).
+`docs/plans/2026-10-03-fundament-plan-3-explorer-und-tabs.md` (Explorer und Tabs, umgesetzt;
+die manuelle Abnahme durch den Nutzer steht aus).
 
 Diese Spec ist die erste von mehreren. Sie beschreibt das Fundament, auf dem alle späteren Teile
 aufbauen. Abschnitt 1 hält das Gesamtbild und die Architekturentscheidungen fest, die für alle Teile
@@ -396,7 +397,24 @@ Die Namen sind verbindlich für den ersten Plan. Details der Signaturen legt der
 - `Workspace`
   - `PackCatalog.Scan(profile, installPath, workshopPath, progress, cancellationToken)` liefert die
     Liste der Packs mit Herkunft (`Vanilla`, `DataFolderMod`, `Workshop`), Workshop-ID,
-    Fingerprint und gegebenenfalls einer Diagnose.
+    Fingerprint und gegebenenfalls einer Diagnose. `PackCatalogResult.FolderProblems` hat einen
+    Eintrag (Pfad, Detail) je Ordner, der existiert, aber nicht aufgelistet werden konnte; so ist
+    ein nicht lesbarer Ordner von einem fehlenden zu unterscheiden.
+  - `PackAccess.ReadIndex(path, cancellationToken)` liest den Index eines Packs für die App. Nur
+    `Unreadable` (gesperrt oder Zugriff verweigert) wird wiederholt: höchstens 3 Versuche mit 250 ms
+    Pause.
+  - `PackTree.Build(entries, cancellationToken)` baut den Ordnerbaum eines Index ohne Rekursion.
+    Ordner, die sich nur in der Schreibweise unterscheiden, werden zusammengeführt (die erste
+    Schreibweise gilt), bei doppelten Dateipfaden zählt der erste Eintrag.
+  - `EntryOpener.KindOf(path)` ordnet einen Eintrag nach Pfad und Endung ein (Tabelle, Loc, Text,
+    Sonstiges). `EntryOpener.Open(index, entry, schema, cancellationToken)` liefert `OpenedEntry`:
+    Art, Größen, Format, Lesediagnose und je nach Art Tabelle, Loc oder Text.
+- `PackFiles`, Ergänzung: `PackReader.ReadEntryInfo(index, entry, cancellationToken)` liefert
+  `EntryInfo` (Format, unkomprimierte Größe, Diagnose) und liest dafür höchstens 8 Bytes des
+  Eintrags. Ein Eintrag unbekannten Dateityps wird damit nicht gelesen, sondern nur beschrieben.
+
+`WorkspaceController` der App gehört nicht zu diesen Schnittstellen: Er ist Teil der App, keine
+Library.
 
 Berechnung und Schreiben sind getrennt. Die Lese-Libraries schreiben nichts.
 
@@ -501,7 +519,12 @@ warten (ungeprüft, und der Stack ist auf .NET 8 festgelegt).
   Rechts die Tabs. Unten eine Statuszeile mit Spiel und Schema-Quelle.
 - **Menü.** Enthält nur Werkzeuge: Pack-Liste aktualisieren, Einstellungen, Log-Ordner öffnen.
 - **Einstellungsfenster.** Nicht-modal, Kategorien links, wirkt sofort: Sprache, Theme (Hell, Dunkel,
-  System), Spielpfad, Schema-Ordner.
+  System), Spielpfad, Schema-Ordner. Die Seite „Spiel“ zeigt den Namen des Spiels, den Spielordner
+  (leer heißt: automatisch über Steam erkennen, mit Anzeige des gefundenen Ordners) und den
+  Schema-Ordner (leer heißt: mitgeliefertes Schema, mit Anzeige der Quelle und des Datums). Eine
+  Eingabe wird bei Enter und beim Verlassen des Felds übernommen. Ein Spielordner ohne Datenordner
+  und ein Schema-Ordner, den es nicht gibt, werden mit einer Meldung abgelehnt; die Einstellung
+  bleibt dann, wie sie war. Ohne Spielprofil sind die Felder deaktiviert, ein Hinweis steht darüber.
 - **ViewModels** für Explorer, Tab-Bereich, jede Tab-Art und Einstellungen. Code-behind enthält nur
   View-Verdrahtung.
 - **Tab-Arten.**
@@ -523,6 +546,29 @@ warten (ungeprüft, und der Stack ist auf .NET 8 festgelegt).
 - **Fehler.** Globale Handler für die drei Exception-Quellen aus `CLAUDE.md`. Der Crash-Dialog hat
   „Log öffnen“ und „Details kopieren“.
 
+Festlegungen aus Plan 3:
+
+- **Stille Läufe.** Der Scan beim Start (mit dem Schema) und das Wiederherstellen der Session laufen
+  mit `Task.Run` ohne Fenster und ohne Eingabesperre.
+- **`IOperationRunner`.** Alle vom Nutzer gestarteten Operationen laufen über diese eine Schnittstelle
+  (`ProgressRunner` implementiert sie, Tests nutzen einen Fake): Pack-Liste aktualisieren, Pack
+  aufklappen, Eintrag öffnen und das Neuladen nach einer Änderung von Spielpfad oder Schema-Ordner.
+  Läuft schon etwas, startet nichts Zweites, und es gibt weder Fehler noch Exception. Kein Tab und
+  kein Baum erscheint vor dem Ende seiner Operation, ein Abbruch hinterlässt keinen Teilzustand.
+- **Meldungen im Explorer.** Statt der Gruppen steht ein Text, wenn die Liste noch lädt, kein
+  Spielprofil existiert, das Spiel nicht gefunden wurde, der manuell gewählte Ordner keinen
+  Datenordner hat oder keine Packs da sind. Bei nicht gefundenem Spiel und ungültigem Ordner führt
+  ein Knopf in die Einstellungen.
+- **Statuszeile.** Spiel, Schema-Quelle mit Datum und der erste Hinweis (kein Schema, Schema-Ordner
+  ohne brauchbare Datei, nicht lesbarer Pack-Ordner). Jede Diagnose, die der Nutzer sieht, steht
+  auch einmal im Log.
+- **Kein Spielwähler.** Das Fundament hat ein Profil. Es gilt das Profil aus den Einstellungen, sonst
+  das erste. Ein Wähler kommt mit dem zweiten Profil (Backlog).
+- **Sprachwechsel.** Offene Tabs, Explorer und Statuszeile folgen einem Sprachwechsel sofort. Die
+  Tooltips der Pack-Knoten erst nach dem nächsten Neuaufbau (Backlog).
+- **Unbekannte Dateitypen** werden nicht gelesen, nur ihre ersten Bytes (`ReadEntryInfo`); der
+  Hinweis-Tab öffnet deshalb sofort, auch bei großen Dateien.
+
 Abweichung von `CLAUDE.md`: Der Knopf „Fehler melden“ fehlt im Fundament, weil es noch kein
 öffentliches Ziel dafür gibt. Er kommt mit der Release-Spec und steht im Backlog.
 
@@ -531,11 +577,20 @@ Abweichung von `CLAUDE.md`: Der Knopf „Fehler melden“ fehlt im Fundament, we
 1. **Start.** Theme anwenden. Globale Einstellungen laden. Profil des gewählten Spiels auflösen,
    Installation finden. Session laden. Fenster zeigen. Danach still im Hintergrund:
    `PackCatalog.Scan` (Ordner auflisten, pro Pack nur den Header lesen) und das Schema laden.
-   Tabs aus der Session werden geöffnet, sobald beides fertig ist.
+   Danach stellt der Start die Session still wieder her (ohne Fortschrittsfenster, ohne
+   Eingabesperre): aufgeklappte Packs und Tabs. Das Wiederherstellen beginnt erst, wenn Pack-Liste
+   und Schema fertig sind.
 2. **Pack aufklappen.** `ProgressRunner` liest den Index. Der Baum erscheint.
 3. **Eintrag öffnen.** `ProgressRunner` prüft den Fingerprint, liest die Bytes, dekomprimiert,
    dekodiert. Der Tab erscheint erst am Ende.
-4. **Session.** Jede Änderung an den Tabs speichert verzögert (Debounce) und atomar.
+4. **Session.** Jede Änderung an den Tabs speichert verzögert (Debounce) und atomar. Dabei gilt:
+   - Es wird nichts gespeichert, bevor ein Wiederherstellen gelungen ist. Ein Wiederherstellen, das
+     fehlschlägt oder von einer neueren Pack-Liste überholt wird, gilt als „nicht wiederhergestellt“;
+     die gespeicherte Session bleibt unangetastet.
+   - Die Session wird einmal wiederhergestellt, sobald eine Pack-Liste existiert, auch wenn das
+     Spiel erst nach dem Start gefunden wird.
+   - Eine Session-Datei einer neueren Version oder eine nicht lesbare wird nie überschrieben (eine
+     Warnung im Log nennt den Grund).
 
 Indexe werden nur für aufgeklappte Packs gehalten. Tabellen werden nur für offene Tabs dekodiert.
 Es gibt im Fundament keinen Cache auf Platte. Begründung: Index lesen dauert warm höchstens rund
@@ -557,7 +612,9 @@ Nie Spielordner, Workshop-Ordner, RPFM-Ordner oder Programmordner.
 | `logs\` | `%LocalAppData%\TotalWarModTool` | rotierendes Log |
 
 - Jede Datei hat `schemaVersion` (Start bei 1), wird atomar geschrieben und bei Lesefehler nach
-  `.bad` kopiert. Danach gelten die Defaults.
+  `.bad` kopiert. Danach gelten die Defaults. Bei `game-settings.json` und `session.json` gilt wie
+  bei `settings.json`: Stammt die Datei von einer neueren Version oder ist sie nicht lesbar, wird
+  sie in dieser Sitzung nicht geschrieben, und das Log enthält eine Warnung.
 - Beim Laden wird still repariert: Tabs auf fehlende Packs oder Einträge fallen weg (Log-Eintrag),
   eine Fensterposition außerhalb des virtuellen Bildschirms wird verworfen.
 - Ein Test stellt sicher, dass jede Einstellung genau einer der beiden Einstellungsdateien
@@ -578,7 +635,7 @@ Nie Spielordner, Workshop-Ordner, RPFM-Ordner oder Programmordner.
 | Pack abgeschnitten, unbekannte Kennung, Index inkonsistent | Der Eintrag im Explorer ist markiert, der Grund steht im Tooltip. Die übrigen Packs funktionieren. |
 | Pack mit verschlüsseltem Index oder verschlüsselten Daten | Markiert als „verschlüsselt, nicht unterstützt“. |
 | Pack ist vom Spiel oder einem anderen Programm gesperrt | Lesender Zugriff mit Freigabe für andere. Bei Fehlschlag kurzer Retry, danach eine Klartextmeldung mit Handlungshinweis. |
-| Pack wurde seit dem Lesen des Index geändert (Fingerprint) | Der Index wird neu gelesen. Offene Tabs dieses Packs zeigen den Hinweis „veraltet“. |
+| Pack wurde seit dem Lesen des Index geändert (Fingerprint) | Der Index wird neu gelesen. Offene Tabs dieses Packs zeigen den Hinweis „veraltet“. Die App merkt sich je Pack den zuletzt gesehenen Fingerprint. Eine Abweichung, die beim Öffnen eines Eintrags, beim Aufklappen eines Packs, beim Wiederherstellen der Session oder beim Aktualisieren der Liste auffällt, markiert alle offenen Tabs dieses Packs als „veraltet“, auch wenn das Pack nicht aufgeklappt ist. |
 | Pack wurde gelöscht | Meldung beim Zugriff. Der Eintrag verschwindet bei der nächsten Aktualisierung der Liste. |
 | Tabelle fehlt im Schema oder Version fehlt | Tab „nicht dekodierbar“ mit Tabellenname, Version und Schema-Quelle. |
 | Tabelle lässt sich nicht vollständig lesen (Bytes übrig, Daten zu kurz) | Tab „nicht dekodierbar“ mit Grund. Es werden keine halb gelesenen Zeilen gezeigt. |
@@ -658,17 +715,18 @@ vorigen existieren.
 | 2 | `ZstdSharp.Port` hat eine passende Lizenz und dekomprimiert alle 1602 Vanilla-Tabellen bytegleich zu `rpfm_cli`. | **Bestätigt** (3.8): MIT, 1602 von 1602 bytegleich, 164–247 ms für alle. |
 | 3 | Der eigene LZ4-Decoder liest die LZ4-Einträge korrekt. | **Bestätigt** (3.8): 54.530 Einträge auf die genannte Größe, drei Stichproben bytegleich zu `rpfm_cli`. Stand Plan 2: Ein Paritätstest vergleicht je 3 kleine LZ4-Einträge aus bis zu 3 Vanilla-Packs (die ersten nach Name, die LZ4 enthalten) bytegleich mit `rpfm_cli`; ein weiterer Test dekomprimiert alle relevanten komprimierten Einträge des Datenordners. |
 | 4 | Loc-Format: Kopf, Version, Zeilenanzahl, Zeilen aus zwei UTF-16-Texten und einem Flag. | **Bestätigt** (3.8): 248 von 248 Dateien zellgenau identisch. |
-| 5 | Die größte Loc-Datei lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Dekodieren **bestätigt** (3.8): rund 212.300 Zeilen in unter 0,1 s. Anzeige im Raster: **zu messen in Plan 3**. |
+| 5 | Die größte Loc-Datei lässt sich in vertretbarer Zeit dekodieren und im Raster anzeigen. | Dekodieren **bestätigt** (3.8): rund 212.300 Zeilen in unter 0,1 s. Anzeige im Raster: **Abnahme Plan 3 (manuelle Checkliste)**. |
 | 6 | `OptionalI32` ist ein Flag-Byte plus immer vorhandener Wert. | **Nicht messbar** (3.8). Der Typ gilt als nicht unterstützt. |
 | 7 | Bedeutung der Header-Bits `0x10`, `0x80`, `0x100`. | **Teilweise** (3.8): `0x10` trägt nur `audio_base_m.pack`. Die Bedeutung stammt weiter aus RPFM-Wissen. Packs mit diesen Bits gelten als nicht unterstützt. |
 | 8 | Der Zeitstempel im Index ist bei `PFH5` 4 Bytes breit. | **Bestätigt** (3.8): `boot.pack`, `shaders.pack`. |
 | 9 | Komprimierte Mod-Tabellen dekodieren mit derselben Quote wie unkomprimierte. Ursache der Fehler. | **Bestätigt** (3.8): 5505 von 5511. Ursache: älteres Layout bei gleicher Versionsnummer. |
-| 10 | Packs lassen sich lesen, während das Spiel läuft. | **Zu messen** in Plan 3 (manuelle Checkliste). |
+| 10 | Packs lassen sich lesen, während das Spiel läuft. | Abnahme Plan 3 (manuelle Checkliste) |
 | 11 | Header aller Packs lesen dauert kalt deutlich unter 4,7 s. | **Widerlegt** (3.8): kalt rund 4,4 s, warm 24 ms. Der Scan beim Start läuft im Hintergrund. |
 | 12 | `manifest.txt` listet die Vanilla-Packs und ist robuster als der Pack-Typ. | **Bestätigt** (3.8). Regel in 4.3 angepasst. |
-| 13 | Steam-Erkennung funktioniert auch bei anderer Installation. Der manuelle Pfad deckt alle übrigen Fälle ab. | **Zu messen**: Plan 3, Rückmeldung von Testern. |
-| 14 | 1,2 s Anzeigezeit für breite Tabellen ist für den Nutzer annehmbar oder lässt sich mit einfachen Mitteln senken. | Plan 3 |
+| 13 | Steam-Erkennung funktioniert auch bei anderer Installation. Der manuelle Pfad deckt alle übrigen Fälle ab. | Abnahme Plan 3 (manuelle Checkliste), dazu Rückmeldung von Testern |
+| 14 | 1,2 s Anzeigezeit für breite Tabellen ist für den Nutzer annehmbar oder lässt sich mit einfachen Mitteln senken. | Abnahme Plan 3 (manuelle Checkliste) |
 | 15 | Nach einem Spiel-Patch sind mehr Tabellen nicht dekodierbar als die heutigen 3. Die Anzeige „nicht dekodierbar“ reicht dem Nutzer als Verhalten. | laufender Betrieb |
+| 16 | Ein Text-Tab mit 5 MB bleibt bedienbar. | Abnahme Plan 3 (manuelle Checkliste) |
 
 Annahmen für spätere Teile, hier nur notiert: Eignung des Referenzgraphen für die Objekt-Ansicht,
 verlustfreie Umwandlung Tabelle ↔ Text, Inhalte der Spiel-Logs, Startoptionen des Spiels,

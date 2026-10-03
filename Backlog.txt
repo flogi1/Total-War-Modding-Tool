@@ -1,5 +1,5 @@
 Backlog Total War Modding Tool
-Stand: 2026-10-02
+Stand: 2026-10-03
 
 Alles, was nicht jetzt gebaut wird. Reihenfolge der Teile wie in docs/specs/2026-10-02-fundament.md, Abschnitt 1.2.
 
@@ -60,7 +60,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
   Tabellen nur zu 85 % bzw. 69 % dekodierbar
 - Suche über alle Packs
 - Raster: Sortieren und Filtern mit eigenem Vergleich, Spaltenreihenfolge wie im Assembly Kit (ca_order),
-  Farbspalten als eine Spalte, schnellere Anzeige breiter Tabellen
+  Farbspalten (r/g/b-Dreiergruppen) als eine Spalte, schnellere Anzeige breiter Tabellen
 - Schema-Patches aus patches.ron (Pflichtfelder, Defaults, Erklärungen)
 - Vorschau für Bilder, Modelle, Audio
 - Vollständige Anzeige sehr großer Textdateien (über 5 MB)
@@ -74,6 +74,19 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Tests ergänzen: Schema (Tabellennamen, die sich nur in Groß-/Kleinschreibung unterscheiden, strenge Form von `is_key`/`is_reference`, Escapes `\t \r \0 \'`, beide Quellen kaputt mit Override, `FileDateUtc` der mitgelieferten Datei).
 - Tests ergänzen: Tabellen (`HasGuid`/`Version` bei Fehler in einer Zeile, Optional-Flag ungleich 0/1, Loc-Text über das Dateiende hinaus bei plausibler Zeilenzahl).
 - zstd: Ein kleiner Frame, der bis zur Größengrenze behauptet, belegt den Zielpuffer vor dem Fehlschlag. Inhaltgröße des Frames vorab prüfen oder eine niedrigere Grenze für Tabellen-Einträge.
+- Spielwähler, sobald ein zweites Profil ausgeliefert wird
+- Breite des Explorers und Spaltenbreiten merken
+- Kontextmenü im Explorer (Pfad kopieren, im Dateimanager zeigen)
+- Abbruch und Fortschritt innerhalb von `ReadHeader`, `ReadIndex`, `SchemaLoader.Load` und den Dekodern: der Balken ist unbestimmt, ein Abbruch wirkt nur zwischen den Aufrufen
+- Ordnerprobleme des Katalogs ausführlich anzeigen (bisher nur der erste Pfad in der Statuszeile)
+- Textdateien werden ganz gelesen (bis 256 MB), um 5 MB zu zeigen: nur den Anfang lesen
+- Beim Wechsel zwischen zwei Tabs gleicher Art gehen Scroll-Position, Sortierung und Spaltenbreiten verloren
+- Ein Pack, das während des stillen Wiederherstellens aufgeklappt wird, klappt ohne Hinweis wieder zu
+- Die Tooltips der Pack-Knoten (Problemtext, "verschlüsselt") werden beim Aufbau des Baums in der aktuellen Sprache gebaut und folgen einem Sprachwechsel erst nach dem nächsten Neuaufbau (Aktualisieren)
+- Lange Tooltips der Pack-Knoten (Problemtext plus technisches Detail) brechen nicht um
+- Ein fehlgeschlagenes erstes Laden zeigt dauerhaft "Die Pack-Liste wird geladen" statt eines Fehlers
+- Tests ergänzen: Vorlagen für ComboBoxItem, Untermenü-Einträge und Kontextmenü-Einträge instanziieren
+- Tests der App brauchen einen interaktiven Desktop und dauern rund 40 s. Für CI einplanen.
 
 == Aus Plan 1 (Gerüst) zurückgestellt ==
 
@@ -102,20 +115,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - GlobalSettingsStore: Round-Trip-Test über alle Eigenschaften, bevor neue Felder dazukommen
 - Debug-Auslöser für zwei Pfade, die bisher nur per Unit-Test und Code-Review geprüft sind und sich von Hand nicht auslösen lassen: Absturz auf einem Hintergrund-Thread (Dialogtext "muss beendet werden") und fehlgeschlagener Start (Exit-Code 1)
 - Crash-Behandlung: ein fataler Fehler darf nicht von einem schon wartenden nicht-fatalen Dialog verdeckt werden
-
-== Hinweise für Plan 2 und 3 (aus dem Abschluss-Review von Plan 1) ==
-
-- Plan 2: Arbeitsfunktionen müssen das CancellationToken häufig prüfen. Sonst bleibt das Fortschrittsfenster auf "Wird abgebrochen" stehen.
-- Plan 2: festlegen, wie UI-freie Libraries loggen (Diagnosen zurückgeben oder Referenz auf Logging). Die Spec sagt bei GameProfiles "übersprungen und geloggt", die Modultabelle nennt keine Referenz.
-- Plan 3: Der Pack-Katalog kann einen nicht lesbaren Daten- oder Workshop-Ordner nicht von einem fehlenden unterscheiden. PackCatalogResult soll Ordnerprobleme melden, damit die UI sie anzeigen kann.
-- Tests der App brauchen einen interaktiven Desktop und dauern rund 30 s. Für CI einplanen.
-- Plan 3: `ReadHeader`, `ReadIndex`, `SchemaLoader.Load` und die Dekoder haben kein `CancellationToken` und keinen Fortschritt: Balken unbestimmt, Abbruch wirkt zwischen den Aufrufen.
-- Plan 3: `PackSource.Header` ist bei abgeschnittenen und unbekannten Packs `null`; „verschlüsselt“ kommt aus `Header.HasEncryptedIndex` / `HasEncryptedData`.
-- Plan 3: Zellformen: Zeilen sind `object?[]`; `ColourRgb` ist ein Hex-Text; fehlendes `OptionalStringU8` ist ein leerer Text; das Loc-Flag heißt `Tooltip`.
-
-- Plan 3: Die Tooltips der Pack-Knoten (Problemtext, "verschlüsselt") werden beim Aufbau des Baums in der aktuellen Sprache gebaut. Ein Sprachwechsel zur Laufzeit zeigt sie erst nach dem nächsten Neuaufbau (Aktualisieren) in der neuen Sprache. Gruppennamen und Meldung folgen dem Sprachwechsel schon.
-- Plan 3: Lange Tooltips der Pack-Knoten (Problemtext plus technisches Detail) brechen nicht um.
-
 
 == Wartet auf ein öffentliches Remote ==
 

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using Microsoft.Win32;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Logging;
@@ -85,14 +86,6 @@ public partial class App : Application
                 MessageBoxButton.OK,
                 MessageBoxImage.Error));
 
-        // One view model for the whole run: it keeps no state of its own, so every settings window can use it.
-        var settingsViewModel = new SettingsViewModel(settings, texts, languages);
-
-        // The main view model needs the way to open the settings window, and the settings window needs the main window as its owner.
-        // The owner is only read when the window is opened, which is after mainWindow is set below.
-        Window? mainWindow = null;
-        var settingsWindows = new SettingsWindowService(() => new SettingsWindow(settingsViewModel) { Owner = mainWindow });
-
         // The game: the profile the settings name, else the first one. Everything stored per game is named after the id of that profile.
         var profiles = GameProfileLoader.LoadAll(paths.ProfilesDirectory);
         foreach (var problem in profiles.Problems)
@@ -140,6 +133,15 @@ public partial class App : Application
         }
 
         var workspace = new WorkspaceController(profile, gameSettings, settings, paths, new RegistrySteamLocationSource(), progressRunner, log, texts);
+
+        // One view model for the whole run: apart from what is typed into its boxes it keeps no state, so every settings window can use it.
+        var settingsViewModel = new SettingsViewModel(settings, texts, languages, gameSettings, workspace, PickFolder);
+
+        // The main view model needs the way to open the settings window, and the settings window needs the main window as its owner.
+        // The owner is only read when the window is opened, which is after mainWindow is set below.
+        Window? mainWindow = null;
+        var settingsWindows = new SettingsWindowService(() => new SettingsWindow(settingsViewModel) { Owner = mainWindow });
+
         var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace);
 
         SessionCoordinator? session = null;
@@ -166,6 +168,23 @@ public partial class App : Application
     // The profile of the stored id (ignoring case), else the first one; null without profiles.
     private static GameProfile? ChooseProfile(IReadOnlyList<GameProfile> profiles, string? selectedId) =>
         profiles.FirstOrDefault(profile => string.Equals(profile.Id, selectedId, StringComparison.OrdinalIgnoreCase)) ?? profiles.FirstOrDefault();
+
+    /// <summary>
+    /// The folder dialog of the settings: starts at <paramref name="startFolder"/> when that exists, is owned by the open settings window
+    /// (the main window when none is open) and returns the chosen folder, or null when the user cancelled.
+    /// </summary>
+    private string? PickFolder(string? startFolder)
+    {
+        var dialog = new OpenFolderDialog { Multiselect = false };
+        if (!string.IsNullOrWhiteSpace(startFolder) && Directory.Exists(startFolder))
+        {
+            dialog.InitialDirectory = startFolder;
+        }
+
+        var owner = Windows.OfType<SettingsWindow>().FirstOrDefault() ?? MainWindow;
+        var chosen = owner is null ? dialog.ShowDialog() : dialog.ShowDialog(owner);
+        return chosen == true ? dialog.FolderName : null;
+    }
 
     private static async Task LoadGameAsync(WorkspaceController workspace, SessionCoordinator? session, CrashHandler crashHandler)
     {

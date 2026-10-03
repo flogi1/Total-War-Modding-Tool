@@ -11,18 +11,63 @@
         DataContext is the SettingsViewModel. A choice goes into the settings at once and takes effect at once, so there is no OK and no Cancel.
         Do not set IsSynchronizedWithCurrentItem on the boxes: the list of theme options is replaced after a language switch, and with
         synchronisation on, the box would select the first item (System) and write it into the settings.
+        One page per category, shown by SelectedCategory (the list and the view model are bound both ways).
     -->
+    <Window.Resources>
+        <Style x:Key="GeneralPageStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedCategory}" Value="0">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="GamePageStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedCategory}" Value="1">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- A message of the window: a warning for an error, gone when there is nothing to say. -->
+        <Style x:Key="ErrorTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.Warning}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Text}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="InfoTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextMuted}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Text}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ButtonRowStyle" TargetType="Button">
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="Margin" Value="0,0,8,8" />
+        </Style>
+    </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="180" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <ListBox x:Name="CategoryList" Margin="12" SelectedIndex="0">
+        <ListBox x:Name="CategoryList" Margin="12" SelectedIndex="{Binding SelectedCategory, Mode=TwoWay}">
             <ListBoxItem Content="{Binding Texts.SettingsCategoryGeneral}" />
+            <ListBoxItem Content="{Binding Texts.SettingsCategoryGame}" />
         </ListBox>
 
-        <Grid Grid.Column="1" Margin="0,12,12,12">
+        <Grid x:Name="GeneralPage" Grid.Column="1" Margin="0,12,12,12" Style="{StaticResource GeneralPageStyle}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -43,5 +88,57 @@
                       ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}" DisplayMemberPath="Name"
                       automation:AutomationProperties.LabeledBy="{Binding ElementName=ThemeLabel}" />
         </Grid>
+
+        <!--
+            The game page. A path box commits on Enter and when it loses the focus (the code-behind only asks the binding to update on Enter).
+            Without a game profile the controls are disabled and the notice stands above them.
+        -->
+        <ScrollViewer x:Name="GamePage" Grid.Column="1" Margin="0,12,12,12" VerticalScrollBarVisibility="Auto"
+                      Style="{StaticResource GamePageStyle}">
+            <StackPanel Margin="0,0,4,0">
+                <TextBlock x:Name="GameNameText" Text="{Binding GameName}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
+                <TextBlock x:Name="NoGameText" Text="{Binding Texts.SettingsNoGame}" TextWrapping="Wrap" Margin="0,0,0,12">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasGame}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <StackPanel IsEnabled="{Binding HasGame}">
+                    <TextBlock x:Name="GamePathLabel" Text="{Binding Texts.SettingsGamePath}" Margin="0,0,0,4" />
+                    <TextBox x:Name="GamePathBox" Text="{Binding GamePath, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,8"
+                             KeyDown="OnPathBoxKeyDown"
+                             automation:AutomationProperties.LabeledBy="{Binding ElementName=GamePathLabel}" />
+                    <WrapPanel>
+                        <Button x:Name="BrowseGamePathButton" Content="{Binding Texts.SettingsGamePathBrowse}" Command="{Binding BrowseGamePathCommand}"
+                                Style="{StaticResource ButtonRowStyle}" />
+                        <Button x:Name="ClearGamePathButton" Content="{Binding Texts.SettingsGamePathClear}" Command="{Binding ClearGamePathCommand}"
+                                Style="{StaticResource ButtonRowStyle}" />
+                    </WrapPanel>
+                    <TextBlock x:Name="GamePathErrorText" Text="{Binding GamePathError}" Style="{StaticResource ErrorTextStyle}" />
+                    <TextBlock x:Name="GamePathInfoText" Text="{Binding GamePathInfo}" Style="{StaticResource InfoTextStyle}" />
+
+                    <TextBlock x:Name="SchemaFolderLabel" Text="{Binding Texts.SettingsSchemaFolder}" Margin="0,8,0,4" />
+                    <TextBox x:Name="SchemaFolderBox" Text="{Binding SchemaFolder, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,8"
+                             KeyDown="OnPathBoxKeyDown"
+                             automation:AutomationProperties.LabeledBy="{Binding ElementName=SchemaFolderLabel}" />
+                    <WrapPanel>
+                        <Button x:Name="BrowseSchemaFolderButton" Content="{Binding Texts.SettingsSchemaFolderBrowse}" Command="{Binding BrowseSchemaFolderCommand}"
+                                Style="{StaticResource ButtonRowStyle}" />
+                        <Button x:Name="ClearSchemaFolderButton" Content="{Binding Texts.SettingsSchemaFolderClear}" Command="{Binding ClearSchemaFolderCommand}"
+                                Style="{StaticResource ButtonRowStyle}" />
+                    </WrapPanel>
+                    <TextBlock x:Name="SchemaFolderErrorText" Text="{Binding SchemaFolderError}" Style="{StaticResource ErrorTextStyle}" />
+                    <TextBlock x:Name="SchemaFolderHelpText" Text="{Binding Texts.SettingsSchemaFolderHelp}" Style="{StaticResource InfoTextStyle}" />
+                    <TextBlock x:Name="SchemaStatusText" Text="{Binding SchemaStatus}" TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Window>
