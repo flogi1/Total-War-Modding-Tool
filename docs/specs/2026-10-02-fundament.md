@@ -45,6 +45,10 @@ Das Tool wird von Anfang an für eine öffentliche Veröffentlichung gebaut.
 
 Dazu kommen eigene Specs für Release-Tool und Self-Update (früh, weil öffentlich).
 
+Stand 2026-10-03: Teil 1 ist umgesetzt. Teil 2 hat die Spec
+`docs/specs/2026-10-03-teil-2-projekte-bearbeiten-bauen.md`. Auf Wunsch des Nutzers folgt nach Teil 2
+zuerst Teil 4 (Objekt-Ansicht), danach Teil 3.
+
 Begründung der Reihenfolge: Die Teile 1 bis 3 ergeben zusammen die tägliche Schleife „ändern, bauen,
 starten, Log lesen“. Die Objekt-Ansicht ist Komfort auf dieser Schleife. Das Error-Log stand zuerst
 auf Platz 7 und wurde am 2026-10-02 auf Wunsch des Nutzers vorgezogen.
