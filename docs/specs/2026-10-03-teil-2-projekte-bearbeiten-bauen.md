@@ -245,6 +245,18 @@ Der Dekoder liefert heute nicht alles, was der Encoder braucht (optionale Texte 
 schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`DecodedTable`,
 `LocRow`) und schreibt Version, Marker und GUID nach den Regeln aus 3.1.
 
+#### Festlegungen aus Plan 1
+
+1. Die Encoder nehmen das Modell des Dekoders. Die GUID liest `DbTableDecoder.ReadGuid`, der Import
+   prüft damit byte-genau.
+2. `TableTsv.Write` verweigert auch Texte mit `\r`.
+3. `TableTsv.Read*` meldet nur das erste Problem.
+4. `PackWriter.Write` schreibt genau den übergebenen Pfad. Temp-Datei und Umbenennen macht `Projects`.
+5. Die Encoder lehnen einen Text mit einem einzelnen Surrogat-Zeichen mit `ArgumentException` ab.
+   `TableTsv.Write` schreibt eine solche Tabelle nicht, und `TableTsv.Read` meldet `InvalidValue`.
+6. `PackWriter.Validate` behandelt zwei Pfade, die sich nur in Groß-/Kleinschreibung oder im Trenner
+   unterscheiden, als Duplikat.
+
 ### 5.5 Import
 
 Ablauf: Quelle wählen (Pack aus dem Explorer oder freie `.pack`-Datei), Zielordner wählen (leer oder
