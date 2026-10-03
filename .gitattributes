@@ -1,0 +1,2 @@
+# The shipped RPFM schema files are third-party data: keep them byte-identical (no line-ending conversion).
+schemas/** -text

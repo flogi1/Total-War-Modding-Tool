@@ -33,3 +33,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## RPFM schemas
+
+Source: https://github.com/Frodo45127/rpfm-schemas
+
+Copyright (c) 2020 Ismael Gutiérrez González
+
+Licensed under the MIT License. The full license text is in `schemas/LICENSE`.
