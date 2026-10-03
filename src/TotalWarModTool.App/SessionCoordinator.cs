@@ -1,13 +1,14 @@
 using TotalWarModTool.Logging;
 using TotalWarModTool.Session;
 using TotalWarModTool.Storage;
+using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
 
 /// <summary>
 /// Connects the tabs and the explorer with session.json: brings the stored session back after the start and writes the current one.
-/// Lives on the UI thread. It never writes before the restore ended (a restore that found no catalog, or whose result was discarded, has not
-/// ended), never without a pack catalog (a session without a found game would erase the stored tabs) and never over a file of a newer
+/// Lives on the UI thread. It never writes before a restore succeeded (a restore without catalog, a failed one and a discarded one have not
+/// succeeded; it is tried again with the next catalog), never without a pack catalog (a session without a found game would erase the stored tabs) and never over a file of a newer
 /// version or one that could not be read.
 /// </summary>
 public sealed class SessionCoordinator
@@ -17,8 +18,16 @@ public sealed class SessionCoordinator
     private readonly WorkspaceController _workspace;
     private readonly ExplorerViewModel _explorer;
     private readonly TabsViewModel _tabs;
+    private readonly IAppLog _log;
     private readonly bool _writable;
     private bool _restored;
+
+    // At most one restore runs at a time; a call while one runs joins it.
+    private bool _attempting;
+    private Task _current = Task.CompletedTask;
+
+    // The catalog the last attempt started with (null: there was none). A new attempt needs a catalog that is not this one.
+    private PackCatalogResult? _lastCatalog;
 
     public SessionCoordinator(SessionStore store, SessionLoadResult loaded, WorkspaceController workspace, ExplorerViewModel explorer,
         TabsViewModel tabs, IAppLog log)
@@ -35,6 +44,7 @@ public sealed class SessionCoordinator
         _workspace = workspace;
         _explorer = explorer;
         _tabs = tabs;
+        _log = log;
 
         _writable = loaded.Status is not (LoadStatus.NewerVersion or LoadStatus.Unreadable);
         if (!_writable)
@@ -47,6 +57,7 @@ public sealed class SessionCoordinator
 
         tabs.Changed += (_, _) => RaiseDirty();
         explorer.ExpandedPacksChanged += (_, _) => RaiseDirty();
+        workspace.Changed += (_, _) => RetryRestore();
     }
 
     /// <summary>Tabs, selection or expanded packs changed after the restore ended.</summary>
@@ -62,46 +73,83 @@ public sealed class SessionCoordinator
 
     /// <summary>
     /// Brings back the packs and tabs of the stored session, silently. Call once, after <see cref="WorkspaceController.LoadAsync"/>.
-    /// What no longer exists is left out (the controller logs each such case); <see cref="Dirty"/> then comes once at the end.
+    /// When that is not possible (no catalog because the game was not found, or the controller reports "not restored"), the session is
+    /// not touched and nothing is saved; the restore is tried again when a new catalog arrives. A call while a restore runs joins it, and
+    /// after a successful restore it does nothing. What no longer exists is left out (the controller logs each such case);
+    /// <see cref="Dirty"/> then comes once at the end.
     /// </summary>
-    public async Task RestoreAsync()
+    public Task RestoreAsync()
     {
-        // Nothing is restored without a catalog, and then the restore has not ended: no Dirty, no write in this session. Otherwise a game that
-        // is found later (folder chosen in the settings) would let the first change overwrite the stored session that was never brought back.
-        var catalog = _workspace.Catalog;
-        if (catalog is null)
+        if (_restored || _attempting)
         {
-            return;
+            return _current;
         }
 
-        var schema = _workspace.Schema;
-        var result = await _workspace.RestoreAsync(_loaded.State);
+        _current = AttemptAsync();
+        return _current;
+    }
 
-        // A restore of an older pack list or schema comes back empty. It has not ended either: the stored session must stay as it is.
-        if (!ReferenceEquals(catalog, _workspace.Catalog) || !ReferenceEquals(schema, _workspace.Schema))
+    private async Task AttemptAsync()
+    {
+        _attempting = true;
+        try
         {
-            return;
-        }
-
-        _explorer.ApplyRestored(result.Packs);
-        foreach (var restored in result.Tabs)
-        {
-            if (!_tabs.Tabs.Any(tab => IsTabOf(tab, restored)))
+            var catalog = _workspace.Catalog;
+            _lastCatalog = catalog;
+            if (catalog is null)
             {
-                _tabs.Add(restored.Pack, restored.Entry, schema, select: false);
+                return;
+            }
+
+            var schema = _workspace.Schema;
+            if (await _workspace.RestoreAsync(_loaded.State) is not { } result)
+            {
+                return;
+            }
+
+            _explorer.ApplyRestored(result.Packs);
+            foreach (var restored in result.Tabs)
+            {
+                if (!_tabs.Tabs.Any(tab => IsTabOf(tab, restored)))
+                {
+                    _tabs.Add(restored.Pack, restored.Entry, schema, select: false);
+                }
+            }
+
+            // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
+            if (result.ActiveTab >= 0 && result.ActiveTab < result.Tabs.Count)
+            {
+                _tabs.SelectedTab = _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, result.Tabs[result.ActiveTab])) ?? _tabs.SelectedTab;
+            }
+
+            _restored = true;
+            if (result.Tabs.Count < _loaded.State.Tabs.Count || result.Packs.Count < _loaded.State.ExpandedPacks.Count)
+            {
+                Dirty?.Invoke(this, EventArgs.Empty);
             }
         }
-
-        // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
-        if (result.ActiveTab >= 0 && result.ActiveTab < result.Tabs.Count)
+        finally
         {
-            _tabs.SelectedTab = _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, result.Tabs[result.ActiveTab])) ?? _tabs.SelectedTab;
+            _attempting = false;
+        }
+    }
+
+    // A game that is found later (the install folder was chosen in the settings) delivers a catalog after the start: restore then.
+    private async void RetryRestore()
+    {
+        var workspace = _workspace;
+        if (_restored || _attempting || workspace.IsBusy || workspace.Catalog is not { } catalog || ReferenceEquals(catalog, _lastCatalog))
+        {
+            return;
         }
 
-        _restored = true;
-        if (result.Tabs.Count < _loaded.State.Tabs.Count || result.Packs.Count < _loaded.State.ExpandedPacks.Count)
+        try
         {
-            Dirty?.Invoke(this, EventArgs.Empty);
+            await RestoreAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.Error("Restoring the session after the game was found failed.", ex);
         }
     }
 

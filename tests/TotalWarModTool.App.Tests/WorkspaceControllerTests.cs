@@ -244,7 +244,7 @@ public class WorkspaceControllerTests
             [new SessionTab(pathA.ToUpperInvariant(), "DB/x_tables/data__"), new SessionTab(Pack(c, "b.pack").Path, "c.txt")],
             1, [pathA.ToUpperInvariant()]);
 
-        var restored = await c.RestoreAsync(state);
+        var restored = (await c.RestoreAsync(state))!;
 
         var pack = Assert.Single(restored.Packs);
         Assert.Equal(Pack(c, "a.pack"), pack.Pack);                          // the catalog's spelling, not the stored one
@@ -269,7 +269,7 @@ public class WorkspaceControllerTests
             [new SessionTab(game.Root.File("gone.pack"), "x.txt"), new SessionTab(pathA, "missing.txt"), new SessionTab(pathA, "b.txt")],
             0, [game.Root.File("gone.pack"), pathA]);
 
-        var restored = await c.RestoreAsync(state);
+        var restored = (await c.RestoreAsync(state))!;
 
         Assert.Equal(["b.txt"], restored.Tabs.Select(t => t.Entry.EntryPath));
         Assert.Equal(0, restored.ActiveTab);                                 // the active tab was dropped: the first remaining one
@@ -284,7 +284,7 @@ public class WorkspaceControllerTests
         var c = game.NewController();
         await c.LoadAsync();
         File.WriteAllBytes(path, File.ReadAllBytes(path)[..^1]);
-        var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "a.txt")], 0, [path]));
+        var restored = (await c.RestoreAsync(new SessionState([new SessionTab(path, "a.txt")], 0, [path])))!;
         Assert.Equal((0, 0, -1), (restored.Packs.Count, restored.Tabs.Count, restored.ActiveTab));
         Assert.Single(game.Log.Warnings, line => line.Contains("a.pack", StringComparison.Ordinal));   // the broken index is logged once
     }
@@ -295,7 +295,7 @@ public class WorkspaceControllerTests
         var path = game.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes));
         var c = game.NewController();
         await c.LoadAsync();
-        var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "db/x_tables/data__")], 0, []));
+        var restored = (await c.RestoreAsync(new SessionState([new SessionTab(path, "db/x_tables/data__")], 0, [])))!;
         Assert.True(Assert.Single(restored.Tabs).Entry.SchemaMissing);
         Assert.Empty(restored.Packs);
         Assert.Single(game.Log.Warnings, line => line.Contains("schema missing", StringComparison.Ordinal));   // the hint of the tab is logged
@@ -306,7 +306,7 @@ public class WorkspaceControllerTests
         using var game = new TestGame();
         var c = game.NewController();
         await c.LoadAsync();
-        var restored = await c.RestoreAsync(SessionState.Empty);
+        var restored = (await c.RestoreAsync(SessionState.Empty))!;
         Assert.Equal((0, 0, -1), (restored.Packs.Count, restored.Tabs.Count, restored.ActiveTab));
     }
 
@@ -369,7 +369,7 @@ public class WorkspaceControllerTests
 
         var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "a.txt")], 0, [path]));
 
-        Assert.Equal((0, 0, -1), (restored.Packs.Count, restored.Tabs.Count, restored.ActiveTab));
+        Assert.Null(restored);                                                // null: not restored
         Assert.Equal(GameStatus.NotFound, c.Status);                          // the refresh result stands
         Assert.Single(game.Log.Infos, line => line.Contains("Session restore skipped", StringComparison.Ordinal));
         var open = c.OpenPackAsync(pack);                                     // nothing was cached: this needs the runner
@@ -475,5 +475,90 @@ public class WorkspaceControllerTests
         Assert.Equal(EntryProblem.Corrupt, opened!.ReadProblem);
         var warning = Assert.Single(game.Log.Warnings);
         Assert.All(new[] { "a.pack", "a.txt", "InconsistentIndex" }, part => Assert.Contains(part, warning));
+    }
+
+    // ---- changes of packs that are not open --------------------------------------------------------------------------------------
+
+    private static string Rewrite(string path, int size)
+    {
+        new PackBuilder().AddEntry("a.txt", new byte[size]).AddEntry("b.txt", [1]).WriteTo(path);
+        return path;
+    }
+
+    [Fact] public async Task A_pack_that_is_not_open_and_changed_raises_PackChanged_on_the_next_entry_open_and_refresh_once_each()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1]), ("b.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+        var changed = new List<string>(); c.PackChanged += (_, p) => changed.Add(p.Name);
+
+        await c.OpenEntryAsync(pack, "a.txt");
+        Assert.Empty(changed);                                              // nothing changed since the scan
+
+        Rewrite(path, 10);
+        await c.OpenEntryAsync(pack, "a.txt");
+        Assert.Equal(["a.pack"], changed);
+        await c.OpenEntryAsync(pack, "b.txt");
+        Assert.Equal(["a.pack"], changed);                                  // the same state is not reported again
+
+        Rewrite(path, 20);
+        await c.RefreshAsync();
+        Assert.Equal(["a.pack", "a.pack"], changed);                        // a second change, noticed by the refresh
+        await c.RefreshAsync();
+        await c.OpenEntryAsync(Pack(c, "a.pack"), "a.txt");
+        Assert.Equal(["a.pack", "a.pack"], changed);
+        Assert.Null(c.OpenContent(pack));                                   // never open: no index was cached on the way
+    }
+
+    [Fact] public async Task A_refresh_reports_a_changed_pack_that_was_never_read_and_forgets_a_vanished_one()
+    {
+        using var game = new TestGame();
+        var a = game.AddPack("a.pack", ("a.txt", [1]));
+        var b = game.AddPack("b.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var changed = new List<string>(); c.PackChanged += (_, p) => changed.Add(p.Name);
+        Rewrite(a, 5); File.Delete(b);
+        await c.RefreshAsync();
+        Assert.Equal(["a.pack"], changed);                                  // the vanished pack raises nothing
+        await c.RefreshAsync();
+        Assert.Equal(["a.pack"], changed);
+        Rewrite(b, 5);                                                      // it comes back as a new pack: nothing known about it
+        await c.RefreshAsync();
+        Assert.Equal(["a.pack"], changed);
+    }
+
+    [Fact] public async Task Reading_the_index_of_a_changed_pack_reports_it_when_the_pack_is_opened_or_restored()
+    {
+        using var game = new TestGame();
+        var a = game.AddPack("a.pack", ("a.txt", [1]));
+        var b = game.AddPack("b.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var changed = new List<string>(); c.PackChanged += (_, p) => changed.Add(p.Name);
+        Rewrite(a, 5); Rewrite(b, 5);
+        Assert.NotNull(await c.OpenPackAsync(Pack(c, "a.pack")));
+        Assert.Equal(["a.pack"], changed);
+        Assert.NotNull(await c.RestoreAsync(new SessionState([new SessionTab(b.ToUpperInvariant(), "a.txt")], 0, [])));
+        Assert.Equal(["a.pack", "b.pack"], changed);                        // in the spelling of the catalog
+        await c.RestoreAsync(new SessionState([new SessionTab(b, "a.txt")], 0, []));
+        Assert.Equal(["a.pack", "b.pack"], changed);
+    }
+
+    // ---- a restore that did not happen -------------------------------------------------------------------------------------------
+
+    [Fact] public async Task A_restore_that_fails_returns_null_and_logs_the_error()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack");
+        var c = game.NewController();
+        await c.LoadAsync();
+        // A null tab cannot come from the session store; it is the one way to make the work on the pool thread throw.
+        var restored = await c.RestoreAsync(new SessionState([null!], 0, []));
+        Assert.Null(restored);
+        Assert.Single(game.Log.Errors, line => line.Contains("Restoring the session failed", StringComparison.Ordinal));
+        Assert.False(c.IsBusy);
     }
 }

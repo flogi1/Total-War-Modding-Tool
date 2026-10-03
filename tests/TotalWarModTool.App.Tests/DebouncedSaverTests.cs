@@ -43,6 +43,17 @@ public class DebouncedSaverTests
         Assert.Equal(1, saves);
     });
 
+    // Any exception keeps the change pending; only I/O and access errors are swallowed and logged, the rest reaches the caller.
+    [Fact] public void Another_exception_is_thrown_and_the_change_stays_pending() => Sta.Run(() =>
+    {
+        var saves = 0; var fail = true;
+        var saver = new DebouncedSaver(() => { if (fail) throw new InvalidOperationException("boom"); saves++; }, new FakeAppLog(), "Session");
+        saver.MarkDirty();
+        Assert.Throws<InvalidOperationException>(saver.Flush);
+        fail = false; saver.Flush();
+        Assert.Equal(1, saves);
+    });
+
     [Fact] public void Saves_by_itself_after_the_delay() => Sta.RunAsync(async () =>
     {
         var saves = 0;

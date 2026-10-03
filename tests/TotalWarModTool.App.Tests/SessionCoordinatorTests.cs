@@ -87,24 +87,73 @@ public class SessionCoordinatorTests
         }
     }
 
-    // The game is missing at the start and found later: the stored session was never restored, so it must not be overwritten.
-    [Fact] public async Task A_game_found_after_a_restore_without_catalog_does_not_overwrite_the_stored_session()
+    // The game is missing at the start and found later: the stored session is restored as soon as a catalog exists, and saved from then on.
+    [Fact] public async Task A_game_found_after_the_start_gets_its_session_restored_and_saved()
     {
         var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", [1]), ("b.txt", [1])));
         using (game)
         {
             var pack = c.Catalog!.Packs[0];
-            store.Save(new SessionState([new(pack.Path, "a.txt"), new(pack.Path, "b.txt")], 1, []));
+            store.Save(new SessionState([new(pack.Path, "a.txt"), new(pack.Path, "b.txt")], 1, [pack.Path]));
             game.GameSettings.InstallPath = game.Root.File("nowhere");                 // not found at the start
             Assert.Null(c.Catalog);
             var session = Coordinator(game, c, vm, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
             await session.RestoreAsync();
-            game.GameSettings.InstallPath = game.InstallPath;                          // the user chooses the folder: refreshed at once by the fake runner
-            Assert.NotNull(c.Catalog);
-            await vm.OpenEntryAsync(c.Catalog!.Packs[0], "a.txt");
+            Assert.Empty(vm.Tabs.Tabs);
             session.Save();
-            Assert.Equal(0, dirty);                                                    // the restore did not end: no Dirty either
-            Assert.Equal(["a.txt", "b.txt"], store.Load().State.Tabs.Select(t => t.EntryPath));
+            Assert.Equal(2, store.Load().State.Tabs.Count);                            // nothing written while nothing was restored
+
+            game.GameSettings.InstallPath = game.InstallPath;                          // the user chooses the folder: refreshed at once by the fake runner
+            await session.RestoreAsync();                                              // the attempt the refresh started (a second call joins it)
+            Assert.Equal(["a.txt", "b.txt"], vm.Tabs.Tabs.Select(t => t.Title));
+            Assert.Equal("b.txt", vm.Tabs.SelectedTab!.Title);
+            Assert.Equal([c.Catalog!.Packs[0].Path], vm.Explorer.ExpandedPackPaths);
+            Assert.Equal(0, dirty);                                                    // nothing was dropped
+
+            vm.Tabs.Close(vm.Tabs.Tabs[0]);
+            Assert.True(dirty > 0);
+            session.Save();
+            Assert.Equal(["b.txt"], store.Load().State.Tabs.Select(t => t.EntryPath));
+            await session.RestoreAsync();                                              // never restores a second time
+            Assert.Single(vm.Tabs.Tabs);
+        }
+    }
+
+    // The controller returns null for a restore that failed: that is "not restored", never an empty session to write.
+    [Fact] public async Task A_failed_restore_leaves_the_stored_session_untouched()
+    {
+        var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0];
+            store.Save(new SessionState([new(pack.Path, "a.txt")], 0, [pack.Path]));
+            // A null tab is the way to make the restore throw inside the controller; the store never delivers one.
+            var failing = new SessionLoadResult(new SessionState([null!], 0, []), LoadStatus.Loaded, null);
+            var session = new SessionCoordinator(store, failing, c, vm.Explorer, vm.Tabs, game.Log);
+            var dirty = 0; session.Dirty += (_, _) => dirty++;
+            await session.RestoreAsync();
+            Assert.Contains(game.Log.Errors, line => line.Contains("Restoring the session failed", StringComparison.Ordinal));
+            await vm.OpenEntryAsync(pack, "a.txt");
+            vm.Explorer.Groups.SelectMany(g => g.Children).OfType<PackNode>().Single().IsExpanded = true;
+            session.Save();
+            Assert.Equal(0, dirty);
+            Assert.Equal([new SessionTab(pack.Path, "a.txt")], store.Load().State.Tabs);
+            Assert.Equal([pack.Path], store.Load().State.ExpandedPacks);
+        }
+    }
+
+    [Fact] public async Task A_restored_tab_is_marked_stale_by_a_refresh_that_sees_a_changed_pack()
+    {
+        var (game, c, vm, store) = await Create(g => g.AddPack("a.pack", ("a.txt", "one"u8.ToArray())));
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0];
+            store.Save(new SessionState([new(pack.Path, "a.txt")], 0, []));
+            await Coordinator(game, c, vm, store).RestoreAsync();
+            Assert.False(vm.Tabs.Tabs[0].IsStale);
+            new PackBuilder().AddEntry("a.txt", "changed"u8.ToArray()).AddEntry("b.txt", [1]).WriteTo(pack.Path);
+            vm.RefreshCommand.Execute(null);
+            Assert.True(vm.Tabs.Tabs[0].IsStale);
         }
     }
 

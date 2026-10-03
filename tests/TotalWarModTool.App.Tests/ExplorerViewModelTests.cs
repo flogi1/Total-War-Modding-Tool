@@ -322,7 +322,7 @@ public class ExplorerViewModelTests
         using (game)
         {
             var pack = PackNodeOf(vm, "a.pack").Pack;
-            var restored = await c.RestoreAsync(new SessionState([], -1, [pack.Path.ToUpperInvariant()]));
+            var restored = (await c.RestoreAsync(new SessionState([], -1, [pack.Path.ToUpperInvariant()])))!;
             vm.ApplyRestored(restored.Packs);
             Assert.True(PackNodeOf(vm, "a.pack").IsExpanded);
             Assert.Equal(["a.txt"], PackNodeOf(vm, "a.pack").Children.Select(n => n.Name));

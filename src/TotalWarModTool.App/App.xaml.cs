@@ -16,6 +16,7 @@ public partial class App : Application
     private SettingsAutoSaver? _autoSaver;
     private DebouncedSaver? _gameSettingsSaver;
     private DebouncedSaver? _sessionSaver;
+    private IAppLog? _log;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -31,6 +32,7 @@ public partial class App : Application
         var userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var appVersion = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "unknown";
         var log = new FileLog(paths.LogDirectory, TimeProvider.System, userProfilePath);
+        _log = log;
         log.Info($"{AppTexts.AppName} {appVersion} started");
 
         // The texts exist from here on. They return the English inline fallbacks until the language is loaded in Compose.
@@ -184,11 +186,23 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // A failed save stays pending without a timer, so every saver is flushed once more here.
-        _autoSaver?.Flush();
-        _gameSettingsSaver?.Flush();
-        _sessionSaver?.Flush();
+        // A failed save stays pending without a timer, so every saver is flushed once more here. One that fails must not skip the others.
+        FlushSafely("settings", _autoSaver is { } autoSaver ? autoSaver.Flush : null);
+        FlushSafely("game settings", _gameSettingsSaver is { } gameSettingsSaver ? gameSettingsSaver.Flush : null);
+        FlushSafely("session", _sessionSaver is { } sessionSaver ? sessionSaver.Flush : null);
         base.OnExit(e);
+    }
+
+    private void FlushSafely(string what, Action? flush)
+    {
+        try
+        {
+            flush?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _log?.Error($"Saving the {what} at exit failed.", ex);
+        }
     }
 
     /// <summary>

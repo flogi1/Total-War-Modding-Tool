@@ -6,8 +6,9 @@ namespace TotalWarModTool.App;
 
 /// <summary>
 /// Runs <c>save</c> 500 ms after the last <see cref="MarkDirty"/>, so a burst of changes writes once. Only <see cref="MarkDirty"/> makes the
-/// state unsaved; the timer and <see cref="Flush"/> write nothing else. Must be created on the UI thread. A failed save is logged, never
-/// thrown, and stays pending: losing one write must not take the app down.
+/// state unsaved; the timer and <see cref="Flush"/> write nothing else. Must be created on the UI thread. A save that fails on a file
+/// (I/O or access error) is logged, never thrown: losing one write must not take the app down. Any failure keeps the change pending;
+/// an error of another kind is a bug and reaches the caller.
 /// </summary>
 public sealed class DebouncedSaver
 {
@@ -57,6 +58,11 @@ public sealed class DebouncedSaver
         {
             _dirty = true;
             _log.Warn($"{_what} could not be saved: {ex.Message}");
+        }
+        catch
+        {
+            _dirty = true;
+            throw;
         }
     }
 }

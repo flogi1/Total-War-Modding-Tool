@@ -198,7 +198,6 @@ public class MainViewModelWorkspaceTests
         {
             await c.LoadAsync();
             var pack = Pack(c, "a.pack");
-            await c.OpenPackAsync(pack);                                  // expanded in the explorer: only an open pack has an index that can go stale
             await vm.OpenEntryAsync(pack, "a.txt");
             new PackBuilder().AddEntry("a.txt", "changed"u8.ToArray()).AddEntry("b.txt", "two!"u8.ToArray()).WriteTo(pack.Path);
             await vm.OpenEntryAsync(pack, "b.txt");

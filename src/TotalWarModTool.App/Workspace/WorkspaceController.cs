@@ -44,6 +44,10 @@ public sealed class WorkspaceController
     private readonly Dictionary<string, PackContent> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PackIndexResult> _indexProblems = new(StringComparer.OrdinalIgnoreCase);
 
+    // The last state of every pack file this controller has seen, by path: from the catalog, then from every index that was read. A pack
+    // whose file differs from it has changed since, whether or not its index is cached. Null: the catalog could not read the file.
+    private Dictionary<string, FileFingerprint?> _seen = new(StringComparer.OrdinalIgnoreCase);
+
     // A settings change while a silent run is busy is remembered and carried out when that run ends.
     private bool _pendingRefresh;
     private bool _pendingSchemaReload;
@@ -121,6 +125,7 @@ public sealed class WorkspaceController
             var loaded = await Task.Run(() => Compute(profile, place, null, schemaFolder, null, CancellationToken.None));
             if (_generation == generation)
             {
+                RememberFingerprints(loaded.Catalog);
                 ApplyLoaded(loaded);
             }
             else
@@ -168,6 +173,14 @@ public sealed class WorkspaceController
         }
 
         var changed = DropStaleIndexes(loaded.Catalog);
+        foreach (var pack in RememberFingerprints(loaded.Catalog))
+        {
+            if (!changed.Any(known => string.Equals(known.Path, pack.Path, StringComparison.OrdinalIgnoreCase)))
+            {
+                changed.Add(pack);
+            }
+        }
+
         ApplyLoaded(loaded);
         Changed?.Invoke(this, EventArgs.Empty);
         foreach (var pack in changed)
@@ -240,6 +253,11 @@ public sealed class WorkspaceController
         {
             _cache[pack.Path] = content;
             _indexProblems.Remove(pack.Path);
+            if (NoticeFingerprint(pack.Path, content.Index.Fingerprint))
+            {
+                RaisePackChanged(pack, "its file differs from the last state seen");
+            }
+
             return content;
         }
 
@@ -300,6 +318,8 @@ public sealed class WorkspaceController
             return null;
         }
 
+        // The state of the file that the index of this run was read from, when this run read one.
+        var noticed = run.Fingerprint is { } fingerprint && NoticeFingerprint(pack.Path, fingerprint);
         if (run.PackChanged)
         {
             // Only an open pack keeps an index; a failed re-read leaves no replacement and drops it.
@@ -331,6 +351,10 @@ public sealed class WorkspaceController
         {
             RaisePackChanged(pack, "an entry could not be read from the cached index");
         }
+        else if (noticed)
+        {
+            RaisePackChanged(pack, "its file differs from the last state seen");
+        }
 
         return run.Opened;
     }
@@ -339,8 +363,10 @@ public sealed class WorkspaceController
     /// Silent: brings back the open packs and tabs of a stored session, on a pool thread, without the runner. Packs and entries that no
     /// longer exist or cannot be read are left out and logged. Paths are matched against the catalog ignoring case; the catalog's
     /// spelling counts afterwards. Call after <see cref="LoadAsync"/> ended.
+    /// Null means "not restored": the restore failed (logged) or its result was discarded because the pack list or the schema changed
+    /// meanwhile. An empty result is a restore of a session that had nothing to bring back.
     /// </summary>
-    public async Task<RestoreResult> RestoreAsync(SessionState state)
+    public async Task<RestoreResult?> RestoreAsync(SessionState state)
     {
         ArgumentNullException.ThrowIfNull(state);
 
@@ -349,7 +375,7 @@ public sealed class WorkspaceController
         var catalog = Catalog;
         var schema = Schema?.Schema;
         BeginSilentRun();
-        var result = new RestoreResult([], [], -1);
+        RestoreResult? result = null;
         try
         {
             var restored = await Task.Run(() => RestoreCore(catalog, schema, state));
@@ -357,7 +383,7 @@ public sealed class WorkspaceController
             {
                 // Packs and tabs of an older pack list or schema must not come back.
                 _log.Info("Session restore skipped: the pack list or the schema changed in the meantime.");
-                return result;
+                return null;
             }
 
             foreach (var restoredPack in restored.Result.Packs)
@@ -384,10 +410,18 @@ public sealed class WorkspaceController
             }
 
             result = restored.Result;
+            foreach (var (readPack, fingerprint) in restored.Fingerprints)
+            {
+                if (NoticeFingerprint(readPack.Path, fingerprint))
+                {
+                    RaisePackChanged(readPack, "its file differs from the last state seen");
+                }
+            }
         }
         catch (Exception ex)
         {
             _log.Error("Restoring the session failed.", ex);
+            result = null;
         }
         finally
         {
@@ -457,6 +491,41 @@ public sealed class WorkspaceController
         _indexProblems.Clear();
         return changed;
     }
+
+    // Remembers the fingerprints of a catalog and returns the packs of it whose file differs from the one remembered before.
+    // A pack that is gone is forgotten without a report; a pack seen for the first time is only remembered.
+    private List<PackSource> RememberFingerprints(PackCatalogResult? catalog)
+    {
+        var changed = new List<PackSource>();
+        var next = new Dictionary<string, FileFingerprint?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pack in catalog?.Packs ?? [])
+        {
+            if (next.ContainsKey(pack.Path))
+            {
+                continue;
+            }
+
+            if (_seen.GetValueOrDefault(pack.Path) is { } known && pack.Fingerprint is { } current && !SameFile(known, current))
+            {
+                changed.Add(pack);
+            }
+
+            next[pack.Path] = pack.Fingerprint;
+        }
+
+        _seen = next;
+        return changed;
+    }
+
+    // Remembers the fingerprint of an index that was read. True when it differs from the one remembered before.
+    private bool NoticeFingerprint(string path, FileFingerprint fingerprint)
+    {
+        var known = _seen.GetValueOrDefault(path);
+        _seen[path] = fingerprint;
+        return known is not null && !SameFile(known, fingerprint);
+    }
+
+    private static bool SameFile(FileFingerprint a, FileFingerprint b) => a.Length == b.Length && a.LastWriteTimeUtc == b.LastWriteTimeUtc;
 
     private void RaisePackChanged(PackSource pack, string reason)
     {
@@ -630,9 +699,12 @@ public sealed class WorkspaceController
 
     private sealed record IndexRead(PackIndexResult Result, PackContent? Content);
 
-    private sealed record EntryRun(OpenedEntry Opened, bool PackChanged, PackContent? Replacement, PackIndexResult? IndexProblem = null);
+    // Fingerprint: the file state of the index this run read (a fresh one or the re-read one); null when it used the cached index unchanged.
+    private sealed record EntryRun(OpenedEntry Opened, bool PackChanged, PackContent? Replacement, PackIndexResult? IndexProblem = null,
+        FileFingerprint? Fingerprint = null);
 
-    private sealed record RestoreRun(RestoreResult Result, IReadOnlyList<(bool IsWarning, string Text)> Notes);
+    private sealed record RestoreRun(RestoreResult Result, IReadOnlyList<(bool IsWarning, string Text)> Notes,
+        IReadOnlyList<(PackSource Pack, FileFingerprint Fingerprint)> Fingerprints);
 
     private static Place Locate(GameProfile? profile, string? installPath, ISteamLocationSource steam)
     {
@@ -693,10 +765,11 @@ public sealed class WorkspaceController
             index = read.Index;
         }
 
+        var freshFingerprint = cached is null ? index.Fingerprint : null;
         var first = OpenFrom(index, entryPath, schema, cancellationToken);
         if (first.ReadProblem != EntryProblem.PackChanged)
         {
-            return new EntryRun(first, false, null);
+            return new EntryRun(first, false, null, Fingerprint: freshFingerprint);
         }
 
         // The pack changed under the cached index. Read the index again; if that fails the first result stands.
@@ -707,7 +780,7 @@ public sealed class WorkspaceController
         }
 
         var replacement = cached is null ? null : new PackContent(newIndex, PackTree.Build(newIndex.Entries, cancellationToken));
-        return new EntryRun(OpenFrom(newIndex, entryPath, schema, cancellationToken), true, replacement);
+        return new EntryRun(OpenFrom(newIndex, entryPath, schema, cancellationToken), true, replacement, Fingerprint: newIndex.Fingerprint);
     }
 
     private static OpenedEntry OpenFrom(PackIndex index, string entryPath, GameSchema? schema, CancellationToken cancellationToken) =>
@@ -802,6 +875,8 @@ public sealed class WorkspaceController
         }
 
         active = tabs.Count == 0 ? -1 : Math.Max(active, 0);
-        return new RestoreRun(new RestoreResult(packs, tabs, active), notes);
+        var fingerprints = indexes.Where(entry => entry.Value is not null && byPath.ContainsKey(entry.Key))
+            .Select(entry => (byPath[entry.Key], entry.Value!.Fingerprint)).ToList();
+        return new RestoreRun(new RestoreResult(packs, tabs, active), notes, fingerprints);
     }
 }
