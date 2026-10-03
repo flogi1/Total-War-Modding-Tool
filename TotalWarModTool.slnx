@@ -5,6 +5,7 @@
     <Project Path="src/TotalWarModTool.Localization/TotalWarModTool.Localization.csproj" />
     <Project Path="src/TotalWarModTool.Logging/TotalWarModTool.Logging.csproj" />
     <Project Path="src/TotalWarModTool.Operations/TotalWarModTool.Operations.csproj" />
+    <Project Path="src/TotalWarModTool.PackFiles/TotalWarModTool.PackFiles.csproj" />
     <Project Path="src/TotalWarModTool.Settings/TotalWarModTool.Settings.csproj" />
     <Project Path="src/TotalWarModTool.Storage/TotalWarModTool.Storage.csproj" />
   </Folder>
@@ -13,6 +14,7 @@
     <Project Path="tests/TotalWarModTool.GameProfiles.Tests/TotalWarModTool.GameProfiles.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Localization.Tests/TotalWarModTool.Localization.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Logging.Tests/TotalWarModTool.Logging.Tests.csproj" />
+    <Project Path="tests/TotalWarModTool.PackFiles.Tests/TotalWarModTool.PackFiles.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Settings.Tests/TotalWarModTool.Settings.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Storage.Tests/TotalWarModTool.Storage.Tests.csproj" />
   </Folder>
