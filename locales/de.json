@@ -52,5 +52,13 @@
   "operation.refreshPacks": "Pack-Liste aktualisieren",
   "operation.loadSchema": "Schema laden",
   "operation.openPack": "{0} öffnen",
-  "operation.openEntry": "{0} öffnen"
+  "operation.openEntry": "{0} öffnen",
+  "explorer.loading": "Die Pack-Liste wird geladen",
+  "explorer.noProfile": "Kein Spielprofil gefunden. Der Programmordner ist unvollständig.",
+  "explorer.gameNotFound": "Das Spiel wurde nicht gefunden. Wähle den Spielordner in den Einstellungen.",
+  "explorer.manualPathInvalid": "Der Spielordner aus den Einstellungen hat keinen Datenordner. Wähle den Spielordner in den Einstellungen.",
+  "explorer.noPacks": "Im Spielordner wurden keine Packs gefunden.",
+  "explorer.openSettings": "Einstellungen öffnen",
+  "explorer.group": "{0} ({1})",
+  "explorer.encrypted": "Verschlüsseltes Pack, nicht unterstützt."
 }

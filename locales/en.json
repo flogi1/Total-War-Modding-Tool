@@ -52,5 +52,13 @@
   "operation.refreshPacks": "Refresh pack list",
   "operation.loadSchema": "Load schema",
   "operation.openPack": "Open {0}",
-  "operation.openEntry": "Open {0}"
+  "operation.openEntry": "Open {0}",
+  "explorer.loading": "Loading the pack list",
+  "explorer.noProfile": "No game profile was found. The program folder is incomplete.",
+  "explorer.gameNotFound": "The game was not found. Choose the game folder in the settings.",
+  "explorer.manualPathInvalid": "The game folder from the settings has no data folder. Choose the game folder in the settings.",
+  "explorer.noPacks": "No packs were found in the game folder.",
+  "explorer.openSettings": "Open settings",
+  "explorer.group": "{0} ({1})",
+  "explorer.encrypted": "Encrypted pack, not supported."
 }

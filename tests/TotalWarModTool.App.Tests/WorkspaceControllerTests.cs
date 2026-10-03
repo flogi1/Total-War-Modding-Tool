@@ -102,6 +102,20 @@ public class WorkspaceControllerTests
         Assert.NotSame(content, await c.OpenPackAsync(Pack(c, "a.pack")));
     }
 
+    [Fact] public async Task OpenContent_only_looks_into_the_cache_and_never_starts_a_run()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        Assert.Null(c.OpenContent(Pack(c, "a.pack")));
+        var content = await c.OpenPackAsync(Pack(c, "a.pack"));
+        Assert.Same(content, c.OpenContent(Pack(c, "a.pack")));
+        c.ClosePack(Pack(c, "a.pack"));
+        Assert.Null(c.OpenContent(Pack(c, "a.pack")));
+        Assert.Equal(["Open a.pack"], game.Runner.Titles);
+    }
+
     [Fact] public async Task OpenPack_with_a_broken_index_returns_null_and_keeps_the_problem()
     {
         using var game = new TestGame();

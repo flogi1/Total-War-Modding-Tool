@@ -31,14 +31,22 @@ internal sealed class TestGame : IDisposable
         )
         """;
 
-    public TestGame(bool withSchema = true)
+    /// <param name="withSchema">Writes the shipped schema into the program folder.</param>
+    /// <param name="inSteamLibrary">
+    /// Places the install folder in a Steam library below <see cref="SteamPath"/> and leaves the install path of the settings empty, so
+    /// the game is found through <see cref="FixedSteam"/> and has a workshop folder (see <see cref="AddWorkshopPack"/>).
+    /// </param>
+    public TestGame(bool withSchema = true, bool inSteamLibrary = false)
     {
         Root = new TempDir();
-        InstallPath = Root.File("game");
+        SteamPath = Root.File("steam");
+        InstallPath = inSteamLibrary
+            ? Path.Combine(SteamPath, "steamapps", "common", Profile.InstallFolderName)
+            : Root.File("game");
         DataPath = Path.Combine(InstallPath, Profile.DataFolder);
         Directory.CreateDirectory(DataPath);
         Paths = new AppPaths(Root.File("roaming"), Root.File("local"), Root.File("program"));
-        GameSettings = new GameSettings { InstallPath = InstallPath };
+        GameSettings = new GameSettings { InstallPath = inSteamLibrary ? null : InstallPath };
         Settings = new GlobalSettings();
         Runner = new FakeOperationRunner();
         Log = new FakeAppLog();
@@ -53,6 +61,9 @@ internal sealed class TestGame : IDisposable
     public TempDir Root { get; }
 
     public string InstallPath { get; }
+
+    /// <summary>The Steam folder of the <c>inSteamLibrary</c> variant; an unused path otherwise.</summary>
+    public string SteamPath { get; }
 
     public string DataPath { get; }
 
@@ -78,6 +89,20 @@ internal sealed class TestGame : IDisposable
         }
 
         return builder.WriteTo(Path.Combine(DataPath, name));
+    }
+
+    /// <summary>Writes a PFH5 mod pack into the workshop folder of the game (<c>steamapps\workshop\content\&lt;appId&gt;\&lt;workshopId&gt;</c>) and returns its path.</summary>
+    public string AddWorkshopPack(string workshopId, string name, params (string Path, byte[] Bytes)[] entries)
+    {
+        var folder = Path.Combine(SteamPath, "steamapps", "workshop", "content", Profile.SteamAppId.ToString(), workshopId);
+        Directory.CreateDirectory(folder);
+        var builder = new PackBuilder();
+        foreach (var (path, bytes) in entries)
+        {
+            builder.AddEntry(path, bytes);
+        }
+
+        return builder.WriteTo(Path.Combine(folder, name));
     }
 
     public WorkspaceController NewController(ISteamLocationSource? steam = null, IOperationRunner? runner = null) =>

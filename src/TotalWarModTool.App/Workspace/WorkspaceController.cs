@@ -248,6 +248,13 @@ public sealed class WorkspaceController
         return null;
     }
 
+    /// <summary>The cached content of a pack that is open, else null. Never reads a pack and never starts a run.</summary>
+    public PackContent? OpenContent(PackSource pack)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        return _cache.GetValueOrDefault(pack.Path);
+    }
+
     /// <summary>Drops the cached index of a pack that was collapsed.</summary>
     public void ClosePack(PackSource pack)
     {

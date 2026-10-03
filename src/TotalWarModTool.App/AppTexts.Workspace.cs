@@ -70,6 +70,25 @@ public sealed partial class AppTexts
     /// <param name="entryName">File name of the entry. Data, not a UI text.</param>
     public string OperationOpenEntry(string entryName) => F("operation.openEntry", "Open {0}", entryName);
 
+    public string ExplorerLoading => T("explorer.loading", "Loading the pack list");
+
+    public string ExplorerNoProfile => T("explorer.noProfile", "No game profile was found. The program folder is incomplete.");
+
+    public string ExplorerGameNotFound => T("explorer.gameNotFound", "The game was not found. Choose the game folder in the settings.");
+
+    public string ExplorerManualPathInvalid => T("explorer.manualPathInvalid",
+        "The game folder from the settings has no data folder. Choose the game folder in the settings.");
+
+    public string ExplorerNoPacks => T("explorer.noPacks", "No packs were found in the game folder.");
+
+    public string ExplorerOpenSettings => T("explorer.openSettings", "Open settings");
+
+    public string ExplorerEncrypted => T("explorer.encrypted", "Encrypted pack, not supported.");
+
+    /// <param name="originName">Name of the pack origin, see <see cref="OriginName"/>.</param>
+    /// <param name="count">Number of packs in the group.</param>
+    public string ExplorerGroup(string originName, int count) => F("explorer.group", "{0} ({1})", originName, count);
+
     /// <summary>The text for a pack problem; empty for <see cref="PackProblem.None"/>.</summary>
     /// <param name="expectedFormat">The pack format of the game's profile; names the format in the unknown-format text.</param>
     public string PackProblemText(PackProblem problem, string? expectedFormat) => problem switch
