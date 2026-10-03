@@ -107,15 +107,10 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 - Plan 2: Arbeitsfunktionen müssen das CancellationToken häufig prüfen. Sonst bleibt das Fortschrittsfenster auf "Wird abgebrochen" stehen.
 - Plan 2: festlegen, wie UI-freie Libraries loggen (Diagnosen zurückgeben oder Referenz auf Logging). Die Spec sagt bei GameProfiles "übersprungen und geloggt", die Modultabelle nennt keine Referenz.
-- Plan 3: ProgressRunner.RunAsync lehnt einen zweiten Lauf mit InvalidOperationException ab. Zeit- oder sessiongesteuerte Aufrufer brauchen eine Abfrage, ob ein Lauf aktiv ist.
 - Plan 3: Der Pack-Katalog kann einen nicht lesbaren Daten- oder Workshop-Ordner nicht von einem fehlenden unterscheiden. PackCatalogResult soll Ordnerprobleme melden, damit die UI sie anzeigen kann.
 - Tests der App brauchen einen interaktiven Desktop und dauern rund 30 s. Für CI einplanen.
-- Plan 3: `FileFingerprint` vergleicht den Pfad ordinal: `PackSource.Path` unverändert an `ReadIndex` geben; Pfade aus der Session ohne Groß-/Kleinschreibung gegen den Katalog abgleichen und dessen Schreibweise übernehmen.
-- Plan 3: Der kurze Wiederholversuch für ein gesperrtes Pack (Spec 5) steckt in keiner Library: festlegen, wo er lebt.
 - Plan 3: `ReadHeader`, `ReadIndex`, `SchemaLoader.Load` und die Dekoder haben kein `CancellationToken` und keinen Fortschritt: Balken unbestimmt, Abbruch wirkt zwischen den Aufrufen.
-- Plan 3: Bei `PackChanged` den Index neu lesen und dessen Ergebnis anzeigen (deckt auch „Datei nicht mehr zugreifbar“ ab).
 - Plan 3: `PackSource.Header` ist bei abgeschnittenen und unbekannten Packs `null`; „verschlüsselt“ kommt aus `Header.HasEncryptedIndex` / `HasEncryptedData`.
-- Plan 3: `GameProfile.PackFormat` wird geladen, aber nirgends genutzt: nutzen (z. B. zur Erklärung von `UnknownFormat`) oder aus Profil und Spec entfernen.
 - Plan 3: Zellformen: Zeilen sind `object?[]`; `ColourRgb` ist ein Hex-Text; fehlendes `OptionalStringU8` ist ein leerer Text; das Loc-Flag heißt `Tooltip`.
 
 == Wartet auf ein öffentliches Remote ==

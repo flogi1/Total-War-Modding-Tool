@@ -1,0 +1,331 @@
+using TotalWarModTool.PackFiles;
+using TotalWarModTool.Schema;
+using TotalWarModTool.Session;
+using TotalWarModTool.Tables;
+using TotalWarModTool.Workspace;
+
+namespace TotalWarModTool.App.Tests;
+
+public class WorkspaceControllerTests
+{
+    private static PackSource Pack(WorkspaceController c, string name) => c.Catalog!.Packs.Single(p => p.Name == name);
+
+    [Fact] public async Task Load_finds_the_game_scans_the_packs_and_resolves_the_schema()
+    {
+        using var game = new TestGame();
+        game.AddPack("b.pack"); game.AddPack("a.pack");
+        var c = game.NewController(); var changes = 0; c.Changed += (_, _) => changes++;
+        await c.LoadAsync();
+        Assert.Equal((GameStatus.Found, false, false), (c.Status, c.IsBusy, c.ManualPathInvalid));
+        Assert.Equal(game.InstallPath, c.Location!.InstallPath);
+        Assert.Equal(["a.pack", "b.pack"], c.Catalog!.Packs.Select(p => p.Name));
+        Assert.Equal(SchemaOrigin.Shipped, c.Schema!.Origin);
+        Assert.True(changes >= 2);
+        Assert.Empty(game.Runner.Titles);                                   // silent: never through the runner
+    }
+
+    [Fact] public async Task Without_a_profile_nothing_is_loaded()
+    {
+        using var game = new TestGame();
+        var c = new WorkspaceController(null, game.GameSettings, game.Settings, game.Paths, new NoSteam(), game.Runner, game.Log, game.Texts);
+        await c.LoadAsync();
+        Assert.Equal((GameStatus.NoProfile, (PackCatalogResult?)null), (c.Status, c.Catalog));
+    }
+
+    // Review Focus 4
+    [Fact] public async Task Stored_install_path_without_data_folder_is_not_found()
+    {
+        using var game = new TestGame();
+        game.GameSettings.InstallPath = game.Root.File("elsewhere");
+        var c = game.NewController();
+        await c.LoadAsync();
+        Assert.Equal((GameStatus.NotFound, true, (PackCatalogResult?)null), (c.Status, c.ManualPathInvalid, c.Catalog));
+        Assert.NotNull(c.Schema);                                           // the schema does not depend on the game folder
+    }
+
+    [Fact] public async Task Without_a_manual_path_the_game_is_found_through_steam()
+    {
+        using var game = new TestGame();
+        game.GameSettings.InstallPath = null;
+        // steam library: <Root>\steam\steamapps\common\Test Game\packs
+        var steamRoot = game.Root.File("steam");
+        Directory.CreateDirectory(Path.Combine(steamRoot, "steamapps", "common", "Test Game", "packs"));
+        var c = game.NewController(new FixedSteam(steamRoot));
+        await c.LoadAsync();
+        Assert.Equal(Path.Combine(steamRoot, "steamapps", "common", "Test Game"), c.Location!.InstallPath);
+    }
+
+    [Fact] public async Task Override_schema_wins_and_a_broken_override_falls_back()
+    {
+        using var game = new TestGame();
+        var overrideFolder = game.Root.File("override"); Directory.CreateDirectory(overrideFolder);
+        File.Copy(Path.Combine(game.Paths.SchemasDirectory, "schema_test.ron"), Path.Combine(overrideFolder, "schema_test.ron"));
+        game.Settings.SchemaFolder = overrideFolder;
+        var c = game.NewController();
+        await c.LoadAsync();
+        Assert.Equal(SchemaOrigin.Override, c.Schema!.Origin);
+
+        File.WriteAllText(Path.Combine(overrideFolder, "schema_test.ron"), "( broken");
+        await c.ReloadSchemaAsync();
+        Assert.Equal((SchemaOrigin.Shipped, SchemaProblem.InvalidSyntax), (c.Schema!.Origin, c.Schema.OverrideAttempt!.Problem));
+        Assert.Equal(["Load schema"], game.Runner.Titles);
+    }
+
+    [Fact] public async Task Refresh_runs_through_the_runner_and_a_cancel_keeps_the_old_catalog()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack");
+        var c = game.NewController();
+        await c.LoadAsync();
+        game.AddPack("b.pack");
+        game.Runner.CancelNext = true;
+        await c.RefreshAsync();
+        Assert.Single(c.Catalog!.Packs);
+        await c.RefreshAsync();
+        Assert.Equal(2, c.Catalog!.Packs.Count);
+        Assert.Equal(["Refresh pack list", "Refresh pack list"], game.Runner.Titles);
+        Assert.Contains(game.Runner.Reports, r => r.Total == 2);
+    }
+
+    [Fact] public async Task OpenPack_returns_index_and_tree_and_caches_them()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("script/main.lua", [1]), ("db/x_tables/data__", TestGame.TableBytes));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var content = await c.OpenPackAsync(Pack(c, "a.pack"));
+        Assert.Equal(2, content!.Index.Entries.Count);
+        Assert.Equal(["db", "script"], content.Tree.Children.Select(n => n.Name));
+        Assert.Same(content, await c.OpenPackAsync(Pack(c, "a.pack")));
+        Assert.Equal(["Open a.pack"], game.Runner.Titles);                  // the second call came from the cache
+        c.ClosePack(Pack(c, "a.pack"));
+        Assert.NotSame(content, await c.OpenPackAsync(Pack(c, "a.pack")));
+    }
+
+    [Fact] public async Task OpenPack_with_a_broken_index_returns_null_and_keeps_the_problem()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("x", [1, 2, 3]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        File.WriteAllBytes(path, File.ReadAllBytes(path)[..^1]);            // data no longer ends at the file end
+        Assert.Null(await c.OpenPackAsync(Pack(c, "a.pack")));
+        Assert.Equal(PackProblem.InconsistentIndex, c.LastIndexProblem(Pack(c, "a.pack"))!.Problem);
+        Assert.NotEmpty(game.Log.Warnings);
+    }
+
+    [Fact] public async Task OpenEntry_decodes_a_table_with_the_schema()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var opened = await c.OpenEntryAsync(Pack(c, "a.pack"), "db/x_tables/data__");
+        Assert.Equal((EntryKind.Table, TableDecodeStatus.Ok), (opened!.Kind, opened.Table!.Status));
+        Assert.Equal(["Open data__"], game.Runner.Titles);
+    }
+
+    // Review Focus 1
+    [Fact] public async Task OpenEntry_after_a_pack_change_rereads_the_index_and_reports_it()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", "old"u8.ToArray()));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+        var before = await c.OpenPackAsync(pack);
+        var changed = new List<PackSource>(); c.PackChanged += (_, p) => changed.Add(p);
+        new PackBuilder().AddEntry("a.txt", "newer text"u8.ToArray()).WriteTo(path);
+        var opened = await c.OpenEntryAsync(pack, "a.txt");
+        Assert.Equal((EntryProblem.None, "newer text"), (opened!.ReadProblem, opened.Text!.Text));
+        Assert.Equal(pack, Assert.Single(changed));
+        Assert.NotSame(before, await c.OpenPackAsync(pack));                // the cached index was replaced
+    }
+
+    // Review Focus 1
+    [Fact] public async Task OpenEntry_of_a_deleted_pack_reports_the_problem()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+        await c.OpenPackAsync(pack);
+        File.Delete(path);
+        var opened = await c.OpenEntryAsync(pack, "a.txt");
+        Assert.Equal(EntryProblem.PackChanged, opened!.ReadProblem);
+        Assert.Null(opened.Text);
+    }
+
+    [Fact] public async Task OpenEntry_of_a_missing_entry_is_a_problem_not_an_exception()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var opened = await c.OpenEntryAsync(Pack(c, "a.pack"), "gone.txt");
+        Assert.Equal(EntryProblem.Corrupt, opened!.ReadProblem);
+    }
+
+    // Review Focus 5
+    [Fact] public async Task A_request_while_the_runner_is_busy_does_nothing()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        game.Runner.IsRunning = true;
+        Assert.False(c.CanStartOperation);
+        Assert.Null(await c.OpenPackAsync(Pack(c, "a.pack")));
+        Assert.Null(await c.OpenEntryAsync(Pack(c, "a.pack"), "a.txt"));
+        await c.RefreshAsync(); await c.ReloadSchemaAsync();
+        Assert.Empty(game.Runner.Titles);
+    }
+
+    [Fact] public async Task Changing_the_install_path_or_the_schema_folder_reloads()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack");
+        var c = game.NewController();
+        await c.LoadAsync();
+        game.GameSettings.InstallPath = game.Root.File("nowhere");
+        Assert.Equal(GameStatus.NotFound, c.Status);                        // FakeOperationRunner runs synchronously
+        game.GameSettings.InstallPath = game.InstallPath;
+        Assert.Equal(GameStatus.Found, c.Status);
+        game.Settings.SchemaFolder = game.Root.File("no-schemas");
+        Assert.Equal(["Refresh pack list", "Refresh pack list", "Load schema"], game.Runner.Titles);
+        Assert.Equal(SchemaProblem.NotFound, c.Schema!.OverrideAttempt!.Problem);
+    }
+
+    [Fact] public async Task Refresh_drops_cached_indexes_of_changed_packs()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1]));
+        game.AddPack("b.pack", ("b.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var a = await c.OpenPackAsync(Pack(c, "a.pack")); var b = await c.OpenPackAsync(Pack(c, "b.pack"));
+        var changed = new List<string>(); c.PackChanged += (_, p) => changed.Add(p.Name);
+        new PackBuilder().AddEntry("a.txt", [1, 2, 3]).WriteTo(path);
+        await c.RefreshAsync();
+        Assert.Equal(["a.pack"], changed);
+        Assert.Same(b, await c.OpenPackAsync(Pack(c, "b.pack")));
+        Assert.NotSame(a, await c.OpenPackAsync(Pack(c, "a.pack")));
+    }
+
+    // The tests below are not in the brief: they cover the silent session restore and the remembered settings change.
+
+    [Fact] public async Task Restore_brings_back_packs_and_tabs_with_the_spelling_of_the_catalog()
+    {
+        using var game = new TestGame();
+        var pathA = game.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes), ("b.txt", "hi"u8.ToArray()));
+        game.AddPack("b.pack", ("c.txt", "yo"u8.ToArray()));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var state = new SessionState(
+            [new SessionTab(pathA.ToUpperInvariant(), "DB/x_tables/data__"), new SessionTab(Pack(c, "b.pack").Path, "c.txt")],
+            1, [pathA.ToUpperInvariant()]);
+
+        var restored = await c.RestoreAsync(state);
+
+        var pack = Assert.Single(restored.Packs);
+        Assert.Equal(Pack(c, "a.pack"), pack.Pack);                          // the catalog's spelling, not the stored one
+        Assert.Equal(["db", "b.txt"], pack.Content.Tree.Children.Select(n => n.Name));
+        Assert.Equal(["db/x_tables/data__", "c.txt"], restored.Tabs.Select(t => t.Entry.EntryPath));
+        Assert.Equal(TableDecodeStatus.Ok, restored.Tabs[0].Entry.Table!.Status);
+        Assert.Equal((1, false), (restored.ActiveTab, c.IsBusy));
+        Assert.Same(pack.Content, await c.OpenPackAsync(Pack(c, "a.pack")));  // cached by the restore
+        Assert.Empty(game.Runner.Titles);                                      // silent: never through the runner
+        // b.pack only has a tab: its index is not kept open
+        Assert.NotNull(await c.OpenPackAsync(Pack(c, "b.pack")));
+        Assert.Equal(["Open b.pack"], game.Runner.Titles);
+    }
+
+    [Fact] public async Task Restore_drops_what_no_longer_exists_and_logs_it()
+    {
+        using var game = new TestGame();
+        var pathA = game.AddPack("a.pack", ("a.txt", [1]), ("b.txt", [2]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var state = new SessionState(
+            [new SessionTab(game.Root.File("gone.pack"), "x.txt"), new SessionTab(pathA, "missing.txt"), new SessionTab(pathA, "b.txt")],
+            0, [game.Root.File("gone.pack"), pathA]);
+
+        var restored = await c.RestoreAsync(state);
+
+        Assert.Equal(["b.txt"], restored.Tabs.Select(t => t.Entry.EntryPath));
+        Assert.Equal(0, restored.ActiveTab);                                 // the active tab was dropped: the first remaining one
+        Assert.Equal(pathA, Assert.Single(restored.Packs).Pack.Path);
+        Assert.Equal(3, game.Log.Infos.Count(line => line.StartsWith("Session:", StringComparison.Ordinal)));   // expanded gone pack, tab of the gone pack, tab of the missing entry
+    }
+
+    [Fact] public async Task Restore_drops_a_pack_with_a_broken_index_and_its_tabs()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1, 2, 3]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        File.WriteAllBytes(path, File.ReadAllBytes(path)[..^1]);
+        var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "a.txt")], 0, [path]));
+        Assert.Equal((0, 0, -1), (restored.Packs.Count, restored.Tabs.Count, restored.ActiveTab));
+        Assert.Single(game.Log.Warnings, line => line.Contains("a.pack", StringComparison.Ordinal));   // the broken index is logged once
+    }
+
+    [Fact] public async Task Restore_keeps_a_tab_whose_entry_has_a_decode_problem()
+    {
+        using var game = new TestGame(withSchema: false);
+        var path = game.AddPack("a.pack", ("db/x_tables/data__", TestGame.TableBytes));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "db/x_tables/data__")], 0, []));
+        Assert.True(Assert.Single(restored.Tabs).Entry.SchemaMissing);
+        Assert.Empty(restored.Packs);
+    }
+
+    [Fact] public async Task Restore_of_an_empty_session_is_empty()
+    {
+        using var game = new TestGame();
+        var c = game.NewController();
+        await c.LoadAsync();
+        var restored = await c.RestoreAsync(SessionState.Empty);
+        Assert.Equal((0, 0, -1), (restored.Packs.Count, restored.Tabs.Count, restored.ActiveTab));
+    }
+
+    [Fact] public async Task A_schema_folder_change_during_the_silent_load_is_carried_out_afterwards()
+    {
+        using var game = new TestGame();
+        var c = game.NewController();
+        var asked = false;
+        c.Changed += (_, _) =>
+        {
+            if (c.IsBusy && !asked)
+            {
+                asked = true;
+                game.Settings.SchemaFolder = game.Root.File("no-schemas");   // the controller cannot start a run now
+            }
+        };
+        await c.LoadAsync();
+        Assert.Equal(["Load schema"], game.Runner.Titles);
+        Assert.Equal(SchemaProblem.NotFound, c.Schema!.OverrideAttempt!.Problem);
+    }
+
+    [Fact] public async Task An_install_path_change_during_the_silent_load_refreshes_once_for_both_wishes()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack");
+        var c = game.NewController();
+        var asked = false;
+        c.Changed += (_, _) =>
+        {
+            if (c.IsBusy && !asked)
+            {
+                asked = true;
+                game.Settings.SchemaFolder = game.Root.File("no-schemas");
+                game.GameSettings.InstallPath = game.Root.File("nowhere");
+            }
+        };
+        await c.LoadAsync();
+        Assert.Equal(["Refresh pack list"], game.Runner.Titles);              // a refresh includes the schema
+        Assert.Equal((GameStatus.NotFound, SchemaProblem.NotFound), (c.Status, c.Schema!.OverrideAttempt!.Problem));
+    }
+}
