@@ -80,8 +80,8 @@ internal sealed class TestGame : IDisposable
         return builder.WriteTo(Path.Combine(DataPath, name));
     }
 
-    public WorkspaceController NewController(ISteamLocationSource? steam = null) =>
-        new(Profile, GameSettings, Settings, Paths, steam ?? new NoSteam(), Runner, Log, Texts);
+    public WorkspaceController NewController(ISteamLocationSource? steam = null, IOperationRunner? runner = null) =>
+        new(Profile, GameSettings, Settings, Paths, steam ?? new NoSteam(), runner ?? Runner, Log, Texts);
 
     public void Dispose() => Root.Dispose();
 }

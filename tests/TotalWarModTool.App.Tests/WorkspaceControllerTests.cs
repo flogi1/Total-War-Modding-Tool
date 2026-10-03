@@ -151,10 +151,14 @@ public class WorkspaceControllerTests
         await c.LoadAsync();
         var pack = Pack(c, "a.pack");
         await c.OpenPackAsync(pack);
+        var changed = new List<PackSource>(); c.PackChanged += (_, p) => changed.Add(p);
         File.Delete(path);
         var opened = await c.OpenEntryAsync(pack, "a.txt");
         Assert.Equal(EntryProblem.PackChanged, opened!.ReadProblem);
         Assert.Null(opened.Text);
+        Assert.Equal(pack, Assert.Single(changed));
+        Assert.Null(await c.OpenPackAsync(pack));                           // the cached index is gone: this goes through the runner again
+        Assert.Equal(["Open a.pack", "Open a.txt", "Open a.pack"], game.Runner.Titles);
     }
 
     [Fact] public async Task OpenEntry_of_a_missing_entry_is_a_problem_not_an_exception()
@@ -280,6 +284,7 @@ public class WorkspaceControllerTests
         var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "db/x_tables/data__")], 0, []));
         Assert.True(Assert.Single(restored.Tabs).Entry.SchemaMissing);
         Assert.Empty(restored.Packs);
+        Assert.Single(game.Log.Warnings, line => line.Contains("schema missing", StringComparison.Ordinal));   // the hint of the tab is logged
     }
 
     [Fact] public async Task Restore_of_an_empty_session_is_empty()
@@ -327,5 +332,134 @@ public class WorkspaceControllerTests
         await c.LoadAsync();
         Assert.Equal(["Refresh pack list"], game.Runner.Titles);              // a refresh includes the schema
         Assert.Equal((GameStatus.NotFound, SchemaProblem.NotFound), (c.Status, c.Schema!.OverrideAttempt!.Problem));
+    }
+
+    // Review of task 4. These use ManualOperationRunner: a user run finishes when the test says so. A silent run cannot be held open
+    // without a seam in the product, so the Changed event that BeginSilentRun raises (after the state was read, before the work
+    // starts) is the point where the test finishes the other run.
+
+    private static readonly TimeSpan Guard = TimeSpan.FromSeconds(30);
+
+    [Fact] public async Task A_refresh_that_finishes_during_the_restore_discards_the_restore()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1]));
+        var runner = new ManualOperationRunner();
+        var c = game.NewController(runner: runner);
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+        game.GameSettings.InstallPath = game.Root.File("nowhere");           // starts a refresh that waits in the runner
+        Assert.Equal(["Refresh pack list"], runner.Titles);
+        var finished = false;
+        c.Changed += (_, _) => { if (c.IsBusy && !finished) { finished = true; runner.Complete(); } };
+
+        var restored = await c.RestoreAsync(new SessionState([new SessionTab(path, "a.txt")], 0, [path]));
+
+        Assert.Equal((0, 0, -1), (restored.Packs.Count, restored.Tabs.Count, restored.ActiveTab));
+        Assert.Equal(GameStatus.NotFound, c.Status);                          // the refresh result stands
+        Assert.Single(game.Log.Infos, line => line.Contains("Session restore skipped", StringComparison.Ordinal));
+        var open = c.OpenPackAsync(pack);                                     // nothing was cached: this needs the runner
+        runner.Complete();
+        Assert.NotNull(await open.WaitAsync(Guard));
+        Assert.Equal(["Refresh pack list", "Open a.pack"], runner.Titles);
+    }
+
+    [Fact] public async Task LoadAsync_completes_only_after_its_pending_reload()
+    {
+        using var game = new TestGame();
+        var runner = new ManualOperationRunner();
+        var c = game.NewController(runner: runner);
+        var asked = false;
+        c.Changed += (_, _) =>
+        {
+            if (c.IsBusy && !asked)
+            {
+                asked = true;
+                game.Settings.SchemaFolder = game.Root.File("no-schemas");   // the controller is busy: the wish is remembered
+            }
+        };
+
+        var load = c.LoadAsync();
+        await runner.WaitForRun().WaitAsync(Guard);
+        Assert.Equal(["Load schema"], runner.Titles);
+        Assert.False(load.IsCompleted);                                       // it waits for the reload it started
+        runner.Complete();
+        await load.WaitAsync(Guard);
+        Assert.Equal(SchemaProblem.NotFound, c.Schema!.OverrideAttempt!.Problem);
+    }
+
+    [Fact] public async Task A_load_that_overlaps_a_refresh_does_not_overwrite_the_newer_state()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack");
+        var runner = new ManualOperationRunner();
+        var c = game.NewController(runner: runner);
+        game.GameSettings.InstallPath = game.Root.File("nowhere");           // starts a refresh before the load, waits in the runner
+        Assert.Equal(["Refresh pack list"], runner.Titles);
+        var finished = false;
+        c.Changed += (_, _) => { if (c.IsBusy && !finished) { finished = true; runner.Complete(); } };
+
+        await c.LoadAsync();
+
+        Assert.Equal((GameStatus.NotFound, (PackCatalogResult?)null), (c.Status, c.Catalog));   // the older load did not win
+        Assert.NotNull(c.Schema);
+        Assert.Single(game.Log.Infos, line => line.Contains("first load was skipped", StringComparison.Ordinal));
+    }
+
+    [Fact] public async Task A_settings_change_during_a_user_run_is_carried_out_when_that_run_ends()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack");
+        var runner = new ManualOperationRunner();
+        var c = game.NewController(runner: runner);
+        await c.LoadAsync();
+        var open = c.OpenPackAsync(Pack(c, "a.pack"));
+        Assert.False(c.CanStartOperation);
+        game.Settings.SchemaFolder = game.Root.File("no-schemas");           // cannot start now: remembered
+        Assert.Equal(["Open a.pack"], runner.Titles);
+
+        runner.Complete();
+        await runner.WaitForRun().WaitAsync(Guard);
+        Assert.Equal(["Open a.pack", "Load schema"], runner.Titles);
+        Assert.False(open.IsCompleted);
+        runner.Complete();
+        Assert.NotNull(await open.WaitAsync(Guard));
+        Assert.Equal(SchemaProblem.NotFound, c.Schema!.OverrideAttempt!.Problem);
+    }
+
+    [Fact] public async Task A_read_problem_of_an_entry_is_logged_once()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        await c.OpenEntryAsync(Pack(c, "a.pack"), "gone.txt");
+        var warning = Assert.Single(game.Log.Warnings);
+        Assert.All(new[] { "a.pack", "gone.txt", "Corrupt", "no longer exists" }, part => Assert.Contains(part, warning));
+    }
+
+    [Fact] public async Task A_table_that_does_not_decode_is_logged_once()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("db/y_tables/data__", TestGame.TableBytes));      // the schema only knows x_tables
+        var c = game.NewController();
+        await c.LoadAsync();
+        var opened = await c.OpenEntryAsync(Pack(c, "a.pack"), "db/y_tables/data__");
+        Assert.Equal(TableDecodeStatus.TableNotInSchema, opened!.Table!.Status);
+        var warning = Assert.Single(game.Log.Warnings);
+        Assert.All(new[] { "a.pack", "db/y_tables/data__", "TableNotInSchema" }, part => Assert.Contains(part, warning));
+    }
+
+    [Fact] public async Task An_index_problem_of_a_pack_that_is_not_open_is_logged_when_an_entry_is_opened()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", [1, 2, 3]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        File.WriteAllBytes(path, File.ReadAllBytes(path)[..^1]);
+        var opened = await c.OpenEntryAsync(Pack(c, "a.pack"), "a.txt");
+        Assert.Equal(EntryProblem.Corrupt, opened!.ReadProblem);
+        var warning = Assert.Single(game.Log.Warnings);
+        Assert.All(new[] { "a.pack", "a.txt", "InconsistentIndex" }, part => Assert.Contains(part, warning));
     }
 }

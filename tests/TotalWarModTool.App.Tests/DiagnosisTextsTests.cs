@@ -24,6 +24,12 @@ public class DiagnosisTextsTests
     [Fact] public void Unknown_format_names_the_format_of_the_game() =>
         Assert.Equal("Unknown pack format. This game uses PFH5.", Texts().PackProblemText(PackProblem.UnknownFormat, "PFH5"));
 
+    [Fact] public void A_changed_or_removed_pack_tells_the_user_to_refresh() =>
+        Assert.Equal("The pack was changed or removed on disk. Refresh the pack list and open the entry again.", Texts().EntryProblemText(EntryProblem.PackChanged));
+
+    [Fact] public void An_unknown_origin_is_named_by_its_value() =>
+        Assert.Equal("99", Texts().OriginName((PackOrigin)99));
+
     [Fact] public void Operation_titles_carry_the_name() =>
         Assert.Equal(("Open a.pack", "Open data__"), (Texts().OperationOpenPack("a.pack"), Texts().OperationOpenEntry("data__")));
 }

@@ -32,7 +32,7 @@
   "pack.problem.unknownFormat": "Unknown pack format. This game uses {0}.",
   "pack.problem.encryptedIndex": "Encrypted pack, not supported.",
   "pack.problem.inconsistentIndex": "The file list of the pack is damaged.",
-  "entry.problem.packChanged": "The pack was changed on disk. Open the entry again.",
+  "entry.problem.packChanged": "The pack was changed or removed on disk. Refresh the pack list and open the entry again.",
   "entry.problem.unreadable": "The entry cannot be read. The pack may be locked by the game or another program.",
   "entry.problem.encrypted": "Encrypted pack, not supported.",
   "entry.problem.unsupportedCompression": "This compression format is not supported yet.",

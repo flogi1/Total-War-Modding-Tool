@@ -24,7 +24,7 @@ public sealed partial class AppTexts
 
     public string PackProblemInconsistentIndex => T("pack.problem.inconsistentIndex", "The file list of the pack is damaged.");
 
-    public string EntryProblemPackChanged => T("entry.problem.packChanged", "The pack was changed on disk. Open the entry again.");
+    public string EntryProblemPackChanged => T("entry.problem.packChanged", "The pack was changed or removed on disk. Refresh the pack list and open the entry again.");
 
     public string EntryProblemUnreadable => T("entry.problem.unreadable",
         "The entry cannot be read. The pack may be locked by the game or another program.");
@@ -119,6 +119,7 @@ public sealed partial class AppTexts
     {
         PackOrigin.Vanilla => OriginVanilla,
         PackOrigin.DataFolderMod => OriginDataFolderMod,
-        _ => OriginWorkshop,
+        PackOrigin.Workshop => OriginWorkshop,
+        _ => origin.ToString(),
     };
 }

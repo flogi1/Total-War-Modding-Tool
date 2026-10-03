@@ -8,6 +8,7 @@ using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
@@ -46,6 +47,10 @@ public sealed class WorkspaceController
     // A settings change while a silent run is busy is remembered and carried out when that run ends.
     private bool _pendingRefresh;
     private bool _pendingSchemaReload;
+
+    // Goes up whenever a located game, catalog or schema is applied. A silent run compares it with the value it started with and
+    // discards its result when a newer state was applied meanwhile: the older result must never overwrite the newer one.
+    private int _generation;
 
     public WorkspaceController(GameProfile? profile, GameSettings gameSettings, GlobalSettings settings, AppPaths paths,
         ISteamLocationSource steam, IOperationRunner runner, IAppLog log, AppTexts texts)
@@ -105,14 +110,23 @@ public sealed class WorkspaceController
     /// </summary>
     public async Task LoadAsync()
     {
+        // The state is read before Changed is raised: a handler that starts or finishes a reload then counts as "meanwhile".
+        var generation = _generation;
+        var profile = Profile;
+        var place = new Place(Status, Location, ManualPathInvalid);
+        var schemaFolder = _settings.SchemaFolder;
         BeginSilentRun();
         try
         {
-            var profile = Profile;
-            var place = new Place(Status, Location, ManualPathInvalid);
-            var schemaFolder = _settings.SchemaFolder;
             var loaded = await Task.Run(() => Compute(profile, place, null, schemaFolder, null, CancellationToken.None));
-            ApplyLoaded(loaded);
+            if (_generation == generation)
+            {
+                ApplyLoaded(loaded);
+            }
+            else
+            {
+                _log.Info("The first load was skipped: the game was loaded again in the meantime, the newer state is kept.");
+            }
         }
         catch (Exception ex)
         {
@@ -124,11 +138,18 @@ public sealed class WorkspaceController
             EndSilentRun();
         }
 
-        RunPending();
+        // The returned task ends only after a reload that was asked for during the load has ended.
+        await RunPending();
     }
 
     /// <summary>User action: locates the game and scans the packs again and reloads the schema, through the runner.</summary>
     public async Task RefreshAsync()
+    {
+        await RefreshCore();
+        await RunPending();
+    }
+
+    private async Task RefreshCore()
     {
         if (!CanStartOperation || Profile is not { } profile)
         {
@@ -158,6 +179,12 @@ public sealed class WorkspaceController
     /// <summary>User action: resolves the schema again, through the runner.</summary>
     public async Task ReloadSchemaAsync()
     {
+        await ReloadSchemaCore();
+        await RunPending();
+    }
+
+    private async Task ReloadSchemaCore()
+    {
         if (!CanStartOperation || Profile is not { } profile)
         {
             return;
@@ -172,6 +199,7 @@ public sealed class WorkspaceController
             return;
         }
 
+        _generation++;
         Schema = resolved;
         LogSchema(resolved);
         Changed?.Invoke(this, EventArgs.Empty);
@@ -185,6 +213,13 @@ public sealed class WorkspaceController
     public async Task<PackContent?> OpenPackAsync(PackSource pack)
     {
         ArgumentNullException.ThrowIfNull(pack);
+        var content = await OpenPackCore(pack);
+        await RunPending();
+        return content;
+    }
+
+    private async Task<PackContent?> OpenPackCore(PackSource pack)
+    {
         if (_cache.TryGetValue(pack.Path, out var cached))
         {
             return cached;
@@ -236,6 +271,13 @@ public sealed class WorkspaceController
     {
         ArgumentNullException.ThrowIfNull(pack);
         ArgumentNullException.ThrowIfNull(entryPath);
+        var opened = await OpenEntryCore(pack, entryPath);
+        await RunPending();
+        return opened;
+    }
+
+    private async Task<OpenedEntry?> OpenEntryCore(PackSource pack, string entryPath)
+    {
         if (!CanStartOperation)
         {
             return null;
@@ -245,7 +287,7 @@ public sealed class WorkspaceController
         var schema = Schema?.Schema;
         var entryName = entryPath[(entryPath.LastIndexOfAny(['/', '\\']) + 1)..];
         var outcome = await _runner.RunAsync(_texts.OperationOpenEntry(entryName),
-            (_, ct) => OpenEntryCore(pack.Path, entryPath, cached, schema, ct));
+            (_, ct) => RunOpenEntry(pack.Path, entryPath, cached, schema, ct));
         if (outcome.Status != OperationStatus.Completed || outcome.Value is not { } run)
         {
             return null;
@@ -267,6 +309,19 @@ public sealed class WorkspaceController
             }
 
             _indexProblems.Remove(pack.Path);
+        }
+
+        if (run.IndexProblem is { } indexProblem)
+        {
+            _log.Warn($"Entry \"{entryPath}\" cannot be opened, the index of pack \"{pack.Name}\" cannot be read ({indexProblem.Problem}): {indexProblem.Detail}");
+        }
+        else
+        {
+            LogEntryProblem(pack, run.Opened);
+        }
+
+        if (run.PackChanged)
+        {
             RaisePackChanged(pack, "an entry could not be read from the cached index");
         }
 
@@ -281,13 +336,23 @@ public sealed class WorkspaceController
     public async Task<RestoreResult> RestoreAsync(SessionState state)
     {
         ArgumentNullException.ThrowIfNull(state);
+
+        // The state is read before Changed is raised, as in LoadAsync.
+        var generation = _generation;
+        var catalog = Catalog;
+        var schema = Schema?.Schema;
         BeginSilentRun();
         var result = new RestoreResult([], [], -1);
         try
         {
-            var catalog = Catalog;
-            var schema = Schema?.Schema;
             var restored = await Task.Run(() => RestoreCore(catalog, schema, state));
+            if (_generation != generation)
+            {
+                // Packs and tabs of an older pack list or schema must not come back.
+                _log.Info("Session restore skipped: the pack list or the schema changed in the meantime.");
+                return result;
+            }
+
             foreach (var restoredPack in restored.Result.Packs)
             {
                 _cache[restoredPack.Pack.Path] = restoredPack.Content;
@@ -306,6 +371,11 @@ public sealed class WorkspaceController
                 }
             }
 
+            foreach (var tab in restored.Result.Tabs)
+            {
+                LogEntryProblem(tab.Pack, tab.Entry);
+            }
+
             result = restored.Result;
         }
         catch (Exception ex)
@@ -317,7 +387,7 @@ public sealed class WorkspaceController
             EndSilentRun();
         }
 
-        RunPending();
+        _ = RunPending();
         return result;
     }
 
@@ -345,6 +415,7 @@ public sealed class WorkspaceController
     // Does not raise Changed: the caller does, once, after everything of the operation is applied.
     private void ApplyLoaded(Loaded loaded)
     {
+        _generation++;
         ApplyPlace(loaded.Place);
         Catalog = loaded.Catalog;
         Schema = loaded.Schema;
@@ -423,22 +494,29 @@ public sealed class WorkspaceController
         _ = Observe(refresh ? RefreshAsync() : ReloadSchemaAsync());
     }
 
-    // A refresh includes the schema, so it also settles a remembered schema reload.
-    private void RunPending()
+    // A refresh includes the schema, so it also settles a remembered schema reload. The wishes are cleared before the run starts, so a
+    // wish that cannot be carried out (no profile) is not retried forever. The task ends when the reload has ended.
+    private Task RunPending()
     {
         if (!CanStartOperation)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         if (_pendingRefresh)
         {
-            _ = Observe(RefreshAsync());
+            _pendingRefresh = false;
+            _pendingSchemaReload = false;
+            return Observe(RefreshAsync());
         }
-        else if (_pendingSchemaReload)
+
+        if (_pendingSchemaReload)
         {
-            _ = Observe(ReloadSchemaAsync());
+            _pendingSchemaReload = false;
+            return Observe(ReloadSchemaAsync());
         }
+
+        return Task.CompletedTask;
     }
 
     // The operations handle their own failures; this only makes sure a surprise is logged and never lost in an unobserved task.
@@ -481,6 +559,35 @@ public sealed class WorkspaceController
         }
     }
 
+    // One warning per opened entry that carries a problem: the user sees a hint for it, so it belongs in the log (technical detail included).
+    private void LogEntryProblem(PackSource pack, OpenedEntry opened)
+    {
+        string what;
+        string? detail;
+        if (opened.ReadProblem != EntryProblem.None)
+        {
+            (what, detail) = ($"read problem {opened.ReadProblem}", opened.ReadDetail);
+        }
+        else if (opened.SchemaMissing)
+        {
+            (what, detail) = ("schema missing", "No schema is loaded.");
+        }
+        else if (opened.Table is { Status: not TableDecodeStatus.Ok } table)
+        {
+            (what, detail) = ($"table status {table.Status}", table.Detail);
+        }
+        else if (opened.Loc is { Status: LocDecodeStatus.Failed } loc)
+        {
+            (what, detail) = ($"loc status {loc.Status}", loc.Detail);
+        }
+        else
+        {
+            return;
+        }
+
+        _log.Warn($"Entry \"{opened.EntryPath}\" of pack \"{pack.Name}\" has a problem ({what}): {detail}");
+    }
+
     private void LogSchema(ResolvedSchema? schema)
     {
         if (schema is null)
@@ -516,7 +623,7 @@ public sealed class WorkspaceController
 
     private sealed record IndexRead(PackIndexResult Result, PackContent? Content);
 
-    private sealed record EntryRun(OpenedEntry Opened, bool PackChanged, PackContent? Replacement);
+    private sealed record EntryRun(OpenedEntry Opened, bool PackChanged, PackContent? Replacement, PackIndexResult? IndexProblem = null);
 
     private sealed record RestoreRun(RestoreResult Result, IReadOnlyList<(bool IsWarning, string Text)> Notes);
 
@@ -564,7 +671,7 @@ public sealed class WorkspaceController
             : new IndexRead(result, null);
     }
 
-    private static EntryRun OpenEntryCore(string packPath, string entryPath, PackContent? cached, GameSchema? schema,
+    private static EntryRun RunOpenEntry(string packPath, string entryPath, PackContent? cached, GameSchema? schema,
         CancellationToken cancellationToken)
     {
         var index = cached?.Index;
@@ -573,7 +680,7 @@ public sealed class WorkspaceController
             var read = PackAccess.ReadIndex(packPath, cancellationToken);
             if (read.Index is null)
             {
-                return new EntryRun(IndexProblemEntry(entryPath, read), false, null);
+                return new EntryRun(IndexProblemEntry(entryPath, read), false, null, read);
             }
 
             index = read.Index;
