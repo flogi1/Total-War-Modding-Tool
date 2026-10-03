@@ -413,9 +413,6 @@ Die Namen sind verbindlich für den ersten Plan. Details der Signaturen legt der
   `EntryInfo` (Format, unkomprimierte Größe, Diagnose) und liest dafür höchstens 8 Bytes des
   Eintrags. Ein Eintrag unbekannten Dateityps wird damit nicht gelesen, sondern nur beschrieben.
 
-`WorkspaceController` der App gehört nicht zu diesen Schnittstellen: Er ist Teil der App, keine
-Library.
-
 Berechnung und Schreiben sind getrennt. Die Lese-Libraries schreiben nichts.
 
 Festlegungen aus Plan 2:
@@ -548,6 +545,8 @@ warten (ungeprüft, und der Stack ist auf .NET 8 festgelegt).
 
 Festlegungen aus Plan 3:
 
+- **Zustand eines Spiels.** Ort, Pack-Liste, Schema und die offenen Indexe hält ein
+  `WorkspaceController` in der App; er ist keine Schnittstelle der Libraries.
 - **Stille Läufe.** Der Scan beim Start (mit dem Schema) und das Wiederherstellen der Session laufen
   mit `Task.Run` ohne Fenster und ohne Eingabesperre.
 - **`IOperationRunner`.** Alle vom Nutzer gestarteten Operationen laufen über diese eine Schnittstelle
@@ -578,8 +577,8 @@ Abweichung von `CLAUDE.md`: Der Knopf „Fehler melden“ fehlt im Fundament, we
    Installation finden. Session laden. Fenster zeigen. Danach still im Hintergrund:
    `PackCatalog.Scan` (Ordner auflisten, pro Pack nur den Header lesen) und das Schema laden.
    Danach stellt der Start die Session still wieder her (ohne Fortschrittsfenster, ohne
-   Eingabesperre): aufgeklappte Packs und Tabs. Das Wiederherstellen beginnt erst, wenn Pack-Liste
-   und Schema fertig sind.
+   Eingabesperre): aufgeklappte Packs und Tabs. Das Wiederherstellen beginnt beim Start, sobald Pack-Liste
+   und Schema fertig sind, sonst sobald eine Pack-Liste existiert (siehe Punkt 4).
 2. **Pack aufklappen.** `ProgressRunner` liest den Index. Der Baum erscheint.
 3. **Eintrag öffnen.** `ProgressRunner` prüft den Fingerprint, liest die Bytes, dekomprimiert,
    dekodiert. Der Tab erscheint erst am Ende.
@@ -645,7 +644,7 @@ Nie Spielordner, Workshop-Ordner, RPFM-Ordner oder Programmordner.
 | Ausgeliefertes Schema fehlt oder ist kaputt | Tabellen sind nicht dekodierbar, der Rest funktioniert. Meldung mit Hinweis auf den Schema-Ordner. |
 | Textdatei größer als 5 MB | Die ersten 5 MB werden gezeigt, dazu ein Hinweis. |
 | Einstellungen oder Session kaputt | Kopie nach `.bad`, Defaults, Log-Eintrag. Der Start wird nie blockiert. |
-| `settings.json` stammt von einer neueren Version oder ist beim Start nicht lesbar (gesperrt) | Die App läuft mit den gelesenen Werten bzw. mit Standardwerten. In dieser Sitzung wird `settings.json` nicht geschrieben, damit nichts überschrieben wird. Das Log enthält eine Warnung. |
+| `settings.json` stammt von einer neueren Version oder ist beim Start nicht lesbar (gesperrt) | Die App läuft mit den gelesenen Werten bzw. mit Standardwerten. In dieser Sitzung wird `settings.json` nicht geschrieben, damit nichts überschrieben wird. Das Log enthält eine Warnung. Dasselbe gilt für `game-settings.json` und `session.json` (siehe 4.8). |
 | Sprachdatei ist kein gültiges JSON oder nicht UTF-8 | Die App nutzt Englisch. Das Log enthält eine Warnung mit Sprache, Zeile und Position. |
 | Session verweist auf fehlendes Pack oder fehlenden Eintrag | Der Tab wird still entfernt, Log-Eintrag. |
 | Abbruch durch den Nutzer | Kein Tab, kein Teilzustand. Das Hauptfenster ist wieder frei. |
