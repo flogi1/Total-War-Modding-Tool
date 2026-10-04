@@ -161,7 +161,9 @@ Das Tool schreibt in Teil 2 zusätzlich zu `%APPDATA%\TotalWarModTool` und
    Pack unter `build\`. Nichts sonst, außer den eigenen temp-Dateien während eines Schreibvorgangs
    (`twmt-project.json.<8 Hex>.tmp`, `build\<Pack-Name>.<8 Hex>.tmp`). Ein Import schreibt zuerst in
    einen Staging-Ordner `<Zielordner>.import-<8 Hex>` direkt neben dem Zielordner, also im
-   Elternordner, den der Nutzer gewählt hat, und benennt ihn am Ende um.
+   Elternordner, den der Nutzer gewählt hat, und benennt ihn am Ende um. Ist `pack\` oder `build\`
+   selbst eine Verknüpfung (Junction, symbolischer Link), schreibt, löscht und liest das Tool dort
+   nichts (Festlegungen aus Plan 3, Punkt 19).
 2. **In den `data`-Ordner des Spiels:** genau eine Datei pro Projekt, das installierte Pack, und nur
    unter den Bedingungen aus Abschnitt 5.7. Dazu gehört während des Installierens die temp-Datei
    `<Pack-Name>.twmt-tmp` im selben Ordner.
@@ -202,7 +204,8 @@ gelöscht. Ein Projektordner wird nie gelöscht, auch nicht beim Entfernen aus d
 Projekt und pro Projekt der Fingerprint des installierten Packs.
 
 - Projekt hinzufügen: neu anlegen, Pack importieren, bestehenden Projektordner öffnen.
-- Projekt entfernen streicht nur den Eintrag.
+- Projekt entfernen streicht nur den Eintrag. Solange für das Projekt ein installiertes Pack
+  verzeichnet ist, ist Entfernen gesperrt: zuerst deinstallieren (Festlegungen aus Plan 3, Punkt 21).
 - Ordner fehlt oder Projektdatei kaputt: Das Projekt bleibt in der Liste und zeigt das Problem. Es
   blockiert weder den Start noch die anderen Projekte.
 - Zwei Einträge mit derselben GUID (kopierter Ordner): Der zweite wird beim Hinzufügen mit Meldung
@@ -331,7 +334,8 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
 17. `ComputeBuild` meldet zwei Dateien mit gleichem Pack-Pfad selbst und nennt beide. Ein Ordner unter
     `pack\`, der eine Verknüpfung ist (Junction, symbolischer Link), wird nicht verfolgt und als Problem
     gemeldet. Ein nicht lesbarer Ordner wird mit seinem Namen gemeldet. Alte temp-Dateien eines
-    abgebrochenen Baus räumt der nächste Bau weg.
+    abgebrochenen Baus räumt der nächste Bau weg. Für `pack\` und `build\` selbst siehe Festlegungen
+    aus Plan 3, Punkt 19.
 18. Ein Pack-Pfad über 259 Zeichen gilt als unsicher und wird beim Import ausgelassen. Er passt unter
     keinen Zielordner, und sehr tiefe Pfade eines fremden Packs könnten sonst den Speicher füllen
     (gemessen: 1,7 GB für einen Pfad mit 30.000 Segmenten).
@@ -392,8 +396,11 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
 14. Der Explorer führt pro Projektknoten eine Listen-Generation. Ein stilles Neulisten ersetzt nie das
     Ergebnis einer neueren Auflistung und lässt Knoten in Ruhe, die zugeklappt, entfernt oder gerade
     im Aufklappen sind. Ein Projekt, das unbrauchbar wird, wird geschlossen.
-15. Am Projektknoten gehen „Als aktiv setzen“ und „Aus der Liste entfernen“ auch während eine Operation
-    läuft. Die übrigen Einträge sind deaktiviert und nennen den Grund, solange die App beschäftigt ist.
+15. Am Projektknoten gehen „Als aktiv setzen“ und „Aus der Liste entfernen“ auch während des stillen
+    Ladens beim Start; sie brauchen keinen freien Runner. Während einer Operation über den Runner stellt
+    sich die Frage nicht, weil das Hauptfenster dann gesperrt ist. Die übrigen Einträge sind deaktiviert
+    und nennen den Grund, solange die App beschäftigt ist. „Aus der Liste entfernen“ hat zusätzlich einen
+    eigenen Grund (Punkt 21).
 16. Session: Der Projektteil der Wiederherstellung braucht wie der Pack-Teil einen Katalog. Wurde das
     Spiel nicht gefunden, wird nichts wiederhergestellt und die gespeicherte Session nicht
     überschrieben. Ein Projekt, das beim Start nicht benutzbar ist, verliert mit dem nächsten Speichern
@@ -402,9 +409,38 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     Dateisystem zu berühren. Ein unerwarteter Fehler bei einer Projektdatei kostet nur diesen Eintrag.
 17. Meldungen aus fremden Daten (Pfade, Gründe) maskieren Steuerzeichen, Bidi-Steuerzeichen sowie Zeilen-
     und Absatztrenner als `\uXXXX` (`DisplayText.Safe`). Ein Abschnitt eines Berichts zeigt höchstens
-    1000 Zeilen; der Rest steht als eine Zeile mit der Anzahl.
+    1000 Zeilen; der Rest steht als eine Zeile mit der Anzahl. Projektnamen in Fortschrittstiteln und
+    Log-Zeilen sowie technische Details der Libraries in Meldungen werden ebenso maskiert.
 18. Dialog „Neues Projekt“ und Import: Der Pack-Name folgt dem Projektnamen, bis der Nutzer ihn selbst
     ändert. Eine abgelehnte Eingabe wird erneut abgefragt, mit der letzten Eingabe als Vorgabe.
+19. Ist `pack\` oder `build\` eines Projekts selbst eine Verknüpfung (Junction, symbolischer Link), wird
+    dort nichts geschrieben, gelöscht oder gelesen. `WriteBuild` meldet einen verknüpften `build\`-Ordner
+    als Schreibfehler mit seinem Pfad, bevor es schreibt oder alte temp-Dateien aufräumt.
+    `ProjectFiles.List` meldet einen verknüpften `pack\`-Ordner als ein Problem mit leerem relativen
+    Pfad und listet nichts darunter; der Bau stoppt damit, der Explorer zeigt den Knoten `pack` mit dem
+    Problem. `ProjectFileOpener` lehnt eine Datei, deren Weg von `pack\` bis zur Datei (einschließlich
+    `pack\` selbst und der Datei) durch eine Verknüpfung führt, als nicht lesbar ab; das gilt auch für
+    die Wiederherstellung der Session.
+20. Darf die Projektliste in dieser Sitzung nicht gespeichert werden (Status `Unreadable` oder
+    `NewerVersion`, beschädigt ohne `.bad`-Kopie), sind „Bauen und installieren“ und „Deinstallieren“
+    deaktiviert und nennen den Grund; der Controller lehnt beides auch selbst ab. „Bauen“ bleibt möglich,
+    weil es die Liste nicht ändert. Scheitert das Speichern erst, nachdem ein Pack installiert oder
+    entfernt wurde (zum Beispiel ein Dateifehler), öffnet die App eine Meldung, die sagt, was im
+    `data`-Ordner passiert ist und dass die Liste es nicht festhält, mit dem technischen Grund. Die
+    Statuszeile trägt zusätzlich den Hinweis, dass die Liste nicht gespeichert wurde.
+21. „Aus der Liste entfernen“ ist deaktiviert und wird abgelehnt, solange für das Projekt ein
+    installiertes Pack verzeichnet ist; der Grund sagt „zuerst deinstallieren“. „Deinstallieren“ streicht
+    den Eintrag auch dann, wenn die Datei in `data` schon von Hand gelöscht wurde. Folge: Ist das Spiel
+    nicht gefunden (oder darf die Liste nicht gespeichert werden), lässt sich ein installiertes Projekt
+    nicht entfernen. Der Nutzer stellt dann zuerst den Spielordner wieder her, deinstalliert und entfernt
+    das Projekt danach.
+22. „Pack importieren“ im Menü und „Als Projekt importieren“ am Pack warten wie „Bauen“ auf das stille
+    Laden beim Start und auf eine laufende Operation; der Tooltip nennt dann „beschäftigt“.
+23. Schema fehlt (der Workspace hat geladen, aber kein Schema): „Bauen“ und „Bauen und installieren“
+    sind deaktiviert, der Tooltip nennt den Grund, und der Controller lehnt den Bau ab, auch für ein
+    Projekt ohne Tabellen. Vor dem ersten Laden gilt das Schema nicht als fehlend; die App ist dann
+    ohnehin beschäftigt.
+24. Verlässt ein Projekt die Liste, schließt die App seine offenen Tabs.
 
 ### 5.5 Import
 
@@ -475,7 +511,9 @@ Eintrag wie beim Import.
   `PackNameRules.Check(name, vanillaNames)` (Plan 3).
 - „Deinstallieren“ löscht die Datei aus `data`, unter derselben Bedingung.
 - Das Spiel sperrt die Datei: Meldung mit Hinweis, kein Teilzustand.
-- Kein Spielordner bekannt: Der Befehl ist deaktiviert, der Tooltip nennt den Grund.
+- Kein Spielordner bekannt: Der Befehl ist deaktiviert, der Tooltip nennt den Grund. Ebenso
+  „Bauen und installieren“ und „Deinstallieren“, solange die Projektliste in dieser Sitzung nicht
+  gespeichert werden darf (Festlegungen aus Plan 3, Punkt 20).
 
 ### 5.8 Bearbeiten
 

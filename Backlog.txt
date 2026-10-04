@@ -169,7 +169,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Der Dialog „Neues Projekt“ merkt sich den zuletzt gewählten Elternordner nicht
 - Pack-Name und Abhängigkeiten eines Projekts lassen sich nur in `twmt-project.json` ändern
 - Textansicht wird im UI-Thread gebaut und erst nach dem Aufbau gekürzt; bei sehr großen Tabellen im Hintergrund bauen und früh abbrechen
-- Die Projektdatei `twmt-project.json` wird beim Start, beim Aktualisieren (F5) und beim Hinzufügen im UI-Thread gelesen (höchstens 1 MB); prüfen und verlagern. Die Dateien eines Projekts liest die Session schon im Hintergrund
+- Die Projektdatei `twmt-project.json` wird beim Start, beim Aktualisieren (F5) und beim Hinzufügen im UI-Thread gelesen (höchstens 1 MB); prüfen und verlagern. Ebenso laufen „Neues Projekt“ (`ProjectFile.CreateNew`) und jedes Speichern der Projektliste im UI-Thread außerhalb des Runners (ein gesperrtes `projects.json` blockiert durch die Wiederholversuche rund 1 s). Die Dateien eines Projekts liest die Session schon im Hintergrund
 - Das Literal `.twmt-tmp` steht in der App doppelt zur Library (`PackInstaller`); eine gemeinsame Konstante nutzen
 - Die Prüfung auf eine zurückgebliebene Temp-Datei meldet auch nach einem Abbruch während der Bau-Berechnung
 - Abbruch durch den Nutzer, wenn ein Token-Callback wirft, ist im `ProgressRunner` nicht abgesichert
