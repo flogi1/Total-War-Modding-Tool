@@ -433,7 +433,10 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     den Eintrag auch dann, wenn die Datei in `data` schon von Hand gelöscht wurde. Folge: Ist das Spiel
     nicht gefunden (oder darf die Liste nicht gespeichert werden), lässt sich ein installiertes Projekt
     nicht entfernen. Der Nutzer stellt dann zuerst den Spielordner wieder her, deinstalliert und entfernt
-    das Projekt danach.
+    das Projekt danach. Darf die Liste nicht gespeichert werden, hilft erst eine neuere App-Version oder
+    eine reparierte `projects.json`. Wurde das Pack in `data` seit dem Installieren verändert, lehnt
+    „Deinstallieren“ ab und behält den Eintrag; der Nutzer löscht die Datei dann von Hand und
+    deinstalliert erneut. In beiden Fällen nennt „Aus der Liste entfernen“ nur „zuerst deinstallieren“.
 22. „Pack importieren“ im Menü und „Als Projekt importieren“ am Pack warten wie „Bauen“ auf das stille
     Laden beim Start und auf eine laufende Operation; der Tooltip nennt dann „beschäftigt“.
 23. Schema fehlt (der Workspace hat geladen, aber kein Schema): „Bauen“ und „Bauen und installieren“

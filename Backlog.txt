@@ -168,6 +168,9 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Fortschritt beim Installieren ist unbestimmt (die Library meldet keinen)
 - Der Dialog „Neues Projekt“ merkt sich den zuletzt gewählten Elternordner nicht
 - Pack-Name und Abhängigkeiten eines Projekts lassen sich nur in `twmt-project.json` ändern
+- Ein Datei-Link unterhalb von `pack\` wird aufgelistet und vom Bau gepackt (Inhalt des Ziels, nur lesend), lässt sich aber nicht öffnen; in `ProjectFiles.List` als Link-Problem melden
+- „Aus der Liste entfernen“ nennt nur „zuerst deinstallieren“, auch wenn Deinstallieren gesperrt ist oder ablehnt; den eigentlichen Grund zeigen
+- Link-Prüfung des Baus ist „prüfen, dann schreiben“: ein Link, der dazwischen entsteht, wird nicht erkannt (gleiche Grenze wie die Besitzprüfung beim Installieren)
 - Textansicht wird im UI-Thread gebaut und erst nach dem Aufbau gekürzt; bei sehr großen Tabellen im Hintergrund bauen und früh abbrechen
 - Die Projektdatei `twmt-project.json` wird beim Start, beim Aktualisieren (F5) und beim Hinzufügen im UI-Thread gelesen (höchstens 1 MB); prüfen und verlagern. Ebenso laufen „Neues Projekt“ (`ProjectFile.CreateNew`) und jedes Speichern der Projektliste im UI-Thread außerhalb des Runners (ein gesperrtes `projects.json` blockiert durch die Wiederholversuche rund 1 s). Die Dateien eines Projekts liest die Session schon im Hintergrund
 - Das Literal `.twmt-tmp` steht in der App doppelt zur Library (`PackInstaller`); eine gemeinsame Konstante nutzen

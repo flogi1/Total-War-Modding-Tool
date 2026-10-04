@@ -134,10 +134,10 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasProjectStatus => ProjectStatusLine is not null;
 
-    /// <summary>Why "Build" of the menu is disabled (no game profile, no active project, an unusable project, or another operation runs); null when it can run.</summary>
+    /// <summary>Why "Build" of the menu is disabled (no game profile, no active project, an unusable project, no schema, or another operation runs); null when it can run.</summary>
     public string? ProjectBuildToolTip => ProjectReason(Projects?.BuildDisabledReason(_projects?.ActiveId));
 
-    /// <summary>Why "Build and install" of the menu is disabled (as for Build, and no game folder); null when it can run.</summary>
+    /// <summary>Why "Build and install" of the menu is disabled (as for Build, and no game folder or a project list that cannot be saved); null when it can run.</summary>
     public string? ProjectBuildAndInstallToolTip => ProjectReason(Projects?.InstallDisabledReason(_projects?.ActiveId));
 
     /// <summary>Why "Import pack" of the menu is disabled (no game profile, or another operation runs); null when it can run.</summary>
