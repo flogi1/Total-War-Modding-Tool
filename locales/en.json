@@ -216,5 +216,7 @@
   "project.action.setActive": "Set as active",
   "project.action.buildAndInstall": "Build and install",
   "project.action.remove": "Remove from list",
-  "project.action.import": "Import as project"
+  "project.action.import": "Import as project",
+  "project.busy": "Another operation is still running.",
+  "project.packFolderMissing": "The folder 'pack' is missing in this project."
 }

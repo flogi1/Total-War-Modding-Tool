@@ -607,14 +607,140 @@ public class ExplorerViewModelTests
         Assert.Equal(setup.Texts.InstallNoGameFolder, actions[3].DisabledReason);
     }
 
-    [Fact] public async Task The_actions_are_disabled_while_an_operation_runs_without_a_reason_text()
+    // The start-up load is a silent run: while it runs the workspace is busy. List edits stay possible, the entries that need a free runner say why not.
+    [Fact] public async Task During_the_load_set_active_and_remove_work_and_the_runner_entries_say_busy()
+    {
+        using var game = new TestGame();
+        var c = game.NewController();
+        var p = game.NewProjects(c);
+        game.NewProject(p, "Alpha");
+        game.AddPack("a.pack");
+        var commands = new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts);
+        var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (_, _) => Task.CompletedTask);
+        var texts = game.Texts;
+
+        var load = c.LoadAsync();                                                    // returns at its first await: the workspace is busy now
+        Assert.True(c.IsBusy);
+        var node = Assert.IsType<ProjectNode>(Assert.Single(vm.Groups[0].Children));
+        var actions = node.Actions;
+        Assert.Equal(((string?)null, true), (actions[0].DisabledReason, actions[0].Command.CanExecute(null)));        // set as active
+        Assert.Equal(((string?)null, true), (actions[4].DisabledReason, actions[4].Command.CanExecute(null)));        // remove from list
+        Assert.Equal((texts.ProjectBusy, false), (actions[1].DisabledReason, actions[1].Command.CanExecute(null)));   // build
+        Assert.Equal(texts.ProjectBusy, actions[2].DisabledReason);                  // build and install
+        Assert.Equal((texts.UninstallNothing, false), (actions[3].DisabledReason, actions[3].Command.CanExecute(null)));   // the reason of the project comes before "busy"
+
+        await load;
+        node = Assert.IsType<ProjectNode>(Assert.Single(vm.Groups[0].Children));
+        Assert.Equal(((string?)null, true), (node.Actions[1].DisabledReason, node.Actions[1].Command.CanExecute(null)));
+        var import = Assert.Single(PackNodeOf(vm, "a.pack").Actions);
+        Assert.Equal(((string?)null, true), (import.DisabledReason, import.Command.CanExecute(null)));
+    }
+
+    [Fact] public async Task While_a_run_is_going_the_runner_entries_are_disabled_and_list_edits_are_not()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => { g.NewProject(p, "Alpha"); g.NewProject(p, "Beta"); });
+        var actions = setup.NodeOf("Alpha").Actions;
+        setup.Game.Runner.IsRunning = true;                                          // a user run: the commands ask live, the window is locked anyway
+        Assert.Equal([true, false, false, false, true], actions.Select(a => a.Command.CanExecute(null)));
+        setup.NodeOf("Beta").Actions[0].Command.Execute(null);                       // set Beta as active
+        Assert.Equal([false, true], setup.Group.Children.Select(n => n.IsEmphasized));
+    }
+
+    [Fact] public async Task A_project_without_its_pack_folder_expands_to_one_problem_node()
     {
         using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"));
-        var build = setup.NodeOf("Alpha").Actions[1];
-        Assert.True(build.Command.CanExecute(null));
-        setup.Game.Runner.IsRunning = true;
-        Assert.False(build.Command.CanExecute(null));
-        Assert.Null(build.DisabledReason);
+        Directory.Delete(Path.Combine(setup.Projects.Projects[0].Folder, "pack"));
+        var node = setup.NodeOf("Alpha");
+        node.IsExpanded = true;
+        var child = Assert.Single(node.Children);
+        Assert.Equal(("pack", true, setup.Texts.ProjectPackFolderMissing), (child.Name, child.HasProblem, child.ToolTip));
+        Assert.True(node.IsExpanded);
+    }
+
+    // The runner listing of an expand and the silent listings after F5 can overlap: only the newest state of the node may show its result.
+    [Fact] public async Task A_held_silent_listing_never_replaces_the_result_of_a_newer_listing()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var node = setup.NodeOf("Alpha"); var state = setup.Projects.Projects[0];
+        node.IsExpanded = true;
+        var old = ProjectFiles.List(state.Folder, CancellationToken.None);          // what the held listing has read
+        var gate = new TaskCompletionSource<ProjectFileList?>();
+        setup.Vm.SilentListing = _ => gate.Task;
+        var refresh = setup.Vm.RefreshProjectFilesAsync();                           // held
+
+        node.IsExpanded = false;
+        File.WriteAllText(Path.Combine(state.Folder, "pack", "fresh.lua"), "x");
+        node.IsExpanded = true;                                                      // the fresh listing of the runner lands at once
+        Assert.Equal(["a.lua", "fresh.lua"], node.Children.Select(n => n.Name));
+
+        gate.SetResult(old);
+        await refresh;
+        Assert.Equal(["a.lua", "fresh.lua"], node.Children.Select(n => n.Name));
+        Assert.True(node.IsExpanded);
+    }
+
+    [Fact] public async Task Of_two_silent_listings_the_one_started_last_stays()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var node = setup.NodeOf("Alpha"); var state = setup.Projects.Projects[0];
+        node.IsExpanded = true;
+        var older = ProjectFiles.List(state.Folder, CancellationToken.None);
+        File.WriteAllText(Path.Combine(state.Folder, "pack", "newer.lua"), "x");
+        var newer = ProjectFiles.List(state.Folder, CancellationToken.None);
+        var first = new TaskCompletionSource<ProjectFileList?>();
+        var second = new TaskCompletionSource<ProjectFileList?>();
+        var gates = new Queue<TaskCompletionSource<ProjectFileList?>>();
+        gates.Enqueue(first);
+        gates.Enqueue(second);
+        setup.Vm.SilentListing = _ => gates.Dequeue().Task;
+        var one = setup.Vm.RefreshProjectFilesAsync();
+        var two = setup.Vm.RefreshProjectFilesAsync();
+
+        second.SetResult(newer);                                                     // they finish in reverse order
+        first.SetResult(older);
+        await Task.WhenAll(one, two);
+        Assert.Equal(["a.lua", "newer.lua"], node.Children.Select(n => n.Name));
+    }
+
+    [Fact] public async Task A_listing_that_finishes_after_its_project_was_removed_changes_nothing()
+    {
+        using var game = new TestGame();
+        var manual = new ManualOperationRunner();
+        var c = game.NewController();
+        var p = game.NewProjects(c, manual);                                         // the listings of the explorer wait in the manual runner
+        game.NewProject(p, "Alpha", ("a.lua", "x"));
+        var commands = new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts);
+        var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (_, _) => Task.CompletedTask);
+        await c.LoadAsync();
+        var group = Assert.IsType<ProjectsGroupNode>(vm.Groups[0]);
+        var node = Assert.IsType<ProjectNode>(Assert.Single(group.Children));
+
+        node.IsExpanded = true;                                                      // held
+        commands.Remove(node.ProjectId);
+        manual.Complete();                                                           // the continuation runs inline: it must not throw
+
+        Assert.Empty(group.Children);
+        Assert.Empty(vm.ExpandedProjectIds);
+        Assert.IsType<PlaceholderNode>(Assert.Single(node.Children));
+    }
+
+    [Fact] public async Task A_silent_listing_that_finishes_after_its_project_was_removed_changes_nothing()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var node = setup.NodeOf("Alpha"); var state = setup.Projects.Projects[0];
+        node.IsExpanded = true;
+        var list = ProjectFiles.List(state.Folder, CancellationToken.None);
+        var gate = new TaskCompletionSource<ProjectFileList?>();
+        setup.Vm.SilentListing = _ => gate.Task;
+        var refresh = setup.Vm.RefreshProjectFilesAsync();
+
+        setup.Commands.Remove(state.Id);
+        gate.SetResult(list);
+        await refresh;
+
+        Assert.Empty(setup.Group.Children);
+        Assert.Equal(["a.lua"], node.Children.Select(n => n.Name));
+        Assert.Empty(setup.Vm.ExpandedProjectIds);
     }
 
     [Fact] public async Task ApplyRestoredProjects_expands_without_a_runner_run()
@@ -633,7 +759,7 @@ public class ExplorerViewModelTests
     [Fact] public async Task The_group_name_and_the_actions_follow_a_language_switch()
     {
         var locales = Path.Combine(RepoRoot.Find(), "locales");
-        using var game = new TestGame();
+        using var game = new TestGame(); game.AddPack("a.pack");
         var ui = new UiText(locales); var texts = new AppTexts(ui);
         var c = new WorkspaceController(TestGame.Profile, game.GameSettings, game.Settings, game.Paths, new NoSteam(), game.Runner, game.Log, texts);
         var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
@@ -648,5 +774,7 @@ public class ExplorerViewModelTests
         Assert.Equal("Projekte (1)", group.Name);
         Assert.Equal(["Als aktiv setzen", "Bauen", "Bauen und installieren", "Deinstallieren", "Aus der Liste entfernen"], node.Actions.Select(a => a.Header));
         Assert.Same(group, vm.Groups[0]);
+        Assert.Equal("Als Projekt importieren", Assert.Single(PackNodeOf(vm, "a.pack").Actions).Header);
+        Assert.Equal("Mods im Datenordner (1)", vm.Groups[1].Name);                          // the pack groups follow too, behind the projects
     }
 }

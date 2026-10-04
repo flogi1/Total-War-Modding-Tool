@@ -3,6 +3,7 @@ using TotalWarModTool.Localization;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
+using TotalWarModTool.Storage;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App.Tests;
@@ -437,6 +438,36 @@ public class MainViewModelWorkspaceTests
         Assert.Equal((texts.ProjectNoneActive, texts.ProjectNoneActive), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
         game.NewProject(m.Projects, "Alpha");
         Assert.Equal(((string?)null, texts.InstallNoGameFolder), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
+    }
+
+    // The reason order of the build entries: the project first, then "busy"; nothing is disabled without a text.
+    [Fact] public async Task The_menu_tool_tips_say_busy_while_the_workspace_loads()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c);
+        game.NewProject(m.Projects, "Alpha");
+        var texts = game.Texts;
+        var changed = new List<string?>(); m.Main.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        var load = c.LoadAsync();                                                    // returns at its first await: the workspace is busy
+        Assert.True(c.IsBusy);
+        Assert.Equal(texts.ProjectBusy, m.Main.ProjectBuildToolTip);
+        Assert.Equal(texts.ProjectBusy, m.Main.ProjectBuildAndInstallToolTip);
+        Assert.Contains(nameof(MainViewModel.ProjectBuildToolTip), changed);
+
+        await load;
+        Assert.Equal(((string?)null, (string?)null), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
+    }
+
+    [Fact] public void Without_a_game_profile_the_menu_tool_tips_name_the_profile()
+    {
+        using var game = new TestGame();
+        var noProfile = new WorkspaceController(null, game.GameSettings, game.Settings, game.Paths, new NoSteam(), game.Runner, game.Log, game.Texts);
+        var projects = new ProjectsController(null, new ProjectListLoadResult(ProjectList.Empty, LoadStatus.Missing, null), noProfile, game.Runner, game.Log,
+            game.Texts, TimeProvider.System);
+        var main = new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => { }, noProfile, null, projects,
+            new ProjectsViewModel(projects, new FakeProjectDialogs(), game.Texts));
+        Assert.Equal((game.Texts.ProjectNoGameProfile, game.Texts.ProjectNoGameProfile), (main.ProjectBuildToolTip, main.ProjectBuildAndInstallToolTip));
     }
 
     // The status line and the explorer both follow a language switch (the explorer has its own test).

@@ -16,6 +16,9 @@ internal sealed class ProjectTreeContext(Guid projectId, Func<Guid, string, Task
 {
     private const int MaxNameChars = 260;
 
+    /// <summary>The longest tool tip text (a folder, a detail of the library) that is shown; a longer one is cut.</summary>
+    public const int MaxToolTipChars = 1000;
+
     public Guid ProjectId { get; } = projectId;
 
     public Func<Guid, string, Task> OpenFile { get; } = openFile;
@@ -105,10 +108,10 @@ internal sealed class ProjectTreeEntry
 public sealed class ProjectNode : ExplorerNode
 {
     private const int MaxNameChars = 100;
-    private const int MaxToolTipChars = 1000;
 
     private readonly ProjectTreeContext _context;
     private readonly Action<ProjectNode, bool> _expandedChanged;
+    private int _generation;
 
     internal ProjectNode(ProjectState state, bool isActive, ProjectTreeContext context, Action<ProjectNode, bool> expandedChanged) : base(string.Empty)
     {
@@ -132,6 +135,16 @@ public sealed class ProjectNode : ExplorerNode
     /// <summary>The project left the list; results that arrive for this node no longer count (set by the view model).</summary>
     internal bool IsDetached { get; set; }
 
+    /// <summary>
+    /// Counts the changes of what the node shows or is about to show: an expand starts, a silent listing starts, files are shown, the placeholder
+    /// is shown. A listing remembers the value before it waits and applies its result only when the value is still the same, so an older
+    /// listing never replaces the result of a newer one.
+    /// </summary>
+    internal int Generation => _generation;
+
+    /// <summary>Starts a new generation; the result of every earlier listing no longer counts. Returns the new value.</summary>
+    internal int BumpGeneration() => ++_generation;
+
     /// <summary>Takes name, emphasis, problem and tool tip from the state of the project. The children and the expanded state stay, unless the project became unusable.</summary>
     internal void Apply(ProjectState state, bool isActive)
     {
@@ -141,7 +154,7 @@ public sealed class ProjectNode : ExplorerNode
         if (state.IsUsable)
         {
             HasProblem = false;
-            ToolTip = _context.Display(state.Folder, MaxToolTipChars);
+            ToolTip = _context.Display(state.Folder, ProjectTreeContext.MaxToolTipChars);
             if (!IsOpen && Children.Count == 0)
             {
                 ReplaceChildren([new PlaceholderNode()]);
@@ -152,10 +165,11 @@ public sealed class ProjectNode : ExplorerNode
 
         HasProblem = true;
         ToolTip = MessageText.WithDetail(_context.Texts.ProjectProblemText(state.Problem),
-            state.Detail is null ? null : _context.Display(state.Detail, MaxToolTipChars));
+            state.Detail is null ? null : _context.Display(state.Detail, ProjectTreeContext.MaxToolTipChars));
         if (Children.Count > 0)
         {
             IsOpen = false;
+            _generation++;
             ReplaceChildren([]);
         }
 
@@ -172,9 +186,17 @@ public sealed class ProjectNode : ExplorerNode
     internal void ShowFiles(ProjectFileList list, ISet<string>? expandedFolders = null)
     {
         IsOpen = true;
+        _generation++;
         var children = ProjectFolderNode.CreateChildren(ProjectTreeEntry.Build(list.Files), _context, expandedFolders)
             .Concat(list.Problems.Select(problem => ProjectFolderNode.ForProblem(problem, _context)))
             .ToList();
+
+        // A project without its pack folder is not empty by design: the node says what is missing.
+        if (!list.PackFolderExists)
+        {
+            children.Add(ProjectFolderNode.ForMissingPackFolder(_context));
+        }
+
         ReplaceChildren(children);
     }
 
@@ -182,6 +204,7 @@ public sealed class ProjectNode : ExplorerNode
     internal void ShowPlaceholder()
     {
         IsOpen = false;
+        _generation++;
         ReplaceChildren([new PlaceholderNode()]);
     }
 
@@ -251,7 +274,10 @@ public sealed class ProjectFolderNode : ExplorerNode
 
     internal static ProjectFolderNode ForProblem(ProjectFileProblem problem, ProjectTreeContext context) =>
         new(context.Display(problem.RelativePath.Length == 0 ? ProjectFile.PackFolder : problem.RelativePath), problem.RelativePath,
-            context.Display(problem.Detail, 1000), context);
+            context.Display(problem.Detail, ProjectTreeContext.MaxToolTipChars), context);
+
+    internal static ProjectFolderNode ForMissingPackFolder(ProjectTreeContext context) =>
+        new(context.Display(ProjectFile.PackFolder), string.Empty, context.Texts.ProjectPackFolderMissing, context);
 
     /// <summary>The nodes for the children of a tree entry, in the order of the tree (folders first).</summary>
     internal static IEnumerable<ExplorerNode> CreateChildren(IReadOnlyList<ProjectTreeEntry> entries, ProjectTreeContext context, ISet<string>? expandedFolders) =>

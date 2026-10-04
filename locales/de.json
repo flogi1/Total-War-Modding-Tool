@@ -216,5 +216,7 @@
   "project.action.setActive": "Als aktiv setzen",
   "project.action.buildAndInstall": "Bauen und installieren",
   "project.action.remove": "Aus der Liste entfernen",
-  "project.action.import": "Als Projekt importieren"
+  "project.action.import": "Als Projekt importieren",
+  "project.busy": "Eine andere Operation läuft noch.",
+  "project.packFolderMissing": "Der Ordner „pack“ fehlt in diesem Projekt."
 }

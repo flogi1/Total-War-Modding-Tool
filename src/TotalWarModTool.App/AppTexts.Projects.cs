@@ -261,6 +261,12 @@ public sealed partial class AppTexts
 
     public string ProjectActionImport => T("project.action.import", "Import as project");
 
+    /// <summary>Why an entry that needs a free runner is disabled when nothing else speaks against it.</summary>
+    public string ProjectBusy => T("project.busy", "Another operation is still running.");
+
+    /// <summary>The one child of a project whose pack folder does not exist.</summary>
+    public string ProjectPackFolderMissing => T("project.packFolderMissing", "The folder 'pack' is missing in this project.");
+
     /// <summary>The text for an import problem; empty for <see cref="ImportProblem.None"/>.</summary>
     public string ImportProblemText(ImportProblem problem) => problem switch
     {

@@ -1,0 +1,286 @@
+using TotalWarModTool.Projects;
+using TotalWarModTool.Workspace;
+
+namespace TotalWarModTool.App;
+
+// The project half of the explorer: the group and the nodes of the projects, the listings of their files and the context menus.
+public sealed partial class ExplorerViewModel
+{
+    /// <summary>The silent listing of a project. Null: the one of the controller. Tests set it to hold or reorder listings.</summary>
+    internal Func<Guid, Task<ProjectFileList?>>? SilentListing { get; set; }
+
+    /// <summary>The projects whose files are shown, in list order.</summary>
+    public IReadOnlyList<Guid> ExpandedProjectIds => ProjectNodes().Where(node => node.IsOpen).Select(node => node.ProjectId).ToList();
+
+    /// <summary>
+    /// Expands these projects from the listing that was already read, without a runner run. Projects that are not in the tree or cannot be
+    /// used are skipped.
+    /// </summary>
+    public void ApplyRestoredProjects(IReadOnlyList<(Guid Id, ProjectFileList Files)> projects)
+    {
+        ArgumentNullException.ThrowIfNull(projects);
+        var changed = false;
+        foreach (var (id, files) in projects)
+        {
+            var node = ProjectNodes().FirstOrDefault(candidate => candidate.ProjectId == id);
+            if (node is null || !node.IsUsable || node.IsOpen || node.IsLoading)
+            {
+                continue;
+            }
+
+            node.ShowFiles(files);
+            node.SetExpandedQuietly(true);
+            changed = true;
+        }
+
+        if (changed)
+        {
+            ExpandedPacksChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Lists the open projects again, silently (no runner, no window), and replaces their children; sub folders that are open stay open. Called
+    /// after the projects were read again (refresh) and after a build or an import started from the explorer.
+    /// </summary>
+    public async Task RefreshProjectFilesAsync()
+    {
+        if (_projects is null)
+        {
+            return;
+        }
+
+        foreach (var node in ProjectNodes().Where(candidate => candidate.IsOpen && !candidate.IsLoading).ToList())
+        {
+            // A listing that is overtaken by a later one (a newer silent listing, a collapse and expand) must not replace its result.
+            var generation = node.BumpGeneration();
+            var files = await (SilentListing ?? _projects.ListFilesSilentlyAsync)(node.ProjectId);
+
+            // The node may have been collapsed, removed or broken while the listing ran: then there is nothing to replace.
+            if (files is null || node.IsDetached || node.Generation != generation || !node.IsOpen || !node.IsUsable)
+            {
+                continue;
+            }
+
+            node.ShowFiles(files, node.ExpandedFolders());
+        }
+    }
+
+    // ---- projects --------------------------------------------------------------------------------------------------------------
+
+    // Matches the project nodes with the list by id instead of building them again: a node that stays keeps its children and its expanded
+    // state, one that is new is added, one that is gone is removed. Name, emphasis, problem and tool tip come from the state.
+    private void ReconcileProjects()
+    {
+        if (_projects is null || _projectsGroup is null)
+        {
+            return;
+        }
+
+        var before = ExpandedProjectIds;
+        var children = _projectsGroup.Children;
+        var existing = children.OfType<ProjectNode>().ToDictionary(node => node.ProjectId);
+        var wanted = new List<ProjectNode>();
+        var activeId = _projects.ActiveId;
+        foreach (var state in _projects.Projects)
+        {
+            if (existing.Remove(state.Id, out var node))
+            {
+                node.Apply(state, state.Id == activeId);
+            }
+            else
+            {
+                node = new ProjectNode(state, state.Id == activeId, new ProjectTreeContext(state.Id, _openProjectFile, Texts), OnProjectExpandedChanged);
+            }
+
+            wanted.Add(node);
+        }
+
+        // A listing that is still running for a node that is gone must find out that it no longer counts.
+        foreach (var gone in existing.Values)
+        {
+            gone.IsDetached = true;
+            children.Remove(gone);
+        }
+
+        for (var i = 0; i < wanted.Count; i++)
+        {
+            var at = children.IndexOf(wanted[i]);
+            if (at < 0)
+            {
+                children.Insert(i, wanted[i]);
+            }
+            else if (at != i)
+            {
+                children.Move(at, i);
+            }
+        }
+
+        _projectsGroup.Rename(Texts.ExplorerProjectsGroup(wanted.Count));
+        if (!before.SequenceEqual(ExpandedProjectIds))
+        {
+            ExpandedPacksChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void OnProjectExpandedChanged(ProjectNode node, bool isExpanded)
+    {
+        if (node.IsDetached)
+        {
+            return;
+        }
+
+        if (isExpanded)
+        {
+            ExpandProject(node);
+        }
+        else
+        {
+            CollapseProject(node);
+        }
+    }
+
+    // async void on purpose, for the same reasons as ExpandPack.
+    private async void ExpandProject(ProjectNode node)
+    {
+        if (node.IsOpen || node.IsLoading)
+        {
+            return;
+        }
+
+        if (!node.IsUsable)
+        {
+            node.SetExpandedQuietly(false);
+            return;
+        }
+
+        node.IsLoading = true;
+        var generation = node.BumpGeneration();
+        try
+        {
+            var files = await _projects!.ListFilesAsync(node.ProjectId);
+            if (node.IsDetached || node.Generation != generation)
+            {
+                // The project left the list, or a newer state of the node replaced what this listing was for.
+                return;
+            }
+
+            if (!node.IsExpanded)
+            {
+                // Collapsed again while the listing was running: nothing to show.
+                return;
+            }
+
+            if (files is null || !node.IsUsable)
+            {
+                // Cancelled, or nothing could be started, or the project broke meanwhile: back to the collapsed state.
+                node.SetExpandedQuietly(false);
+                return;
+            }
+
+            node.ShowFiles(files);
+            ExpandedPacksChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch
+        {
+            // Leave no expanded node without a tree; the exception itself goes on to the global handler.
+            if (!node.IsDetached)
+            {
+                node.SetExpandedQuietly(false);
+            }
+
+            throw;
+        }
+        finally
+        {
+            node.IsLoading = false;
+        }
+    }
+
+    private void CollapseProject(ProjectNode node)
+    {
+        // A listing that is still running ends in ExpandProject, which sees the collapsed node and drops what it read.
+        if (node.IsLoading || !node.IsOpen)
+        {
+            return;
+        }
+
+        node.ShowPlaceholder();
+        ExpandedPacksChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ---- context menus ---------------------------------------------------------------------------------------------------------
+
+    // Builds the entries of every menu again: the reasons, the commands and the texts all depend on what is going on right now.
+    private void RefreshActions()
+    {
+        if (_projects is null || _projectCommands is null)
+        {
+            return;
+        }
+
+        foreach (var node in PackNodes())
+        {
+            node.ReplaceActions(node.CanExpand ? PackActions(node.Pack) : []);
+        }
+
+        var states = _projects.Projects.ToDictionary(state => state.Id);
+        foreach (var node in ProjectNodes())
+        {
+            node.ReplaceActions(states.TryGetValue(node.ProjectId, out var state) ? ProjectActions(state.Id) : []);
+        }
+    }
+
+    private IReadOnlyList<NodeAction> PackActions(PackSource pack) =>
+    [
+        MakeAction(Texts.ProjectActionImport, _projectCommands!.ProjectsDisabledReason, async () =>
+        {
+            await _projectCommands.ImportAsync(pack.Path, pack.Name);
+            await RefreshProjectFilesAsync();
+        }),
+    ];
+
+    private IReadOnlyList<NodeAction> ProjectActions(Guid id)
+    {
+        var commands = _projectCommands!;
+        return
+        [
+            // Plain edits of the list: they need no free runner and are never gated on one.
+            MakeAction(Texts.ProjectActionSetActive, null, () =>
+            {
+                commands.SetActive(id);
+                return Task.CompletedTask;
+            }, needsRunner: false),
+            MakeAction(Texts.BuildMessageTitle, commands.BuildDisabledReason(id), async () =>
+            {
+                await commands.BuildAsync(id, install: false);
+                await RefreshProjectFilesAsync();
+            }),
+            MakeAction(Texts.ProjectActionBuildAndInstall, commands.InstallDisabledReason(id), async () =>
+            {
+                await commands.BuildAsync(id, install: true);
+                await RefreshProjectFilesAsync();
+            }),
+            MakeAction(Texts.UninstallMessageTitle, commands.UninstallDisabledReason(id), () => commands.UninstallAsync(id)),
+            MakeAction(Texts.ProjectActionRemove, null, () =>
+            {
+                commands.Remove(id);
+                return Task.CompletedTask;
+            }, needsRunner: false),
+        ];
+    }
+
+    // async void on purpose, as for every command that starts an operation: the controllers handle their failures, a surprise reaches the global handler.
+    // An action that needs a free runner can run when there is no reason against it and nothing else runs. Its reason text is the reason of the
+    // project first (no game folder, nothing installed, ...), then "busy"; an entry is never disabled without one.
+    private NodeAction MakeAction(string header, string? disabledReason, Func<Task> run, bool needsRunner = true)
+    {
+        if (!needsRunner)
+        {
+            return new NodeAction(header, new RelayCommand(async () => await run()), null);
+        }
+
+        var shown = disabledReason ?? (_projects!.CanStartOperation ? null : Texts.ProjectBusy);
+        return new NodeAction(header, new RelayCommand(async () => await run(), () => disabledReason is null && _projects!.CanStartOperation), shown);
+    }
+}

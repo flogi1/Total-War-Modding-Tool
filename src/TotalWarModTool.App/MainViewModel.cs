@@ -23,6 +23,7 @@ public sealed class MainViewModel : ObservableObject
     /// <param name="progress">The runner every user-started operation goes through. The workspace and the debug commands use it.</param>
     /// <param name="openSettings">Opens the settings window (or activates it if it is open). Passed in so the view model knows no windows.</param>
     /// <param name="workspace">The state of the game. The explorer, the tabs and the status line are built on it.</param>
+    /// <param name="openGameSettings">Opens the settings window on the page "Game". The explorer uses it for its button; null: the explorer uses <paramref name="openSettings"/>.</param>
     /// <param name="projects">The mod projects of the game; null: the app has no projects (no menu, no group in the explorer).</param>
     /// <param name="projectCommands">The project commands the menu, the hotkeys and the context menus use; null without projects.</param>
     public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings,
@@ -128,11 +129,11 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasProjectStatus => ProjectStatusLine is not null;
 
-    /// <summary>Why "Build" of the menu is disabled (no active project, or it cannot be used); null when it can run.</summary>
-    public string? ProjectBuildToolTip => Projects?.BuildDisabledReason(_projects?.ActiveId);
+    /// <summary>Why "Build" of the menu is disabled (no game profile, no active project, an unusable project, or another operation runs); null when it can run.</summary>
+    public string? ProjectBuildToolTip => ProjectReason(Projects?.BuildDisabledReason(_projects?.ActiveId));
 
-    /// <summary>Why "Build and install" of the menu is disabled; null when it can run.</summary>
-    public string? ProjectBuildAndInstallToolTip => Projects?.InstallDisabledReason(_projects?.ActiveId);
+    /// <summary>Why "Build and install" of the menu is disabled (as for Build, and no game folder); null when it can run.</summary>
+    public string? ProjectBuildAndInstallToolTip => ProjectReason(Projects?.InstallDisabledReason(_projects?.ActiveId));
 
     /// <summary>Scans the packs and loads the schema again. Enabled when a game profile exists and no operation runs.</summary>
     public ICommand RefreshCommand => _refreshCommand;
@@ -220,6 +221,18 @@ public sealed class MainViewModel : ObservableObject
         {
             Tabs.Add(source, opened, _workspace.Schema);
         }
+    }
+
+    // The reason order of every entry that needs a free runner: no game profile, then what is wrong with the project (no active project,
+    // unusable, no game folder), then "another operation is running". Null when the entry can run; no entry is disabled without a reason.
+    private string? ProjectReason(string? ofTheProject)
+    {
+        if (Projects is null || _projects is null)
+        {
+            return null;
+        }
+
+        return Projects.ProjectsDisabledReason ?? ofTheProject ?? (_projects.CanStartOperation ? null : Texts.ProjectBusy);
     }
 
     private void RaiseProjectReasonsChanged()
