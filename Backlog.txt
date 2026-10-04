@@ -1,5 +1,5 @@
 Backlog Total War Modding Tool
-Stand: 2026-10-03
+Stand: 2026-10-04
 
 Alles, was nicht jetzt gebaut wird. Nummern der Teile wie in docs/specs/2026-10-02-fundament.md, Abschnitt 1.2.
 Reihenfolge seit 2026-10-03: Teil 2 (Spec docs/specs/2026-10-03-teil-2-projekte-bearbeiten-bauen.md),
@@ -75,7 +75,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Ein falscher JSON-Typ in `projects.json` verwirft die ganze Liste (wie bei der Session)
 - Echtdaten-Test für Import und Neubau deckt bisher nur ein kleines Workshop-Pack ohne binär gebliebene Tabellen ab
 
-- Bauen: versteckte Dateien, Systemdateien und Sperrdateien von Editoren unter `pack\` (`.~lock.x.tsv#`, `x.tsv.bak`) auslassen oder warnen; eine Rohdatei unter `db\<tabelle>\`, die sich nicht als Tabelle dekodieren lässt, als Warnung melden (mit Plan 3 einplanen: dort beginnt „außen bearbeiten, bauen, installieren“)
+- Bauen: eine Rohdatei unter `db\<tabelle>\`, die sich nicht als Tabelle dekodieren lässt, als Warnung melden
 - Weitere reservierte Gerätenamen (`CLOCK$`, `COM0`, `LPT0`)
 - Dateien unter `pack\`, die symbolische Links sind: Länge der Verknüpfung statt des Ziels führt zu „Quelle geändert“ beim Bauen
 - Import: kollidiert ein Ordner erst über 8.3-Kurznamen oder Unterschiede der Groß-/Kleinschreibung, scheitert der ganze Import statt eines Eintrags
@@ -155,11 +155,28 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Log: Zeile nicht verwerfen, wenn nur die Rotation scheitert
 - Fenster: Maximiert-Zustand merken, wenn minimiert geschlossen wird; Positionsdrift bei 125 % Skalierung
 - Log-Ordner öffnen: Fehler abfangen und verständlich melden
-- ProgressRunner: laufende Arbeit abbrechen, wenn das Fortschrittsfenster nicht geöffnet werden kann (vor Teil 2, bevor Schreiboperationen dazukommen)
 - Fortschrittsfenster: Darstellungslogik aus dem Code-behind in ein ViewModel verlegen (bewusste Ausnahme von "keine Logik in Code-behind" in Plan 1)
 - Debug-Menü, Befehle und Texte aus dem Release-Build entfernen
 - Debug-Auslöser für zwei Pfade, die bisher nur per Unit-Test und Code-Review geprüft sind und sich von Hand nicht auslösen lassen: Absturz auf einem Hintergrund-Thread (Dialogtext "muss beendet werden") und fehlgeschlagener Start (Exit-Code 1)
 - Crash-Behandlung: ein fataler Fehler darf nicht von einem schon wartenden nicht-fatalen Dialog verdeckt werden
+
+== Aus Plan 3 (Projekte in der App) zurückgestellt ==
+
+- Der Explorer zeigt ignorierte Dateien (versteckte, Systemdateien, Sperr- und Sicherungsdateien von Editoren) nicht
+- Projekt-Tabs tragen keine Markierung, wenn die Datei von außen geändert wurde (mit Plan 4)
+- Bau- und Import-Meldungen der Library sind englischer Klartext und nicht übersetzt
+- Fortschritt beim Installieren ist unbestimmt (die Library meldet keinen)
+- Der Dialog „Neues Projekt“ merkt sich den zuletzt gewählten Elternordner nicht
+- Pack-Name und Abhängigkeiten eines Projekts lassen sich nur in `twmt-project.json` ändern
+- Textansicht wird im UI-Thread gebaut und erst nach dem Aufbau gekürzt; bei sehr großen Tabellen im Hintergrund bauen und früh abbrechen
+- Die Projektdatei `twmt-project.json` wird beim Start, beim Aktualisieren (F5) und beim Hinzufügen im UI-Thread gelesen (höchstens 1 MB); prüfen und verlagern. Die Dateien eines Projekts liest die Session schon im Hintergrund
+- Das Literal `.twmt-tmp` steht in der App doppelt zur Library (`PackInstaller`); eine gemeinsame Konstante nutzen
+- Die Prüfung auf eine zurückgebliebene Temp-Datei meldet auch nach einem Abbruch während der Bau-Berechnung
+- Abbruch durch den Nutzer, wenn ein Token-Callback wirft, ist im `ProgressRunner` nicht abgesichert
+- Ein Projektordner, der unterhalb eines schon gelisteten Projekts liegt, wird beim Hinzufügen nicht abgelehnt
+- Session: Der Vergleich für „geändert“ zählt wiederhergestellte statt tatsächlich angewendete Einträge (Packs und Projekte)
+- Kein Test für einen unerwarteten Fehler beim Wiederherstellen einer Projektdatei (kein Seam)
+- Test-Fake `FakeProjectDialogs` kann bei einer abgelehnten festen Antwort endlos schleifen; Schutz ergänzen
 
 == Wartet auf ein öffentliches Remote ==
 

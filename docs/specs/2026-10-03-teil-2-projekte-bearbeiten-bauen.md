@@ -355,6 +355,57 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     stammen roh aus dem fremden Pack und können Steuerzeichen enthalten; die App maskiert sie vor
     der Anzeige.
 
+#### Festlegungen aus Plan 3
+
+1. `ProjectsController` und `ProjectsViewModel` liegen in der App. Der Controller liefert fertige
+   Meldungstexte, das ViewModel fragt den Nutzer nur über `IProjectDialogs`.
+2. Welche Dateien zu einem Projekt gehören, entscheidet `ProjectFiles.List` für Bau und Explorer
+   gemeinsam. Versteckte Dateien, Systemdateien und Sperr- oder Sicherungsdateien von Editoren
+   (`.~lock.*`, `~$*`, `*.bak`, `*.tmp`, `*~`) gehen nie ins Pack; der Bau nennt sie.
+3. Tabs kennen eine allgemeine Quelle (`TabSource`). Ein Projekt-Tab hat den Schlüssel `project:<GUID>`
+   und den relativen Dateipfad; so steht er auch in der Session, ohne neues Feld.
+4. Die Gruppe „Projekte“ ist sichtbar, sobald ein Spielprofil existiert, auch wenn das Spiel nicht
+   gefunden ist. Die Meldung des Explorers steht dann über dem Baum.
+5. Die Vanilla-Packnamen für die Namensprüfung stammen aus dem Katalog (Herkunft Spiel). Ist das Spiel
+   nicht gefunden, prüft erst das Installieren.
+6. Wird der Pack-Name eines installierten Projekts geändert, deinstalliert „Bauen und installieren“
+   zuerst das alte Pack.
+7. Offene Projekt-Tabs zeigen den Stand beim Öffnen. Eine Markierung für außen geänderte Dateien kommt
+   mit Plan 4.
+8. Die Textansicht entsteht beim ersten Umschalten, höchstens 5 Mio. Zeichen.
+9. `ProgressRunner` bricht die Arbeit ab, wenn das Fortschrittsfenster nicht geöffnet werden kann.
+10. Beim Umbenennen des Pack-Namens läuft „Bauen und installieren“ in dieser Reihenfolge: Zuerst wird
+    geprüft, ob der neue Name frei ist (`CheckOwnership`); eine fremde Datei unter dem neuen Namen oder
+    ein anderer Grund gegen den Namen beendet den Lauf, bevor etwas entfernt wird. Danach wird das alte
+    Pack entfernt. Ein Abbruch ist nur bis zu diesem Schritt spurlos möglich: Wird danach abgebrochen,
+    endet der Lauf mit einem Ergebnis, das sagt, dass das alte Pack weg und das neue nicht installiert
+    ist, damit der alte Eintrag nicht in der Liste bleibt. Eine zurückgebliebene temp-Datei wird in der
+    Meldung genannt.
+11. Ein `OperationOutcome` behält den Rückgabewert einer fertigen Arbeit auch dann, wenn das
+    Fortschrittsfenster nicht geöffnet werden konnte (Status `Failed`, Wert gesetzt). Wer wissen muss,
+    was die Arbeit getan hat, liest den Wert, nicht nur den Status.
+12. `TooLarge` meldet `ProjectFileOpener` nur für Dateien, die wirklich gelesen werden. Eine Datei, die
+    als „sonstige“ gezeigt wird, und eine Tabelle ohne Schema liefern nur ihre Größe, auch wenn sie
+    über 256 MB groß sind.
+13. Die Textansicht wird im UI-Thread gebaut, und die Grenze von 5 Mio. Zeichen greift erst nach dem
+    Aufbau des Textes (Kürzung an einem Zeilenende). Das ist für große Tabellen nicht ideal (Backlog).
+14. Der Explorer führt pro Projektknoten eine Listen-Generation. Ein stilles Neulisten ersetzt nie das
+    Ergebnis einer neueren Auflistung und lässt Knoten in Ruhe, die zugeklappt, entfernt oder gerade
+    im Aufklappen sind. Ein Projekt, das unbrauchbar wird, wird geschlossen.
+15. Am Projektknoten gehen „Als aktiv setzen“ und „Aus der Liste entfernen“ auch während eine Operation
+    läuft. Die übrigen Einträge sind deaktiviert und nennen den Grund, solange die App beschäftigt ist.
+16. Session: Der Projektteil der Wiederherstellung braucht wie der Pack-Teil einen Katalog. Wurde das
+    Spiel nicht gefunden, wird nichts wiederhergestellt und die gespeicherte Session nicht
+    überschrieben. Ein Projekt, das beim Start nicht benutzbar ist, verliert mit dem nächsten Speichern
+    seine Tabs, wie ein fehlendes Pack. Ein wiederhergestellter Tab behält die gespeicherte Schreibweise
+    seines Pfads. Gespeicherte Pfade, die absolut sind oder `..` enthalten, werden verworfen, ohne das
+    Dateisystem zu berühren. Ein unerwarteter Fehler bei einer Projektdatei kostet nur diesen Eintrag.
+17. Meldungen aus fremden Daten (Pfade, Gründe) maskieren Steuerzeichen, Bidi-Steuerzeichen sowie Zeilen-
+    und Absatztrenner als `\uXXXX` (`DisplayText.Safe`). Ein Abschnitt eines Berichts zeigt höchstens
+    1000 Zeilen; der Rest steht als eine Zeile mit der Anzahl.
+18. Dialog „Neues Projekt“ und Import: Der Pack-Name folgt dem Projektnamen, bis der Nutzer ihn selbst
+    ändert. Eine abgelehnte Eingabe wird erneut abgefragt, mit der letzten Eingabe als Vorgabe.
+
 ### 5.5 Import
 
 Ablauf: Quelle wählen (Pack aus dem Explorer oder freie `.pack`-Datei), Zielordner wählen (leer oder
@@ -486,9 +537,9 @@ Eintrag wie beim Import.
 - Explorer: Gruppe „Projekte“ über den Packs. Jedes Projekt ist ein Knoten mit dem Baum von `pack\`.
   Das aktive Projekt ist hervorgehoben.
 - Kontextmenü am Projekt: Als aktiv setzen, Bauen, Bauen und installieren, Deinstallieren, Aus der
-  Liste entfernen. Am Pack: Als Projekt importieren. Am Eintrag: Ins Projekt übernehmen.
-- Menü: Neues Projekt, Projekt öffnen, Pack importieren, Bauen (aktives Projekt), Speichern, Alle
-  speichern, Rückgängig, Wiederholen.
+  Liste entfernen. Am Pack: Als Projekt importieren. Am Eintrag: Ins Projekt übernehmen (Plan 4).
+- Menü: Neues Projekt, Projekt öffnen, Pack importieren, Bauen (aktives Projekt). Speichern, Alle
+  speichern, Rückgängig und Wiederholen kommen mit Plan 4.
 - Tabellen-Tab: Umschalter „Raster“ und „Text“. Die Textansicht zeigt die TSV-Form, nur lesen,
   markieren, kopieren. Sie gilt für alle Quellen.
 - Session: Tabs von Projektdateien werden wie Pack-Tabs wiederhergestellt (Projekt-GUID und Pfad).
