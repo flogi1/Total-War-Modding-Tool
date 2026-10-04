@@ -235,7 +235,7 @@ Projektdatei damit überschreibt, baut die gerundeten Werte.
 |---|---|---|---|
 | `Tables` | erweitert | `DbTableEncoder`, `LocEncoder`, `TableTsv` (lesen und schreiben). Dekodieren und Kodieren liegen in derselben Library. | `Schema` |
 | `PackFiles` | erweitert | `PackWriter`: schreibt PFH5 als Stream. | – |
-| `Projects` | neu | Projektdatei, Projektliste, Import, `ComputeBuild` und `WriteBuild`, Installieren, Papierkorb. | `Storage`, `GameProfiles`, `PackFiles`, `Schema`, `Tables`, `Operations` |
+| `Projects` | neu | Projektdatei, Projektliste, Import, `ComputeBuild` und `WriteBuild`, Installieren. | `Storage`, `PackFiles`, `Schema`, `Tables`, `Operations` |
 | `UndoRedo` | neu (Kopie aus PMT) | Globale Command-History (`Execute`, `Record`). | – |
 | `Editing` | neu | Tabellen-Dokument: Zellen, Zeilen, Prüfung, Geändert-Zustand, Befehle. | `Schema`, `Tables`, `UndoRedo` |
 | `Workspace` | erweitert | Projektbaum als Quelle neben den Packs. | `Projects` |
@@ -284,6 +284,43 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     verglichen. Pfade aus fremden Packs werden vor `TableTsv.Write` auf Tab und Zeilenumbruch
     geprüft. Der Fortschritt von `PackWriter` trägt nur die Zahl der geschriebenen Einträge.
 
+#### Festlegungen aus Plan 2
+
+1. Der Papierkorb kommt mit Plan 4, weil erst das Löschen von Dateien ihn braucht.
+2. `Projects` referenziert `GameProfiles` nicht. Der `data`-Ordner und die Vanilla-Packnamen kommen vom
+   Aufrufer.
+3. Der `packName` eines Imports wird vom Aufrufer vorgegeben (Vorschlag: Dateiname der Quelle) und gegen
+   die Vanilla-Namen geprüft.
+4. Die Lage einer Datei im Projekt bestimmt ihren Pack-Pfad. Der Tabellenname der Metazeile muss zum
+   Ordner passen, der Pfad der Metazeile wird nicht geprüft.
+5. Eine Projektdatei mit höherer `schemaVersion` wird nicht geladen.
+6. Einträge über 1 GiB werden beim Import ausgelassen und gemeldet.
+7. Jede Datei unter `pack\` geht ins Pack, auch Dateien wie `.gitkeep`.
+8. Installieren gibt den neuen Fingerprint zurück; die App speichert ihn in der Projektliste. Scheitert
+   dieses Speichern, gilt die Datei beim nächsten Mal als fremd.
+9. Die Regeln 3 und 4 des Imports (Duplikat, Datei und Ordner gleichen Namens) vergleichen nur mit
+   übernommenen Einträgen. Ein ausgelassener Eintrag belegt keinen Namen.
+10. Kollidieren zwei Einträge erst nach der Umwandlung auf der Platte (die Tabelle `db/t/x` wird zur
+    Datei `x.tsv`, ein anderer Eintrag braucht einen Ordner dieses Namens), wird der spätere
+    ausgelassen und gemeldet. Die Vorschau kann deshalb etwas weniger ausgelassene Einträge nennen als
+    der Import.
+11. Leere oder ungültige Abhängigkeitsnamen eines fremden Packs werden beim Import verworfen und im
+    Bericht genannt (`DroppedDependencies`).
+12. Der Elternordner des Zielordners muss existieren. Ein relativer Zielordner ist ein Argumentfehler.
+13. Lässt sich der Staging-Ordner nach einem Fehler nicht entfernen, nennt die Meldung ihn. Nach einem
+    Abbruch muss der Aufrufer das selbst prüfen.
+14. Ein Eintrag wird nur dann als Text gespeichert, wenn sich sein Dateiname im Projekt eindeutig auf
+    seinen Pack-Pfad zurückführen lässt und höchstens 255 Zeichen hat; sonst bleibt er binär.
+    Reservierte Gerätenamen umfassen auch `COM¹` bis `COM³`, `LPT¹` bis `LPT³`, `CONIN$` und `CONOUT$`.
+15. `ProjectFile.Load` lehnt eine Projektdatei über 1 MB ab. `ProjectListEdits.SetInstalled` nimmt nur
+    Fingerprints an, die das Speichern überstehen (gültiger Pack-Name, Länge nicht negativ, Zeit in UTC).
+16. `PackInstaller` ist der einzige Code des Tools, der in den Spielordner schreibt. Er legt in `data`
+    nur `<packName>` und `<packName>.twmt-tmp` an, ersetzt oder löscht sie, und nur nachdem
+    `CheckOwnership` `None` ergab. Ein gleichnamiger Ordner gilt als fremd, ein relativer `data`-Ordner
+    als nicht vorhanden. Die Vanilla-Prüfung vergleicht selbst ohne Rücksicht auf Groß-/Kleinschreibung.
+    Eine übrig gebliebene `.twmt-tmp`-Datei eines abgestürzten Laufs wird beim nächsten Installieren
+    überschrieben.
+
 ### 5.5 Import
 
 Ablauf: Quelle wählen (Pack aus dem Explorer oder freie `.pack`-Datei), Zielordner wählen (leer oder
@@ -307,7 +344,8 @@ neu), Vorschau (Zahl der Tabellen, Loc-Dateien, sonstigen Dateien, Gesamtgröße
 - Ein Eintrag, dessen Name mit einer Projektregel kollidiert (im Pack heißt er schon
   `db/<tabelle>/<name>.tsv` oder `….loc.tsv`), wird ausgelassen und gemeldet. Im Projekt wäre er
   nicht von einer Tabelle in Textform zu unterscheiden.
-- Die Abhängigkeiten des Packs gehen in die Projektdatei. `packName` ist der Dateiname der Quelle.
+- Die Abhängigkeiten des Packs gehen in die Projektdatei. `packName` gibt der Aufrufer vor (Vorschlag:
+  Dateiname der Quelle); er wird gegen die Vanilla-Namen geprüft.
 - Am Ende steht der Import-Bericht: binär gebliebene Tabellen mit Grund, ausgelassene Einträge.
 
 ### 5.6 „Ins Projekt übernehmen“
@@ -489,10 +527,10 @@ Eintrag wie beim Import.
 ## 9. Pläne
 
 1. **Schreib-Libraries:** `TableTsv`, `DbTableEncoder`, `LocEncoder`, `PackWriter`.
-2. **`Projects`:** Projektdatei, Projektliste, Import, Bauen, Installieren, Papierkorb. Ohne UI.
+2. **`Projects`:** Projektdatei, Projektliste, Import, Bauen, Installieren. Ohne UI.
 3. **App, erster Teil:** Projekte im Explorer, Import, Bauen, Installieren, Textansicht, Session.
    Danach ist nutzbar: Mod importieren, außen bearbeiten, bauen, installieren.
-4. **Bearbeiten:** `UndoRedo`, `Editing`, editierbares Raster, Speichern, Dateioperationen,
+4. **Bearbeiten:** `UndoRedo`, `Editing`, Papierkorb, editierbares Raster, Speichern, Dateioperationen,
    „Ins Projekt übernehmen“, Änderungen von außen.
 
 Jeder Plan wird erst geschrieben, wenn die Schnittstellen des vorigen existieren.

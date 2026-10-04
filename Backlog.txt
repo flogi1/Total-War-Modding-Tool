@@ -62,12 +62,18 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Mod im Launcher aktivieren (mit Teil 3, Spielstart)
 - TSV lesen: ein einzelnes `\r` am Ende der letzten Zeile ohne Zeilenende als Zeilenende behandeln (bisher Diagnose bei Textzellen)
 - TSV lesen: alle Probleme einer Datei melden statt nur des ersten
-- Abhängigkeiten eines Projekts auf doppelte Namen prüfen (mit der Projektdatei in Plan 2)
+- Abhängigkeiten eines Projekts auf doppelte Namen prüfen
 - Plan 2: Test, dass eine Tabelle mit ungültigem UTF-8 (der Dekoder ersetzt solche Bytes) die Import-Prüfung nicht besteht und binär bleibt
 - Gegenprobe mit `rpfm_cli` für Loc-TSV (bisher nur für Tabellen)
 - Test für `PackWriter`: Ziel wird mitten im Schreiben unbeschreibbar (Platte voll, Sperre)
 - `TableTsv.cs` in Spalten, Schreiben und Lesen aufteilen (790 Zeilen)
 - Fortschritt von `PackWriter` mit aktuellem Eintrag oder Bytes, falls das Fortschrittsfenster es zeigen soll
+- Import großer Einträge (über 1 GiB) als Stream statt sie auszulassen
+- Dateien unter `pack\` vom Bau ausschließen (z. B. `.gitkeep`)
+- Das installierte Pack auch erkennen, wenn die Projektliste nach der Installation nicht gespeichert werden konnte
+- `JsonFileStore` schreibt Nicht-ASCII-Zeichen als `\uXXXX` (betrifft `twmt-project.json` im Git-Diff des Nutzers)
+- Ein falscher JSON-Typ in `projects.json` verwirft die ganze Liste (wie bei der Session)
+- Echtdaten-Test für Import und Neubau deckt bisher nur ein kleines Workshop-Pack ohne binär gebliebene Tabellen ab
 
 == Aus dem Fundament zurückgestellt ==
 
