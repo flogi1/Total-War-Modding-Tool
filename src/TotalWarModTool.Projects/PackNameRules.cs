@@ -46,13 +46,20 @@ public static class PackNameRules
             return "The pack name must be a name followed by .pack.";
         }
 
-        var firstDot = packName.IndexOf('.');
-        if (ReservedNames.Contains(packName[..firstDot].TrimEnd(' ')))
+        if (IsReservedDeviceName(packName))
         {
             return "The pack name is a reserved Windows device name.";
         }
 
         return null;
+    }
+
+    /// <summary>True when the part of <paramref name="name"/> before its first dot (trailing spaces ignored) is a reserved Windows device name.</summary>
+    internal static bool IsReservedDeviceName(string name)
+    {
+        var firstDot = name.IndexOf('.');
+        var stem = firstDot < 0 ? name : name[..firstDot];
+        return ReservedNames.Contains(stem.TrimEnd(' '));
     }
 
     /// <summary>True when <paramref name="text"/> has no unpaired surrogate and can therefore be encoded as UTF-8.</summary>
