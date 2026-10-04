@@ -160,7 +160,8 @@ Das Tool schreibt in Teil 2 zusätzlich zu `%APPDATA%\TotalWarModTool` und
 1. **In den Projektordner** eines bekannten Projekts: die Projektdatei, Dateien unter `pack\` und das
    Pack unter `build\`. Nichts sonst.
 2. **In den `data`-Ordner des Spiels:** genau eine Datei pro Projekt, das installierte Pack, und nur
-   unter den Bedingungen aus Abschnitt 5.7.
+   unter den Bedingungen aus Abschnitt 5.7. Dazu gehört während des Installierens die temp-Datei
+   `<Pack-Name>.twmt-tmp` im selben Ordner.
 
 Vanilla-Packs, Workshop-Packs und fremde Packs in `data` werden nie geschrieben, umbenannt oder
 gelöscht. Ein Projektordner wird nie gelöscht, auch nicht beim Entfernen aus der Projektliste.
@@ -319,7 +320,15 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     `CheckOwnership` `None` ergab. Ein gleichnamiger Ordner gilt als fremd, ein relativer `data`-Ordner
     als nicht vorhanden. Die Vanilla-Prüfung vergleicht selbst ohne Rücksicht auf Groß-/Kleinschreibung.
     Eine übrig gebliebene `.twmt-tmp`-Datei eines abgestürzten Laufs wird beim nächsten Installieren
-    überschrieben.
+    überschrieben. Der Besitz wird einmal entschieden: Beim ersten Installieren wird ohne Überschreiben
+    verschoben (taucht die Datei inzwischen auf, ist das Ergebnis `ForeignFile`), vor dem Ersetzen eines
+    eigenen Packs wird erneut geprüft. Das verbleibende Fenster zwischen Prüfung und Ersetzen lässt sich
+    unter Windows nicht schließen. Eine temp-Datei, die sich nach einem Fehler nicht entfernen lässt,
+    nennt die Meldung; nach einem Abbruch muss der Aufrufer selbst prüfen, ob sie weg ist.
+17. `ComputeBuild` meldet zwei Dateien mit gleichem Pack-Pfad selbst und nennt beide. Ein Ordner unter
+    `pack\`, der eine Verknüpfung ist (Junction, symbolischer Link), wird nicht verfolgt und als Problem
+    gemeldet. Ein nicht lesbarer Ordner wird mit seinem Namen gemeldet. Alte temp-Dateien eines
+    abgebrochenen Baus räumt der nächste Bau weg.
 
 ### 5.5 Import
 
