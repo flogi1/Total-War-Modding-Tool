@@ -16,6 +16,15 @@ public sealed class FakeOperationRunner : IOperationRunner
     /// <summary>The next run gets a cancelled token. Work that returns anyway yields <see cref="OperationStatus.Cancelled"/> with its value.</summary>
     public bool CancelNext { get; set; }
 
+    /// <summary>The next run reports its end as cancelled although its work ran to the end with a live token (the cancel came too late): the outcome is <see cref="OperationStatus.Cancelled"/> with the value.</summary>
+    public bool CancelAfterWork { get; set; }
+
+    /// <summary>
+    /// Called synchronously on every progress report of a run, with an action that cancels the token of that run. Lets a test cancel at a
+    /// chosen moment of the work. Not used by default.
+    /// </summary>
+    public Action<OperationProgress, Action>? OnReport { get; set; }
+
     public List<OperationProgress> Reports { get; } = [];
 
     public Task<OperationOutcome<T>> RunAsync<T>(string title, Func<IProgress<OperationProgress>, CancellationToken, T> work)
@@ -28,12 +37,14 @@ public sealed class FakeOperationRunner : IOperationRunner
             CancelNext = false;
         }
 
+        var cancelAfterWork = CancelAfterWork;
+        CancelAfterWork = false;
         var wasRunning = IsRunning;
         IsRunning = true;
         try
         {
-            var value = work(new CollectingProgress(Reports), cts.Token);
-            var status = cts.IsCancellationRequested ? OperationStatus.Cancelled : OperationStatus.Completed;
+            var value = work(new CollectingProgress(Reports, OnReport, cts.Cancel), cts.Token);
+            var status = cts.IsCancellationRequested || cancelAfterWork ? OperationStatus.Cancelled : OperationStatus.Completed;
             return Task.FromResult(new OperationOutcome<T>(status, value, null));
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
@@ -51,8 +62,12 @@ public sealed class FakeOperationRunner : IOperationRunner
     }
 
     // Synchronous on purpose: Progress<T> would post to a context and make the reports arrive after the test has asserted.
-    private sealed class CollectingProgress(List<OperationProgress> reports) : IProgress<OperationProgress>
+    private sealed class CollectingProgress(List<OperationProgress> reports, Action<OperationProgress, Action>? hook, Action cancel) : IProgress<OperationProgress>
     {
-        public void Report(OperationProgress value) => reports.Add(value);
+        public void Report(OperationProgress value)
+        {
+            reports.Add(value);
+            hook?.Invoke(value, cancel);
+        }
     }
 }

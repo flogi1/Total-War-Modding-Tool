@@ -400,4 +400,185 @@ public class ProjectsControllerOperationsTests
         Assert.Empty(game.Runner.Titles);
         Assert.Null(await projects.ListFilesSilentlyAsync(Guid.NewGuid()));
     }
+
+    // ---- rename, cancel and the install record --------------------------------------------------------------------------------
+
+    // Installs the project as a.pack, then renames it to b.pack on disk and reloads, so that the next install is a rename.
+    private static async Task<ProjectState> InstalledThenRenamedAsync(TestGame game, ProjectsController projects)
+    {
+        var state = NewProject(game, projects, packName: "a.pack");
+        Assert.True((await projects.BuildAsync(state.Id, install: true))!.Installed);
+        Assert.Equal(ProjectProblem.None, ProjectFile.Save(state.Folder, projects.Projects[0].Project! with { PackName = "b.pack" }).Problem);
+        projects.Reload();
+        game.Runner.Titles.Clear();
+        return state;
+    }
+
+    [Fact] public async Task A_foreign_file_under_the_new_name_leaves_the_old_pack_and_the_record_untouched()
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        var state = await InstalledThenRenamedAsync(game, projects);
+        var foreign = game.AddPack("b.pack", ("a.txt", [9]));
+        var before = File.ReadAllBytes(foreign);
+
+        var report = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.True(report!.Built);
+        Assert.False(report.Installed);
+        Assert.StartsWith(game.Texts.InstallProblemText(InstallProblem.ForeignFile), report.Message);
+        Assert.True(File.Exists(Path.Combine(game.DataPath, "a.pack")));
+        Assert.Equal(before, File.ReadAllBytes(foreign));
+        Assert.Equal("a.pack", projects.Projects[0].Installed!.FileName);
+        Assert.Equal("a.pack", game.NewProjects(workspace).Projects[0].Installed!.FileName);
+    }
+
+    [Fact] public async Task A_cancel_after_the_old_pack_was_removed_clears_the_record_and_says_so()
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        var state = await InstalledThenRenamedAsync(game, projects);
+        var changes = 0; projects.Changed += (_, _) => changes++;
+        game.Runner.OnReport = (report, cancel) =>
+        {
+            if (report.Item == "b.pack")                                    // reported right after the removal, right before the install
+            {
+                cancel();
+            }
+        };
+
+        var report = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.True(report!.Built);
+        Assert.False(report.Installed);
+        Assert.Equal(game.Texts.BuildOldRemovedNewNotInstalled("a.pack", "b.pack"), report.Message);
+        Assert.False(File.Exists(Path.Combine(game.DataPath, "a.pack")));
+        Assert.Empty(Directory.EnumerateFiles(game.DataPath));
+        Assert.Null(projects.Projects[0].Installed);
+        Assert.Null(game.NewProjects(workspace).Projects[0].Installed);
+        Assert.Equal(1, changes);
+    }
+
+    [Fact] public async Task An_install_problem_after_the_old_pack_was_removed_gives_the_same_record_and_message()
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        var state = await InstalledThenRenamedAsync(game, projects);
+        var target = Path.Combine(game.DataPath, "b.pack");
+        game.Runner.OnReport = (report, _) =>
+        {
+            if (report.Item == "b.pack")
+            {
+                File.WriteAllText(target, "someone else was faster");       // appears after the ownership check of the new name
+            }
+        };
+
+        var report = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.True(report!.Built);
+        Assert.False(report.Installed);
+        Assert.StartsWith(game.Texts.BuildOldRemovedNewNotInstalled("a.pack", "b.pack"), report.Message);
+        Assert.Contains(game.Texts.InstallProblemText(InstallProblem.ForeignFile), report.Message);
+        Assert.Equal("someone else was faster", File.ReadAllText(target));
+        Assert.False(File.Exists(Path.Combine(game.DataPath, "a.pack")));
+        Assert.Null(projects.Projects[0].Installed);
+        Assert.Null(game.NewProjects(workspace).Projects[0].Installed);
+    }
+
+    [Fact] public async Task A_rename_goes_on_when_the_old_pack_is_gone_already()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var state = await InstalledThenRenamedAsync(game, projects);
+        File.Delete(Path.Combine(game.DataPath, "a.pack"));
+
+        var report = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.True(report!.Installed);
+        Assert.True(File.Exists(Path.Combine(game.DataPath, "b.pack")));
+        Assert.Equal("b.pack", projects.Projects[0].Installed!.FileName);
+    }
+
+    [Fact] public async Task A_cancelled_install_names_a_temp_file_that_is_left_in_the_data_folder()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var state = NewProject(game, projects);
+
+        game.Runner.CancelNext = true;
+        Assert.Null(await projects.BuildAsync(state.Id, install: true));    // no leftover: the result stays null
+
+        var leftover = Path.Combine(game.DataPath, "my_mod.pack.twmt-tmp");
+        File.WriteAllText(leftover, "half a copy");
+        game.Runner.CancelNext = true;
+        var report = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.Equal((false, false, game.Texts.InstallLeftover(leftover)), (report!.Built, report.Installed, report.Message));
+        Assert.True(File.Exists(leftover));                                  // named, not deleted
+    }
+
+    [Fact] public async Task An_outcome_that_is_cancelled_but_carries_a_value_is_processed()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var state = NewProject(game, projects);
+
+        game.Runner.CancelAfterWork = true;
+        var imported = await projects.ImportAsync(SourcePack(game), Path.Combine(game.NewFolder("parent"), "imported"), "Imported", "imported.pack");
+        Assert.True(imported!.Ok);
+        Assert.Equal(2, projects.Projects.Count);
+        Assert.Contains(projects.Projects, p => p.Id == imported.ProjectId);
+
+        game.Runner.CancelAfterWork = true;
+        var built = await projects.BuildAsync(state.Id, install: true);
+        Assert.True(built!.Built);
+        Assert.True(built.Installed);
+        Assert.True(File.Exists(Path.Combine(game.DataPath, "my_mod.pack")));
+        Assert.NotNull(projects.Projects[0].Installed);
+    }
+
+    [Fact] public async Task A_second_imported_project_does_not_become_active()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var parent = game.NewFolder("parent");
+        var first = await projects.ImportAsync(SourcePack(game), Path.Combine(parent, "one"), "One", "one.pack");
+        var second = await projects.ImportAsync(SourcePack(game), Path.Combine(parent, "two"), "Two", "two.pack");
+
+        Assert.True(first!.Ok && second!.Ok);
+        Assert.Equal(first.ProjectId, projects.ActiveId);
+        Assert.Equal([first.ProjectId, second!.ProjectId], projects.Projects.Select(p => (Guid?)p.Id));
+    }
+
+    [Fact] public async Task A_project_name_with_an_unpaired_surrogate_has_its_own_text()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var source = SourcePack(game);
+
+        var broken = await projects.ImportAsync(source, game.Root.File("p"), "bad" + (char)0xD800, "n.pack");
+        var empty = await projects.ImportAsync(source, game.Root.File("p"), " ", "n.pack");
+
+        Assert.Equal((false, game.Texts.ProjectNameInvalid), (broken!.Ok, broken.Message));
+        Assert.Equal((false, game.Texts.ProjectNameEmpty), (empty!.Ok, empty.Message));
+        Assert.Empty(game.Runner.Titles);
+    }
+
+    [Fact] public async Task Changed_comes_when_the_game_folder_appears_or_disappears()
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        Assert.Null(projects.InstallDisabledReason);
+        var changes = 0; projects.Changed += (_, _) => changes++;
+
+        game.GameSettings.InstallPath = game.Root.File("nowhere");          // the refresh that follows finds no game
+        Assert.Equal((game.Texts.InstallNoGameFolder, 1), (projects.InstallDisabledReason, changes));
+
+        game.GameSettings.InstallPath = game.InstallPath;
+        Assert.Equal(((string?)null, 2), (projects.InstallDisabledReason, changes));
+    }
 }

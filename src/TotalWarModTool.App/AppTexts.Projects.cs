@@ -47,6 +47,8 @@ public sealed partial class AppTexts
 
     public string ProjectNameEmpty => T("project.nameEmpty", "Enter a name for the project.");
 
+    public string ProjectNameInvalid => T("project.nameInvalid", "The project name contains characters that cannot be stored. Enter a different name.");
+
     public string ProjectPackPathNotAbsolute => T("project.packPathNotAbsolute", "Enter the full path of the pack file, including the drive letter.");
 
     public string ImportProblemSourceUnreadable => T("import.problem.sourceUnreadable",
@@ -118,6 +120,16 @@ public sealed partial class AppTexts
     /// <param name="oldName">File name of the pack that was installed before. Data, not a UI text.</param>
     public string BuildOldPackNotRemoved(string oldName) => F("build.oldPackNotRemoved",
         "The pack name changed, but the old pack {0} could not be removed from the data folder. The new pack was built but not installed.", oldName);
+
+    /// <param name="oldName">File name of the pack that was removed. Data, not a UI text.</param>
+    /// <param name="newName">File name of the pack that was not installed. Data, not a UI text.</param>
+    public string BuildOldRemovedNewNotInstalled(string oldName, string newName) => F("build.oldRemovedNewNotInstalled",
+        "The old pack {0} was removed from the data folder, but the new pack {1} was not installed. Build and install again to get a pack into the game.",
+        oldName, newName);
+
+    /// <param name="path">Path of the unfinished file in the data folder. Data, not a UI text.</param>
+    public string InstallLeftover(string path) => F("install.leftover",
+        "The install was cancelled. The unfinished file {0} is left over in the data folder. You can delete it.", path);
 
     /// <param name="name">Name of the pack or project. Data, not a UI text.</param>
     public string OperationReadPack(string name) => F("operation.readPack", "Read {0}", name);
