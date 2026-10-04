@@ -56,6 +56,24 @@ public static class PackNameRules
         return null;
     }
 
+    /// <summary>
+    /// <see cref="Check(string)"/> plus the rule that the name must not be the name of a vanilla pack. The names are compared ignoring
+    /// case here, whatever comparer the caller's collection uses. Null when the name is usable; otherwise a short English reason.
+    /// </summary>
+    public static string? Check(string packName, IReadOnlyCollection<string> vanillaPackNames)
+    {
+        ArgumentNullException.ThrowIfNull(vanillaPackNames);
+
+        if (Check(packName) is { } reason)
+        {
+            return reason;
+        }
+
+        return vanillaPackNames.Any(name => string.Equals(name, packName, StringComparison.OrdinalIgnoreCase))
+            ? "The pack name is the name of a vanilla pack."
+            : null;
+    }
+
     /// <summary>True when the part of <paramref name="name"/> before its first dot (trailing spaces ignored) is a reserved Windows device name.</summary>
     internal static bool IsReservedDeviceName(string name)
     {

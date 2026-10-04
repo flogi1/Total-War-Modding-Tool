@@ -214,6 +214,93 @@ public class PackImporterTests
         Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(request, null, null, CancellationToken.None).Problem);
     }
 
+    // One path of this many one-letter segments must cost next to nothing; before the length limit each of its prefixes was allocated.
+    private const int DeepSegments = 30_000;
+
+    private static string DeepPath() => string.Join('\\', Enumerable.Repeat("a", DeepSegments));
+
+    [Fact] public void Preview_skips_a_path_of_very_many_short_segments_at_once()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry(DeepPath(), [1]).AddEntry(DeepPath() + @"\b", [2]).AddEntry("ok.txt", [3]));
+        var preview = PackImporter.Preview(PackReader.ReadIndex(source).Index!);
+
+        Assert.Equal(2, preview.Skipped.Count);
+        Assert.All(preview.Skipped, s => Assert.False(string.IsNullOrWhiteSpace(s.Reason)));
+        Assert.Equal((0, 0, 1, 1L), (preview.Tables, preview.LocFiles, preview.OtherFiles, preview.StoredBytes));
+    }
+
+    [Fact] public void Import_skips_a_path_of_very_many_short_segments_and_ends_with_no_problem()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry(DeepPath(), [1]).AddEntry(DeepPath() + @"\b", [2]).AddEntry("ok.txt", [3]));
+        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.None, report.Problem);
+        Assert.Equal(2, report.Skipped.Count);
+        Assert.Equal(1, report.OtherFiles);
+        Assert.True(File.Exists(Path.Combine(dir.Path, "project", "pack", "ok.txt")));
+        Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
+    }
+
+    [Fact] public void A_target_that_appears_during_the_write_phase_is_not_touched()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
+        var project = Path.Combine(dir.Path, "project");
+        // The code does not look at the target again; the move onto an existing folder fails and that is a write failure.
+        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None, () =>
+        {
+            Directory.CreateDirectory(project);
+            File.WriteAllText(Path.Combine(project, "theirs.txt"), "mine");
+        });
+
+        Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
+        Assert.Null(report.Project);
+        Assert.Equal(["theirs.txt"], Directory.EnumerateFileSystemEntries(project).Select(Path.GetFileName));
+        Assert.Equal("mine", File.ReadAllText(Path.Combine(project, "theirs.txt")));
+        Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
+    }
+
+    [Fact] public void An_empty_target_that_gets_a_file_during_the_write_phase_is_not_deleted()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
+        var project = Path.Combine(dir.Path, "project");
+        Directory.CreateDirectory(project);
+        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None, () => File.WriteAllText(Path.Combine(project, "theirs.txt"), "mine"));
+
+        Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
+        Assert.Equal(["theirs.txt"], Directory.EnumerateFileSystemEntries(project).Select(Path.GetFileName));
+        Assert.Equal("mine", File.ReadAllText(Path.Combine(project, "theirs.txt")));
+        Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
+    }
+
+    [Fact] public void A_write_failure_names_the_entry_and_carries_the_message()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry("a.txt", [1]).AddEntry("b.txt", [2]));
+        // After the first entry the pack folder of the staging folder is replaced by a file, so the second entry cannot be created.
+        var progress = new SyncProgress(p =>
+        {
+            if (p.Done != 1)
+            {
+                return;
+            }
+
+            var pack = Path.Combine(Directory.EnumerateDirectories(dir.Path, "*.import-*").Single(), "pack");
+            Directory.Delete(pack, recursive: true);
+            File.WriteAllText(pack, "x");
+        });
+        var report = PackImporter.Import(Request(dir, source), null, progress, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
+        Assert.Contains("'b.txt'", report.Detail);
+        Assert.Contains(".import-", report.Detail);
+        Assert.False(Directory.Exists(Path.Combine(dir.Path, "project")));
+        Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
+    }
+
     private sealed class SyncProgress(Action<OperationProgress> report) : IProgress<OperationProgress>
     {
         public void Report(OperationProgress value) => report(value);

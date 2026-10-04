@@ -12,6 +12,9 @@ public enum InstallProblem
     DataFolderMissing,
     ForeignFile,
     TargetUnwritable,
+
+    /// <summary>The pack was moved into place, but reading its state afterwards failed. The install happened; there is no record for the project list.</summary>
+    InstalledStateUnknown,
 }
 
 /// <summary>
@@ -59,7 +62,12 @@ public static class PackInstaller
         Failed,
     }
 
-    /// <summary>Pure check: <see cref="InstallProblem.None"/> when <see cref="Install"/> or <see cref="Uninstall"/> may touch the target file.</summary>
+    /// <summary>
+    /// <see cref="InstallProblem.None"/> when <see cref="Install"/> or <see cref="Uninstall"/> may touch the target file. Not a pure
+    /// function of the request: it reads the disk (whether the data folder exists, whether a folder or a file with the name of the pack
+    /// is in it, and the size and last write time of that file, which it compares with <see cref="InstallRequest.Recorded"/>).
+    /// It writes nothing.
+    /// </summary>
     public static InstallProblem CheckOwnership(InstallRequest request)
     {
         return Check(request, out _, out _);
@@ -70,6 +78,9 @@ public static class PackInstaller
     /// nothing changes and the old target stays. A temp file that cannot be removed is named in the detail. Throws
     /// <see cref="OperationCanceledException"/> after trying to remove the temp file; the caller must check that it is gone.
     /// Throws <see cref="ArgumentException"/> when <paramref name="builtPack"/> is the target or the temp file itself.
+    /// When the pack was moved into place but its state cannot be read afterwards, the result is
+    /// <see cref="InstallProblem.InstalledStateUnknown"/> with <see cref="InstallResult.Installed"/> null: the file is installed, but
+    /// there is no record for the project list, so the caller must not take the install for failed or for owned.
     /// </summary>
     public static InstallResult Install(string builtPack, InstallRequest request, CancellationToken cancellationToken)
     {
@@ -178,7 +189,7 @@ public static class PackInstaller
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Failed(InstallProblem.TargetUnwritable, "The pack is in place but its state could not be read: " + ex.Message);
+                return Failed(InstallProblem.InstalledStateUnknown, "The pack is in place but its state could not be read: " + ex.Message);
             }
         }
         finally

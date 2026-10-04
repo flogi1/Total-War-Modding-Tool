@@ -28,7 +28,12 @@ public sealed class ProjectListStore
         return new ProjectListLoadResult(Repair(result.Value), result.Status, result.BadCopyPath);
     }
 
-    /// <summary>Writes the list as given (repairs happen on load). Creates the game folder when it is missing.</summary>
+    /// <summary>
+    /// Writes the list as given (repairs happen on load). Creates the game folder when it is missing. <see cref="IOException"/> and
+    /// <see cref="UnauthorizedAccessException"/> of the file system leave this method (as with the other stores); the caller reports them.
+    /// A list that was loaded with the status <see cref="LoadStatus.Unreadable"/> or <see cref="LoadStatus.NewerVersion"/> must not be
+    /// saved over the file: it is the empty list or a repaired one, and saving it would destroy what the file holds.
+    /// </summary>
     public void Save(ProjectList list)
     {
         var file = new ProjectListFile

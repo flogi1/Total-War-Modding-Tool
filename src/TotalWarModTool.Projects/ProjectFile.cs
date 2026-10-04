@@ -45,7 +45,7 @@ public static class ProjectFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Fail(ProjectProblem.Unreadable, FileName + " cannot be read (" + ex.GetType().Name + ").");
+            return Fail(ProjectProblem.Unreadable, FileName + " cannot be read: " + ex.Message);
         }
         catch (DecoderFallbackException)
         {
@@ -93,7 +93,7 @@ public static class ProjectFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Fail(ProjectProblem.Unwritable, FileName + " cannot be written (" + ex.GetType().Name + ").");
+            return Fail(ProjectProblem.Unwritable, FileName + " cannot be written: " + ex.Message);
         }
 
         return new ProjectResult(project, ProjectProblem.None, null);
@@ -125,7 +125,7 @@ public static class ProjectFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Fail(ProjectProblem.Unwritable, "The project folder cannot be read (" + ex.GetType().Name + ").");
+            return Fail(ProjectProblem.Unwritable, "The project folder cannot be read: " + ex.Message);
         }
 
         var succeeded = false;
@@ -138,7 +138,7 @@ public static class ProjectFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Fail(ProjectProblem.Unwritable, "The project folder cannot be created (" + ex.GetType().Name + ").");
+            return Fail(ProjectProblem.Unwritable, "The project folder cannot be created: " + ex.Message);
         }
         finally
         {

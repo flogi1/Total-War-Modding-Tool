@@ -18,6 +18,7 @@ public enum ProjectFileKind
 /// <summary>Pure rules that map a pack path (with '/') to a file below the pack folder of a project and back.</summary>
 public static class ProjectLayout
 {
+    private const int MaxPathLength = 259;
     private const int MaxSegmentLength = 255;
     private const string TextExtension = ".tsv";
     private const string LocTextExtension = ".loc.tsv";
@@ -31,6 +32,13 @@ public static class ProjectLayout
         if (packPath.Length == 0)
         {
             return "The path is empty.";
+        }
+
+        // Checked before anything walks over the path: such a path can never fit below a target folder, and a path of many short
+        // segments (up to 65,535 bytes in a pack) would otherwise cost memory for every prefix.
+        if (packPath.Length > MaxPathLength)
+        {
+            return $"The path is longer than {MaxPathLength} characters.";
         }
 
         if (!PackNameRules.IsWellFormed(packPath))

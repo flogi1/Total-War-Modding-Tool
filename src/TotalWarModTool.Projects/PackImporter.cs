@@ -73,6 +73,11 @@ public static class PackImporter
     /// </summary>
     public static ImportReport Import(ImportRequest request, GameSchema? schema, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
     {
+        return Import(request, schema, progress, cancellationToken, null);
+    }
+
+    internal static ImportReport Import(ImportRequest request, GameSchema? schema, IProgress<OperationProgress>? progress, CancellationToken cancellationToken, Action? beforeMove)
+    {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SourcePack);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.TargetFolder);
@@ -93,14 +98,9 @@ public static class PackImporter
             throw new ArgumentException("The game id is empty or not valid Unicode.", nameof(request));
         }
 
-        if (PackNameRules.Check(request.PackName) is { } nameReason)
+        if (PackNameRules.Check(request.PackName, request.VanillaPackNames) is { } nameReason)
         {
             return Fail(ImportProblem.InvalidPackName, nameReason);
-        }
-
-        if (request.VanillaPackNames.Any(name => string.Equals(name, request.PackName, StringComparison.OrdinalIgnoreCase)))
-        {
-            return Fail(ImportProblem.InvalidPackName, "The pack name is the name of a pack of the game.");
         }
 
         var read = PackReader.ReadIndex(request.SourcePack);
@@ -137,19 +137,21 @@ public static class PackImporter
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Fail(ImportProblem.TargetUnwritable, "The target folder cannot be read (" + ex.GetType().Name + ").");
+            return Fail(ImportProblem.TargetUnwritable, "The target folder cannot be read: " + ex.Message);
         }
 
         var staging = NewStagingPath(target);
+        var writing = new WriteState();
         ImportReport? report = null;
         var stagingRemoved = true;
         try
         {
-            report = WriteProject(request, schema, index, target, targetExisted, staging, progress, cancellationToken);
+            report = WriteProject(request, schema, index, target, targetExisted, staging, progress, cancellationToken, beforeMove, writing);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            report = Fail(ImportProblem.TargetUnwritable, "The project folder cannot be written (" + ex.GetType().Name + ").");
+            var entry = writing.CurrentEntry is { } path ? " while writing the entry '" + path + "'" : string.Empty;
+            report = Fail(ImportProblem.TargetUnwritable, "The project folder cannot be written" + entry + ": " + ex.Message);
         }
         finally
         {
@@ -173,7 +175,9 @@ public static class PackImporter
         bool targetExisted,
         string staging,
         IProgress<OperationProgress>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? beforeMove,
+        WriteState writing)
     {
         var entries = index.Entries;
         var reasons = ComputeSkips(entries);
@@ -194,6 +198,7 @@ public static class PackImporter
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entry = entries[i];
+            writing.CurrentEntry = entry.Path;
 
             if (reasons[i] is { } reason)
             {
@@ -259,6 +264,7 @@ public static class PackImporter
             progress?.Report(new OperationProgress(i + 1, entries.Count, entry.Path));
         }
 
+        writing.CurrentEntry = null;
         cancellationToken.ThrowIfCancellationRequested();
 
         var dependencies = index.Dependencies.Where(IsUsableDependency).ToList();
@@ -270,6 +276,10 @@ public static class PackImporter
             return Fail(ImportProblem.TargetUnwritable, Describe(saved.Problem.ToString(), saved.Detail));
         }
 
+        beforeMove?.Invoke();
+
+        // The target is not looked at again: a folder or file that appeared since the first look makes the delete (not empty) or the move
+        // (exists) fail, and neither of them replaces or removes anything of the user's.
         if (MoveIntoPlace(staging, target, targetExisted) is { } moveFailure)
         {
             return Fail(ImportProblem.TargetUnwritable, moveFailure);
@@ -313,7 +323,7 @@ public static class PackImporter
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return "The empty target folder cannot be replaced (" + ex.GetType().Name + ").";
+                return "The empty target folder cannot be replaced (is it still empty?): " + ex.Message;
             }
         }
 
@@ -324,7 +334,7 @@ public static class PackImporter
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            var detail = "The project folder cannot be moved into place (" + ex.GetType().Name + ").";
+            var detail = "The project folder cannot be moved into place: " + ex.Message;
             if (targetExisted)
             {
                 try
@@ -461,6 +471,12 @@ public static class PackImporter
         }
 
         return false;
+    }
+
+    /// <summary>The entry that is being written, so that a write failure can name it. Written by <see cref="WriteProject"/>, read after an exception.</summary>
+    private sealed class WriteState
+    {
+        public string? CurrentEntry { get; set; }
     }
 
     private static string Describe(string problem, string? detail) => string.IsNullOrWhiteSpace(detail) ? problem : problem + ": " + detail;

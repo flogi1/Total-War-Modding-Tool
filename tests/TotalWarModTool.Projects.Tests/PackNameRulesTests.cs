@@ -27,4 +27,18 @@ public class PackNameRulesTests
         Assert.NotNull(PackNameRules.Check(new string('a', 96) + ".pack"));
         Assert.NotNull(PackNameRules.Check("a" + (char)0xD800 + ".pack"));
     }
+
+    [Fact] public void Check_with_vanilla_names_adds_the_vanilla_rule_and_ignores_case_whatever_the_set_does()
+    {
+        var vanilla = new HashSet<string>(StringComparer.Ordinal) { "data.pack" };
+        Assert.Null(PackNameRules.Check("my_mod.pack", vanilla));
+        Assert.Null(PackNameRules.Check("my_mod.pack", new HashSet<string>()));
+        Assert.False(string.IsNullOrWhiteSpace(PackNameRules.Check("data.pack", vanilla)));
+        Assert.False(string.IsNullOrWhiteSpace(PackNameRules.Check("DATA.Pack", vanilla)));
+        Assert.Contains("vanilla", PackNameRules.Check("DATA.Pack", vanilla));
+        // The plain rules come first and give their own reason.
+        Assert.Equal(PackNameRules.Check("nope"), PackNameRules.Check("nope", vanilla));
+        Assert.Equal(PackNameRules.Check(""), PackNameRules.Check("", vanilla));
+        Assert.Throws<ArgumentNullException>(() => PackNameRules.Check("a.pack", null!));
+    }
 }

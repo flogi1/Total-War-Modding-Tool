@@ -60,4 +60,16 @@ public class ProjectLayoutTests
         Assert.NotNull(ProjectLayout.UnsafePathReason("a/" + new string('x', 256)));
         Assert.NotNull(ProjectLayout.UnsafePathReason("a/" + (char)0xD800));
     }
+
+    [Fact] public void UnsafePathReason_limits_the_whole_path_to_259_characters()
+    {
+        var head = string.Join("/", Enumerable.Repeat(new string('a', 50), 4)) + "/";
+        Assert.Equal(204, head.Length);
+        Assert.Null(ProjectLayout.UnsafePathReason(head + new string('b', 55)));
+        Assert.Equal(259, (head + new string('b', 55)).Length);
+        Assert.NotNull(ProjectLayout.UnsafePathReason(head + new string('b', 56)));
+
+        // Many short segments are as unusable as a long one, and must be refused before anybody walks over them.
+        Assert.False(string.IsNullOrWhiteSpace(ProjectLayout.UnsafePathReason(string.Join("/", Enumerable.Repeat("a", 30_000)))));
+    }
 }
