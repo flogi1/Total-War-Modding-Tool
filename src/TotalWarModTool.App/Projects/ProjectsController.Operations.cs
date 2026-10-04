@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
+using TotalWarModTool.Schema;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
@@ -311,6 +312,100 @@ public sealed partial class ProjectsController
         var outcome = await _runner.RunAsync(_texts.OperationOpenFile(fileName), (_, ct) => ProjectFileOpener.Open(folder, relativeFile, schema, ct));
         return outcome.Value;
     }
+
+    /// <summary>
+    /// Brings back the project part of a stored session, silently and on a pool thread: the file lists of the projects that were open and
+    /// the project files that were open as tabs. What cannot be brought back is left out and logged (an unknown or unusable project, a file
+    /// that is gone or cannot be read, a path that leaves the pack folder); bad input never throws. A file that is read but cannot be decoded
+    /// stays, as a tab that shows the problem. Tables are decoded with the schema of the workspace at the time of the call.
+    /// </summary>
+    public async Task<ProjectRestoreResult> RestoreAsync(IReadOnlyList<Guid> expanded, IReadOnlyList<(Guid ProjectId, string RelativeFile)> tabs)
+    {
+        ArgumentNullException.ThrowIfNull(expanded);
+        ArgumentNullException.ThrowIfNull(tabs);
+
+        var states = _states;
+        var schema = _workspace.Schema?.Schema;
+        var run = await Task.Run(() => RestoreCore(states, schema, expanded, tabs));
+
+        // Logged here, not on the pool thread: the log is used on the UI thread only.
+        foreach (var (isWarning, text) in run.Notes)
+        {
+            if (isWarning)
+            {
+                _log.Warn(text);
+            }
+            else
+            {
+                _log.Info(text);
+            }
+        }
+
+        return run.Result;
+    }
+
+    private static RestoreRun RestoreCore(IReadOnlyList<ProjectState> states, GameSchema? schema, IReadOnlyList<Guid> expanded,
+        IReadOnlyList<(Guid ProjectId, string RelativeFile)> tabs)
+    {
+        var notes = new List<(bool IsWarning, string Text)>();
+        var byId = states.ToDictionary(state => state.Id);
+        var lists = new List<(Guid Id, ProjectFileList Files)>();
+        foreach (var id in expanded.Distinct())
+        {
+            if (!byId.TryGetValue(id, out var state) || !state.IsUsable)
+            {
+                notes.Add((false, $"Session: project {id} is no longer in the list or cannot be used and stays closed."));
+                continue;
+            }
+
+            try
+            {
+                lists.Add((id, ProjectFiles.List(state.Folder, CancellationToken.None)));
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                notes.Add((true, $"Session: the files of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" cannot be listed and the project stays closed: {ex.Message}"));
+            }
+        }
+
+        var restored = new List<RestoredProjectTab>();
+        foreach (var (id, relativeFile) in tabs)
+        {
+            var shown = DisplayText.Safe(relativeFile ?? string.Empty, 200);
+            if (!byId.TryGetValue(id, out var state) || state.Project is not { } project)
+            {
+                notes.Add((false, $"Session: tab \"{shown}\" was dropped, project {id} is no longer in the list or cannot be used."));
+                continue;
+            }
+
+            // Checked before anything touches the file system: a stored path must not lead out of the pack folder.
+            if (string.IsNullOrWhiteSpace(relativeFile) || Path.IsPathRooted(relativeFile) || relativeFile.Split('\\', '/').Contains(".."))
+            {
+                notes.Add((false, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped, the path is not a path below the pack folder."));
+                continue;
+            }
+
+            try
+            {
+                var opened = ProjectFileOpener.Open(state.Folder, relativeFile, schema, CancellationToken.None);
+                if (opened.ReadProblem == EntryProblem.Unreadable)
+                {
+                    notes.Add((false, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped, the file cannot be read: {opened.ReadDetail}"));
+                    continue;
+                }
+
+                restored.Add(new RestoredProjectTab(id, MessageText.EscapeControlCharacters(state.DisplayName), opened));
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                notes.Add((true, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped: {ex.Message}"));
+            }
+        }
+
+        return new RestoreRun(new ProjectRestoreResult(lists, restored), notes);
+    }
+
+    private sealed record RestoreRun(ProjectRestoreResult Result, IReadOnlyList<(bool IsWarning, string Text)> Notes);
 
     private sealed record PreviewRead(ImportPreview? Preview, PackProblem Problem, string? Detail);
 

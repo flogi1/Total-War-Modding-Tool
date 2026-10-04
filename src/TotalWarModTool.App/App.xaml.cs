@@ -173,7 +173,7 @@ public partial class App : Application
         SessionCoordinator? session = null;
         if (sessionStore is not null)
         {
-            session = new SessionCoordinator(sessionStore, sessionLoaded, workspace, viewModel.Explorer, viewModel.Tabs, log);
+            session = new SessionCoordinator(sessionStore, sessionLoaded, workspace, viewModel.Explorer, viewModel.Tabs, log, projects);
             var saver = new DebouncedSaver(session.Save, log, "The session");
             session.Dirty += (_, _) => saver.MarkDirty();
             _sessionSaver = saver;

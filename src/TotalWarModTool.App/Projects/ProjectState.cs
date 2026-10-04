@@ -1,5 +1,6 @@
 using System.IO;
 using TotalWarModTool.Projects;
+using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
 
@@ -41,3 +42,15 @@ public sealed record ImportOutcome(bool Ok, string? Message, ImportReport? Repor
 /// </summary>
 public sealed record BuildReport(bool Built, bool Installed, string? PackPath, IReadOnlyList<BuildProblem> Problems,
     IReadOnlyList<string> Ignored, string? Message);
+
+/// <summary>
+/// A project file that came back as a tab after a restart. <paramref name="Name"/> is the name of the project, already safe to show
+/// (control characters escaped), for <see cref="TabSource.Name"/>.
+/// </summary>
+public sealed record RestoredProjectTab(Guid ProjectId, string Name, OpenedEntry Entry);
+
+/// <summary>
+/// What of the project part of a stored session could be brought back: the file lists of the projects that were open and the tabs of
+/// project files, in the order they were stored.
+/// </summary>
+public sealed record ProjectRestoreResult(IReadOnlyList<(Guid Id, ProjectFileList Files)> Expanded, IReadOnlyList<RestoredProjectTab> Tabs);

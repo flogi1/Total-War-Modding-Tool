@@ -309,4 +309,102 @@ public class SessionCoordinatorTests
             Assert.Empty(session.Capture().Tabs);
         }
     }
+
+    // ---- projects --------------------------------------------------------------------------------------------------------------
+
+    private static async Task<(TestGame Game, WorkspaceController C, MainSetup Main, SessionStore Store)> CreateWithProjects(Action<TestGame> arrange)
+    {
+        var game = new TestGame(); arrange(game);
+        var c = game.NewController();
+        await c.LoadAsync();
+        return (game, c, game.NewMain(c), new SessionStore(game.Paths.RoamingRoot, "testgame"));
+    }
+
+    private static SessionCoordinator CoordinatorWithProjects(TestGame game, WorkspaceController c, MainSetup main, SessionStore store) =>
+        new(store, store.Load(), c, main.Main.Explorer, main.Main.Tabs, game.Log, main.Projects);
+
+    private static IEnumerable<ProjectNode> ProjectNodesOf(ExplorerViewModel explorer) =>
+        explorer.Groups.OfType<ProjectsGroupNode>().SelectMany(group => group.Children).OfType<ProjectNode>();
+
+    private static string KeyOf(Guid id) => "project:" + id.ToString("D");
+
+    [Fact] public async Task Project_tabs_and_expanded_projects_are_captured()
+    {
+        var (game, c, main, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var session = CoordinatorWithProjects(game, c, main, store);
+            await session.RestoreAsync();
+            var pack = c.Catalog!.Packs[0];
+            var state = game.NewProject(main.Projects, "Alpha", (@"db\units_tables\a.tsv", "x"));
+            await main.Main.OpenEntryAsync(pack, "a.txt");
+            await main.Main.OpenProjectFileAsync(state.Id, @"db\units_tables\a.tsv");
+            main.Main.Explorer.ApplyRestoredProjects([(state.Id, (await main.Projects.ListFilesSilentlyAsync(state.Id))!)]);
+            main.Main.Explorer.Groups.SelectMany(g => g.Children).OfType<PackNode>().Single().IsExpanded = true;
+
+            var captured = session.Capture();
+
+            Assert.Equal([new SessionTab(pack.Path, "a.txt"), new SessionTab(KeyOf(state.Id), "db/units_tables/a.tsv")], captured.Tabs);
+            Assert.Equal([pack.Path, KeyOf(state.Id)], captured.ExpandedPacks);
+        }
+    }
+
+    [Fact] public async Task Project_tabs_are_restored_in_their_old_order_and_missing_ones_are_dropped()
+    {
+        var (game, c, main, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var packPath = c.Catalog!.Packs[0].Path;
+            var state = game.NewProject(main.Projects, "Alpha", ("a.lua", "x"), ("b.lua", "x"));
+            File.Delete(Path.Combine(state.Folder, "pack", "b.lua"));                    // the file of the active tab is gone
+            store.Save(new SessionState([new(KeyOf(state.Id), "a.lua"), new(packPath, "a.txt"), new(KeyOf(state.Id), "b.lua"),
+                new(KeyOf(Guid.NewGuid()), "x.lua")], 2, [KeyOf(state.Id)]));
+            var session = CoordinatorWithProjects(game, c, main, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
+
+            await session.RestoreAsync();
+
+            Assert.Equal(["a.lua", "a.txt"], main.Main.Tabs.Tabs.Select(t => t.Title));
+            Assert.Equal([KeyOf(state.Id), packPath], main.Main.Tabs.Tabs.Select(t => t.PackPath));
+            Assert.Same(main.Main.Tabs.Tabs[0], main.Main.Tabs.SelectedTab);             // the active one is gone: the first
+            Assert.Equal([state.Id], main.Main.Explorer.ExpandedProjectIds);
+            Assert.Equal(["a.lua"], Assert.Single(ProjectNodesOf(main.Main.Explorer)).Children.Select(n => n.Name));
+            Assert.Equal(1, dirty);
+        }
+    }
+
+    [Fact] public async Task The_active_project_tab_stays_active_after_the_restore()
+    {
+        var (game, c, main, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var packPath = c.Catalog!.Packs[0].Path;
+            var state = game.NewProject(main.Projects, "Alpha", ("a.lua", "x"));
+            store.Save(new SessionState([new(packPath, "a.txt"), new("project:" + state.Id.ToString("D").ToUpperInvariant(), "a.lua")], 1, []));
+            var session = CoordinatorWithProjects(game, c, main, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
+
+            await session.RestoreAsync();
+
+            Assert.Equal(["a.txt", "a.lua"], main.Main.Tabs.Tabs.Select(t => t.Title));
+            Assert.Equal("a.lua", main.Main.Tabs.SelectedTab!.Title);
+            Assert.Equal(0, dirty);
+        }
+    }
+
+    [Fact] public async Task Without_a_projects_controller_project_entries_are_ignored()
+    {
+        var (game, c, main, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var packPath = c.Catalog!.Packs[0].Path;
+            var state = game.NewProject(main.Projects, "Alpha", ("a.lua", "x"));
+            store.Save(new SessionState([new(KeyOf(state.Id), "a.lua"), new(packPath, "a.txt")], 0, [KeyOf(state.Id), packPath]));
+            var session = new SessionCoordinator(store, store.Load(), c, main.Main.Explorer, main.Main.Tabs, game.Log);
+
+            await session.RestoreAsync();
+
+            Assert.Equal(["a.txt"], main.Main.Tabs.Tabs.Select(t => t.Title));
+            Assert.Equal([packPath], main.Main.Explorer.ExpandedPackPaths);
+            Assert.Empty(main.Main.Explorer.ExpandedProjectIds);
+        }
+    }
 }

@@ -1,5 +1,6 @@
 using System.Text;
 using TotalWarModTool.GameProfiles;
+using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Settings;
 using TotalWarModTool.Tables;
@@ -399,6 +400,36 @@ public class ProjectsControllerOperationsTests
         Assert.Equal([@"db\x_tables\my_mod.tsv"], list!.Files.Select(f => f.RelativeFile));
         Assert.Empty(game.Runner.Titles);
         Assert.Null(await projects.ListFilesSilentlyAsync(Guid.NewGuid()));
+    }
+
+    // ---- restore ---------------------------------------------------------------------------------------------------------------
+
+    [Fact] public async Task RestoreAsync_of_the_controller_skips_unusable_projects_and_unreadable_files()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var good = game.NewProject(projects, "Good", ("a.lua", "x"), (@"db\x_tables\my_mod.tsv", Tsv), (@"db\y_tables\bad.tsv", "x"));
+        var broken = game.NewProject(projects, "Broken", ("a.lua", "x"));
+        Directory.Delete(broken.Folder, true);
+        projects.Reload();
+        Assert.False(projects.Projects.Single(p => p.Id == broken.Id).IsUsable);
+        var outside = Path.Combine(good.Folder, "secret.txt");
+        File.WriteAllText(outside, "s");
+
+        var result = await projects.RestoreAsync(
+            [good.Id, broken.Id, Guid.NewGuid(), good.Id],
+            [(good.Id, "a.lua"), (good.Id, "gone.lua"), (broken.Id, "a.lua"), (Guid.NewGuid(), "a.lua"),
+             (good.Id, @"..\secret.txt"), (good.Id, "../secret.txt"), (good.Id, outside), (good.Id, "  "),
+             (good.Id, "db/x_tables/my_mod.tsv"), (good.Id, "db/y_tables/bad.tsv")]);
+
+        Assert.Equal([good.Id], result.Expanded.Select(e => e.Id));
+        Assert.Contains(result.Expanded[0].Files.Files, f => f.RelativeFile == "a.lua");
+        Assert.Equal(["a.lua", "db/x_tables/my_mod.tsv", "db/y_tables/bad.tsv"], result.Tabs.Select(t => t.Entry.EntryPath));
+        Assert.All(result.Tabs, t => Assert.Equal((good.Id, "Good"), (t.ProjectId, t.Name)));
+        Assert.Equal(TableDecodeStatus.Ok, result.Tabs[1].Entry.Table!.Status);
+        Assert.Equal((EntryProblem.None, TableDecodeStatus.Failed), (result.Tabs[2].Entry.ReadProblem, result.Tabs[2].Entry.Table!.Status));
+        Assert.Empty(game.Runner.Titles);                                                // silent
+        Assert.Empty((await projects.RestoreAsync([], [])).Tabs);
     }
 
     // ---- rename, cancel and the install record --------------------------------------------------------------------------------
