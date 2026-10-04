@@ -18,6 +18,8 @@ public static class PackImporter
     private const int CleanupAttempts = 3;
     private const int MoveAttempts = 5;
     private const int MoveRetryDelayMs = 100;
+    private const int ErrorFileExists = 80;
+    private const int ErrorAlreadyExists = 183;
     private const string LocExtension = ".loc";
 
     /// <summary>
@@ -64,13 +66,21 @@ public static class PackImporter
 
     /// <summary>
     /// Writes the project folder for <paramref name="request"/>. Problems are in the report; only <see cref="OperationCanceledException"/>
-    /// and argument errors are thrown. <paramref name="schema"/> may be null: tables then stay binary.
+    /// and argument errors are thrown (a relative <c>SourcePack</c> or <c>TargetFolder</c> is an argument error). <paramref name="schema"/>
+    /// may be null: tables then stay binary. The staging folder is removed in every case; a problem report names it in <c>Detail</c> when
+    /// it could not be removed. A cancel or another exception has no such channel, so the caller must not assume that the staging folder
+    /// (<c>&lt;TargetFolder&gt;.import-&lt;8 hex characters&gt;</c>) is gone when a delete can fail.
     /// </summary>
     public static ImportReport Import(ImportRequest request, GameSchema? schema, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SourcePack);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.TargetFolder);
+        if (!Path.IsPathFullyQualified(request.SourcePack) || !Path.IsPathFullyQualified(request.TargetFolder))
+        {
+            throw new ArgumentException("The source pack and the target folder must be full paths.", nameof(request));
+        }
+
         ArgumentNullException.ThrowIfNull(request.PackName);
         ArgumentNullException.ThrowIfNull(request.VanillaPackNames);
         if (string.IsNullOrWhiteSpace(request.ProjectName) || !PackNameRules.IsWellFormed(request.ProjectName))
@@ -88,7 +98,7 @@ public static class PackImporter
             return Fail(ImportProblem.InvalidPackName, nameReason);
         }
 
-        if (request.VanillaPackNames.Contains(request.PackName))
+        if (request.VanillaPackNames.Any(name => string.Equals(name, request.PackName, StringComparison.OrdinalIgnoreCase)))
         {
             return Fail(ImportProblem.InvalidPackName, "The pack name is the name of a pack of the game.");
         }
@@ -100,9 +110,20 @@ public static class PackImporter
         }
 
         var target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.TargetFolder));
+        var parent = Path.GetDirectoryName(target);
+        if (parent is null)
+        {
+            return Fail(ImportProblem.TargetUnwritable, "The target folder has no parent folder.");
+        }
+
         bool targetExisted;
         try
         {
+            if (!Directory.Exists(parent))
+            {
+                return Fail(ImportProblem.TargetUnwritable, "The parent folder of the target does not exist.");
+            }
+
             if (File.Exists(target))
             {
                 return Fail(ImportProblem.TargetNotEmpty, "The target is a file.");
@@ -119,29 +140,29 @@ public static class PackImporter
             return Fail(ImportProblem.TargetUnwritable, "The target folder cannot be read (" + ex.GetType().Name + ").");
         }
 
-        var parent = Path.GetDirectoryName(target);
-        if (parent is null)
-        {
-            return Fail(ImportProblem.TargetUnwritable, "The target folder has no parent folder.");
-        }
-
         var staging = NewStagingPath(target);
-        var succeeded = false;
+        ImportReport? report = null;
+        var stagingRemoved = true;
         try
         {
-            return WriteProject(request, schema, index, target, targetExisted, staging, progress, cancellationToken, out succeeded);
+            report = WriteProject(request, schema, index, target, targetExisted, staging, progress, cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Fail(ImportProblem.TargetUnwritable, "The project folder cannot be written (" + ex.GetType().Name + ").");
+            report = Fail(ImportProblem.TargetUnwritable, "The project folder cannot be written (" + ex.GetType().Name + ").");
         }
         finally
         {
-            if (!succeeded)
+            // Also runs for a cancel or another exception (report is still null then).
+            if (report?.Problem != ImportProblem.None)
             {
-                RemoveStaging(staging);
+                stagingRemoved = RemoveStaging(staging);
             }
         }
+
+        return stagingRemoved
+            ? report
+            : report with { Detail = Describe(report.Problem.ToString(), report.Detail) + $" The staging folder '{staging}' could not be removed." };
     }
 
     private static ImportReport WriteProject(
@@ -152,14 +173,12 @@ public static class PackImporter
         bool targetExisted,
         string staging,
         IProgress<OperationProgress>? progress,
-        CancellationToken cancellationToken,
-        out bool succeeded)
+        CancellationToken cancellationToken)
     {
-        succeeded = false;
         var entries = index.Entries;
         var reasons = ComputeSkips(entries);
         var packRoot = Path.Combine(staging, ProjectFile.PackFolder);
-        var stagingPrefix = Path.GetFullPath(staging) + Path.DirectorySeparatorChar;
+        var packRootPrefix = Path.GetFullPath(packRoot) + Path.DirectorySeparatorChar;
         var targetPackRoot = Path.Combine(target, ProjectFile.PackFolder);
         var skipped = new List<SkippedEntry>();
         var stayedBinary = new List<BinaryTable>();
@@ -201,7 +220,7 @@ public static class PackImporter
                     {
                         skipped.Add(new SkippedEntry(entry.Path, "The file path would be longer than " + MaxPathLength + " characters."));
                     }
-                    else if (!file.StartsWith(stagingPrefix, StringComparison.OrdinalIgnoreCase))
+                    else if (!file.StartsWith(packRootPrefix, StringComparison.OrdinalIgnoreCase))
                     {
                         skipped.Add(new SkippedEntry(entry.Path, "The file would be outside the project folder."));
                     }
@@ -209,10 +228,12 @@ public static class PackImporter
                     {
                         skipped.Add(new SkippedEntry(entry.Path, clash));
                     }
+                    else if (!TryCreateFile(file, converted.Bytes))
+                    {
+                        skipped.Add(new SkippedEntry(entry.Path, "The file already exists on disk under another name or spelling."));
+                    }
                     else
                     {
-                        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-                        File.WriteAllBytes(file, converted.Bytes);
                         Register(relativeFile.Replace('\\', '/'), writtenFiles, writtenFolders);
                         switch (converted.Kind)
                         {
@@ -240,35 +261,70 @@ public static class PackImporter
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var project = new ModProject(Guid.NewGuid(), request.ProjectName, request.GameId, request.PackName, index.Dependencies);
+        var dependencies = index.Dependencies.Where(IsUsableDependency).ToList();
+        var dropped = index.Dependencies.Where(d => !IsUsableDependency(d)).ToList();
+        var project = new ModProject(Guid.NewGuid(), request.ProjectName, request.GameId, request.PackName, dependencies);
         var saved = ProjectFile.Save(staging, project);
         if (saved.Problem != ProjectProblem.None)
         {
             return Fail(ImportProblem.TargetUnwritable, Describe(saved.Problem.ToString(), saved.Detail));
         }
 
-        MoveIntoPlace(staging, target, targetExisted);
-        succeeded = true;
-        return new ImportReport(project, ImportProblem.None, null, tables, locFiles, otherFiles, stayedBinary, skipped);
+        if (MoveIntoPlace(staging, target, targetExisted) is { } moveFailure)
+        {
+            return Fail(ImportProblem.TargetUnwritable, moveFailure);
+        }
+
+        return new ImportReport(project, ImportProblem.None, null, tables, locFiles, otherFiles, stayedBinary, skipped, dropped);
+    }
+
+    private static bool IsUsableDependency(string name) => !string.IsNullOrWhiteSpace(name) && PackNameRules.IsWellFormed(name);
+
+    /// <summary>
+    /// Creates the file with its folders. False when the file already exists although the clash maps did not see it (8.3 short names,
+    /// differences in case folding); every other I/O failure is thrown.
+    /// </summary>
+    private static bool TryCreateFile(string file, byte[] bytes)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        try
+        {
+            using var stream = new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            stream.Write(bytes);
+            return true;
+        }
+        catch (IOException ex) when ((ex.HResult & 0xFFFF) is ErrorFileExists or ErrorAlreadyExists)
+        {
+            return false;
+        }
     }
 
     /// <summary>
-    /// Replaces the empty target folder (if there is one) by the staging folder. When the move fails after the empty folder was removed,
-    /// the empty folder is put back, so the target is in the state it was in before.
+    /// Replaces the empty target folder (if there is one) by the staging folder. Returns null on success, else the detail of the failure.
+    /// When the move fails after the empty folder was removed, the empty folder is put back, so the target is in the state it was in before.
     /// </summary>
-    private static void MoveIntoPlace(string staging, string target, bool targetExisted)
+    private static string? MoveIntoPlace(string staging, string target, bool targetExisted)
     {
         if (targetExisted)
         {
-            Retry(() => Directory.Delete(target, recursive: false));
+            try
+            {
+                Retry(() => Directory.Delete(target, recursive: false));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return "The empty target folder cannot be replaced (" + ex.GetType().Name + ").";
+            }
         }
 
         try
         {
             Retry(() => Directory.Move(staging, target));
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            var detail = "The project folder cannot be moved into place (" + ex.GetType().Name + ").";
             if (targetExisted)
             {
                 try
@@ -277,11 +333,11 @@ public static class PackImporter
                 }
                 catch (Exception restore) when (restore is IOException or UnauthorizedAccessException)
                 {
-                    // Best effort; the failure of the move is the one that is reported.
+                    detail += " The empty target folder no longer exists.";
                 }
             }
 
-            throw;
+            return detail;
         }
     }
 
@@ -380,7 +436,8 @@ public static class PackImporter
         }
     }
 
-    private static void RemoveStaging(string staging)
+    /// <summary>True when the staging folder is gone.</summary>
+    private static bool RemoveStaging(string staging)
     {
         for (var attempt = 1; attempt <= CleanupAttempts; attempt++)
         {
@@ -391,17 +448,22 @@ public static class PackImporter
                     Directory.Delete(staging, recursive: true);
                 }
 
-                return;
+                return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // A virus scanner may hold a file for a moment; the last failure is given up silently.
-                Thread.Sleep(50 * attempt);
+                // A virus scanner may hold a file for a moment.
+                if (attempt < CleanupAttempts)
+                {
+                    Thread.Sleep(50 * attempt);
+                }
             }
         }
+
+        return false;
     }
 
     private static string Describe(string problem, string? detail) => string.IsNullOrWhiteSpace(detail) ? problem : problem + ": " + detail;
 
-    private static ImportReport Fail(ImportProblem problem, string detail) => new(null, problem, detail, 0, 0, 0, [], []);
+    private static ImportReport Fail(ImportProblem problem, string detail) => new(null, problem, detail, 0, 0, 0, [], [], []);
 }

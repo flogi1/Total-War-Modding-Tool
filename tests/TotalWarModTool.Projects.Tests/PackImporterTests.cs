@@ -174,6 +174,46 @@ public class PackImporterTests
         Assert.Equal((0, 0, 1), (report.Tables, report.LocFiles, report.OtherFiles));
     }
 
+    [Fact] public void Unusable_dependency_names_of_the_source_are_dropped_and_reported()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddDependency("").AddDependency("  ").AddDependency("base.pack").AddEntry("a.txt", [1]));
+        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.None, report.Problem);
+        Assert.Equal(["base.pack"], report.Project!.Dependencies);
+        Assert.Equal(["", "  "], report.DroppedDependencies);
+        Assert.Equal(["base.pack"], ProjectFile.Load(Path.Combine(dir.Path, "project")).Project!.Dependencies);
+    }
+
+    [Fact] public void A_missing_parent_folder_of_the_target_is_not_created()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
+        var request = Request(dir, source) with { TargetFolder = Path.Combine(dir.Path, "missing", "project") };
+        var report = PackImporter.Import(request, null, null, CancellationToken.None);
+        Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
+        Assert.Contains("parent folder", report.Detail);
+        Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
+    }
+
+    [Fact] public void A_relative_source_or_target_is_an_argument_error()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
+        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { SourcePack = "source.pack" }, null, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { TargetFolder = @"project" }, null, null, CancellationToken.None));
+        Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
+    }
+
+    [Fact] public void The_vanilla_name_check_ignores_case_whatever_the_set_does()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
+        var request = Request(dir, source, "DATA.pack") with { VanillaPackNames = new HashSet<string>(StringComparer.Ordinal) { "data.pack" } };
+        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(request, null, null, CancellationToken.None).Problem);
+    }
+
     private sealed class SyncProgress(Action<OperationProgress> report) : IProgress<OperationProgress>
     {
         public void Report(OperationProgress value) => report(value);

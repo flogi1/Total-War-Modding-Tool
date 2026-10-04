@@ -22,6 +22,8 @@ public enum ImportProblem
 /// Outcome of an import. <paramref name="Project"/> is null unless <paramref name="Problem"/> is None. <paramref name="Tables"/> and
 /// <paramref name="LocFiles"/> count only the files written as text, <paramref name="OtherFiles"/> every file written as it is.
 /// <paramref name="StayedBinary"/> lists the tables and loc files that are in the project as binary files.
+/// <paramref name="DroppedDependencies"/> are the dependency names of the source that are not in the project because they are empty,
+/// blank or not valid Unicode.
 /// </summary>
 public sealed record ImportReport(
     ModProject? Project,
@@ -31,7 +33,8 @@ public sealed record ImportReport(
     int LocFiles,
     int OtherFiles,
     IReadOnlyList<BinaryTable> StayedBinary,
-    IReadOnlyList<SkippedEntry> Skipped);
+    IReadOnlyList<SkippedEntry> Skipped,
+    IReadOnlyList<string> DroppedDependencies);
 
 /// <summary>
 /// What to import. <paramref name="TargetFolder"/> must not exist or must be empty. <paramref name="VanillaPackNames"/> are the pack
