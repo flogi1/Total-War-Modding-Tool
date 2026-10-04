@@ -140,6 +140,83 @@ public sealed partial class AppTexts
     /// <param name="fileName">File name. Data, not a UI text.</param>
     public string OperationOpenFile(string fileName) => F("operation.openFile", "Open {0}", fileName);
 
+    // ---- project commands and dialogs --------------------------------------------------------------------------------------------
+
+    public string ProjectNewTitle => T("project.newTitle", "New project");
+
+    public string ProjectOpenTitle => T("project.openTitle", "Choose the project folder");
+
+    public string ProjectMessageTitle => T("project.messageTitle", "Project");
+
+    public string ProjectNoneActive => T("project.noneActive", "No project is active. Choose a project in the explorer first.");
+
+    /// <param name="name">Name of the project. Data, not a UI text.</param>
+    public string ProjectCreated(string name) => F("project.created", "Project {0} created.", name);
+
+    /// <param name="name">Name of the project. Data, not a UI text.</param>
+    public string ProjectAdded(string name) => F("project.added", "Project {0} added to the list.", name);
+
+    /// <param name="sourceName">Name of the pack that is imported. Data, not a UI text.</param>
+    public string ImportTitle(string sourceName) => F("import.title", "Import {0}", sourceName);
+
+    public string ImportPickTitle => T("import.pickTitle", "Choose the pack to import");
+
+    public string ImportMessageTitle => T("import.messageTitle", "Import");
+
+    public string ImportPreviewLineTables(int count) => F("import.preview.tables", "Tables: {0}", count);
+
+    public string ImportPreviewLineLoc(int count) => F("import.preview.loc", "Loc files: {0}", count);
+
+    public string ImportPreviewLineOther(int count) => F("import.preview.other", "Other files: {0}", count);
+
+    /// <param name="size">The size as text, e.g. "1.5 MB". Data, not a UI text.</param>
+    public string ImportPreviewLineSize(string size) => F("import.preview.size", "Size in the pack: {0}", size);
+
+    public string ImportPreviewLineSkipped(int count) => F("import.preview.skipped", "Entries that will be left out: {0}", count);
+
+    public string ImportReportTitle => T("import.report.title", "Import report");
+
+    public string ImportReportBinaryHeading => T("import.report.binaryHeading", "Kept as binary files");
+
+    public string ImportReportSkippedHeading => T("import.report.skippedHeading", "Left out");
+
+    public string ImportReportDroppedHeading => T("import.report.droppedHeading", "Dependency names not taken over");
+
+    public string BuildMessageTitle => T("build.messageTitle", "Build");
+
+    public string BuildReportTitle => T("build.report.title", "Build report");
+
+    public string BuildProblemsHeading => T("build.problems.heading", "Problems");
+
+    public string BuildIgnoredHeading => T("build.ignored.heading", "Files left out on purpose");
+
+    public string BuildProblemsSummary(int count) => F("build.problems.summary", "The pack was not built. Problems found: {0}.", count);
+
+    public string UninstallMessageTitle => T("uninstall.messageTitle", "Uninstall");
+
+    public string UninstallNothing => T("uninstall.nothing", "Nothing is installed for this project.");
+
+    /// <param name="name">Name of the project. Data, not a UI text.</param>
+    public string UninstallDone(string name) => F("uninstall.done", "Removed the installed pack of {0}.", name);
+
+    public string DialogName => T("dialog.name", "Name");
+
+    public string DialogFolder => T("dialog.folder", "Folder");
+
+    public string DialogPackName => T("dialog.packName", "Pack name");
+
+    public string DialogOk => T("dialog.ok", "OK");
+
+    public string DialogCancel => T("dialog.cancel", "Cancel");
+
+    public string DialogBrowse => T("dialog.browse", "Browse");
+
+    public string DialogClose => T("dialog.close", "Close");
+
+    public string DialogChooseFolder => T("dialog.chooseFolder", "Choose the folder of the project");
+
+    public string DialogPackFilter => T("dialog.packFilter", "Pack files (*.pack)");
+
     /// <summary>The text for an import problem; empty for <see cref="ImportProblem.None"/>.</summary>
     public string ImportProblemText(ImportProblem problem) => problem switch
     {

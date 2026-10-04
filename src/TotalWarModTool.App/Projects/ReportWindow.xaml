@@ -1,0 +1,35 @@
+<Window x:Class="TotalWarModTool.App.ReportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding Title}"
+        Width="640" Height="480" MinWidth="360" MinHeight="240"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource Theme.WindowBackground}"
+        Foreground="{DynamicResource Theme.Text}">
+    <!-- DataContext is the ReportViewModel. The lines of a section are read-only boxes, so that they can be selected and copied. -->
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="SummaryText" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,0,0,12" />
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="SectionsList" ItemsSource="{Binding Sections}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,0,0,12">
+                            <TextBlock x:Name="HeadingText" Text="{Binding Heading}" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBox x:Name="LinesBox" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" TextWrapping="NoWrap"
+                                     MaxHeight="220" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="CloseButton" Content="{Binding Texts.DialogClose}" MinWidth="90" Padding="12,3" Margin="8,0,0,0" IsDefault="True" IsCancel="True"
+                    Click="OnCloseClick" />
+        </StackPanel>
+    </Grid>
+</Window>
