@@ -52,6 +52,13 @@ public sealed partial class ExplorerViewModel
 
         foreach (var node in ProjectNodes().Where(candidate => candidate.IsOpen && !candidate.IsLoading).ToList())
         {
+            // The nodes were taken before the first await. A node that was collapsed, removed or is being expanded meanwhile is left alone: a
+            // runner listing in flight delivers fresh content, and bumping the generation here would throw it away.
+            if (!node.IsOpen || node.IsLoading || node.IsDetached)
+            {
+                continue;
+            }
+
             // A listing that is overtaken by a later one (a newer silent listing, a collapse and expand) must not replace its result.
             var generation = node.BumpGeneration();
             var files = await (SilentListing ?? _projects.ListFilesSilentlyAsync)(node.ProjectId);

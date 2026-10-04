@@ -702,6 +702,59 @@ public class ExplorerViewModelTests
         Assert.Equal(["a.lua", "newer.lua"], node.Children.Select(n => n.Name));
     }
 
+    // The silent loop takes its nodes first and awaits each listing: a node that the user collapsed and expands again meanwhile has a runner
+    // listing in flight, which the loop must not invalidate.
+    [Fact] public async Task The_silent_loop_leaves_a_node_alone_whose_expand_started_meanwhile()
+    {
+        using var game = new TestGame();
+        var manual = new ManualOperationRunner();
+        var c = game.NewController();
+        var p = game.NewProjects(c, manual);                                         // the runner listings of the explorer wait in the manual runner
+        game.NewProject(p, "Alpha", ("a.lua", "x"));
+        game.NewProject(p, "Beta", ("b.lua", "x"));
+        var commands = new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts);
+        var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (_, _) => Task.CompletedTask);
+        await c.LoadAsync();
+        var group = Assert.IsType<ProjectsGroupNode>(vm.Groups[0]);
+        var alpha = group.Children.OfType<ProjectNode>().Single(n => n.Name == "Alpha");
+        var beta = group.Children.OfType<ProjectNode>().Single(n => n.Name == "Beta");
+        alpha.IsExpanded = true; manual.Complete();
+        beta.IsExpanded = true; manual.Complete();
+        Assert.Equal([alpha.ProjectId, beta.ProjectId], vm.ExpandedProjectIds);
+
+        var alphaList = ProjectFiles.List(p.Projects[0].Folder, CancellationToken.None);
+        var betaList = ProjectFiles.List(p.Projects[1].Folder, CancellationToken.None);
+        var gate = new TaskCompletionSource<ProjectFileList?>();
+        vm.SilentListing = id => id == alpha.ProjectId ? gate.Task : Task.FromResult<ProjectFileList?>(betaList);
+        var refresh = vm.RefreshProjectFilesAsync();                                 // held on the listing of Alpha
+
+        beta.IsExpanded = false;
+        beta.IsExpanded = true;                                                      // a runner expand of Beta is in flight now
+        Assert.True(beta.IsLoading);
+        gate.SetResult(alphaList);
+        await refresh;                                                               // the loop reaches Beta and must skip it
+        manual.Complete();                                                           // the expand delivers
+
+        Assert.Equal((true, false), (beta.IsExpanded, beta.IsLoading));
+        Assert.Equal(["b.lua"], beta.Children.Select(n => n.Name));
+        Assert.Equal([alpha.ProjectId, beta.ProjectId], vm.ExpandedProjectIds);
+    }
+
+    [Fact] public async Task A_project_that_was_open_with_no_files_and_breaks_is_no_longer_open()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"));
+        var node = setup.NodeOf("Alpha");
+        node.IsExpanded = true;                                                      // the pack folder is empty: open, without children
+        Assert.Equal([node.ProjectId], setup.Vm.ExpandedProjectIds);
+
+        File.WriteAllText(Path.Combine(setup.Projects.Projects[0].Folder, "twmt-project.json"), "{ not json");
+        setup.Projects.Reload();
+
+        Assert.Equal((true, false), (node.HasProblem, node.IsExpanded));
+        Assert.Empty(setup.Vm.ExpandedProjectIds);
+        Assert.Empty(node.Children);
+    }
+
     [Fact] public async Task A_listing_that_finishes_after_its_project_was_removed_changes_nothing()
     {
         using var game = new TestGame();

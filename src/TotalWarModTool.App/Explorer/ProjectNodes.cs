@@ -166,10 +166,11 @@ public sealed class ProjectNode : ExplorerNode
         HasProblem = true;
         ToolTip = MessageText.WithDetail(_context.Texts.ProjectProblemText(state.Problem),
             state.Detail is null ? null : _context.Display(state.Detail, ProjectTreeContext.MaxToolTipChars));
+        // Also an open project without any file: no node stays open without a project that can be listed.
+        IsOpen = false;
+        _generation++;
         if (Children.Count > 0)
         {
-            IsOpen = false;
-            _generation++;
             ReplaceChildren([]);
         }
 
