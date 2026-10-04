@@ -329,9 +329,13 @@ public sealed partial class ProjectsController
         var run = await Task.Run(() => RestoreCore(states, schema, expanded, tabs));
 
         // Logged here, not on the pool thread: the log is used on the UI thread only.
-        foreach (var (isWarning, text) in run.Notes)
+        foreach (var (isWarning, text, error) in run.Notes)
         {
-            if (isWarning)
+            if (error is not null)
+            {
+                _log.Error(text, error);
+            }
+            else if (isWarning)
             {
                 _log.Warn(text);
             }
@@ -347,14 +351,14 @@ public sealed partial class ProjectsController
     private static RestoreRun RestoreCore(IReadOnlyList<ProjectState> states, GameSchema? schema, IReadOnlyList<Guid> expanded,
         IReadOnlyList<(Guid ProjectId, string RelativeFile)> tabs)
     {
-        var notes = new List<(bool IsWarning, string Text)>();
+        var notes = new List<(bool IsWarning, string Text, Exception? Error)>();
         var byId = states.ToDictionary(state => state.Id);
         var lists = new List<(Guid Id, ProjectFileList Files)>();
         foreach (var id in expanded.Distinct())
         {
             if (!byId.TryGetValue(id, out var state) || !state.IsUsable)
             {
-                notes.Add((false, $"Session: project {id} is no longer in the list or cannot be used and stays closed."));
+                notes.Add((false, $"Session: project {id} is no longer in the list or cannot be used and stays closed.", null));
                 continue;
             }
 
@@ -364,7 +368,12 @@ public sealed partial class ProjectsController
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                notes.Add((true, $"Session: the files of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" cannot be listed and the project stays closed: {ex.Message}"));
+                notes.Add((true, $"Session: the files of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" cannot be listed and the project stays closed: {DisplayText.Safe(ex.Message)}", null));
+            }
+            catch (Exception ex)
+            {
+                // Mirrors the restore of the workspace: whatever else goes wrong is logged and costs only this entry, never the restore.
+                notes.Add((true, $"Session: restoring the files of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" failed, the project stays closed.", ex));
             }
         }
 
@@ -374,14 +383,14 @@ public sealed partial class ProjectsController
             var shown = DisplayText.Safe(relativeFile ?? string.Empty, 200);
             if (!byId.TryGetValue(id, out var state) || state.Project is not { } project)
             {
-                notes.Add((false, $"Session: tab \"{shown}\" was dropped, project {id} is no longer in the list or cannot be used."));
+                notes.Add((false, $"Session: tab \"{shown}\" was dropped, project {id} is no longer in the list or cannot be used.", null));
                 continue;
             }
 
             // Checked before anything touches the file system: a stored path must not lead out of the pack folder.
             if (string.IsNullOrWhiteSpace(relativeFile) || Path.IsPathRooted(relativeFile) || relativeFile.Split('\\', '/').Contains(".."))
             {
-                notes.Add((false, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped, the path is not a path below the pack folder."));
+                notes.Add((false, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped, the path is not a path below the pack folder.", null));
                 continue;
             }
 
@@ -390,7 +399,7 @@ public sealed partial class ProjectsController
                 var opened = ProjectFileOpener.Open(state.Folder, relativeFile, schema, CancellationToken.None);
                 if (opened.ReadProblem == EntryProblem.Unreadable)
                 {
-                    notes.Add((false, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped, the file cannot be read: {opened.ReadDetail}"));
+                    notes.Add((false, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped, the file cannot be read: {DisplayText.Safe(opened.ReadDetail ?? string.Empty)}", null));
                     continue;
                 }
 
@@ -398,14 +407,18 @@ public sealed partial class ProjectsController
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                notes.Add((true, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped: {ex.Message}"));
+                notes.Add((true, $"Session: tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" was dropped: {DisplayText.Safe(ex.Message)}", null));
+            }
+            catch (Exception ex)
+            {
+                notes.Add((true, $"Session: restoring tab \"{shown}\" of the project \"{DisplayText.Safe(state.DisplayName, 100)}\" failed, the tab was dropped.", ex));
             }
         }
 
         return new RestoreRun(new ProjectRestoreResult(lists, restored), notes);
     }
 
-    private sealed record RestoreRun(ProjectRestoreResult Result, IReadOnlyList<(bool IsWarning, string Text)> Notes);
+    private sealed record RestoreRun(ProjectRestoreResult Result, IReadOnlyList<(bool IsWarning, string Text, Exception? Error)> Notes);
 
     private sealed record PreviewRead(ImportPreview? Preview, PackProblem Problem, string? Detail);
 

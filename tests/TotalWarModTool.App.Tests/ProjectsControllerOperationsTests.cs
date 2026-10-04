@@ -432,6 +432,19 @@ public class ProjectsControllerOperationsTests
         Assert.Empty((await projects.RestoreAsync([], [])).Tabs);
     }
 
+    [Fact] public async Task RestoreAsync_leaves_out_a_path_with_a_dotdot_segment_in_the_middle()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var good = game.NewProject(projects, "Good", ("a.lua", "x"));
+        Directory.CreateDirectory(Path.Combine(good.Folder, "pack", "a"));
+        File.WriteAllText(Path.Combine(good.Folder, "x"), "outside the pack folder");
+
+        var result = await projects.RestoreAsync([], [(good.Id, "a/../../x"), (good.Id, @"a\..\..\x"), (good.Id, "a/../a.lua")]);
+
+        Assert.Empty(result.Tabs);
+        Assert.Equal(3, game.Log.Infos.Count(line => line.Contains("not a path below the pack folder", StringComparison.Ordinal)));
+    }
     // ---- rename, cancel and the install record --------------------------------------------------------------------------------
 
     // Installs the project as a.pack, then renames it to b.pack on disk and reloads, so that the next install is a rename.

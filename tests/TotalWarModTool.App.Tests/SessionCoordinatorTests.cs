@@ -407,4 +407,69 @@ public class SessionCoordinatorTests
             Assert.Empty(main.Main.Explorer.ExpandedProjectIds);
         }
     }
+
+    [Fact] public async Task A_project_that_left_the_list_during_the_restore_gets_no_tabs()
+    {
+        var (game, c, main, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var packPath = c.Catalog!.Packs[0].Path;
+            var state = game.NewProject(main.Projects, "Alpha", ("a.lua", "x"));
+            store.Save(new SessionState([new(KeyOf(state.Id), "a.lua"), new(packPath, "a.txt")], 0, [KeyOf(state.Id)]));
+            var session = CoordinatorWithProjects(game, c, main, store); var dirty = 0; session.Dirty += (_, _) => dirty++;
+
+            // The continuations of the restore wait in a queue, so that nothing runs on a pool thread while the project leaves the list.
+            var queue = new QueueContext();
+            var previous = SynchronizationContext.Current;
+            Task restore;
+            SynchronizationContext.SetSynchronizationContext(queue);
+            try
+            {
+                restore = session.RestoreAsync();                                        // runs up to its first await: the project part has read its snapshot
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+
+            Assert.True(main.Projects.Remove(state.Id).Ok);
+            queue.RunUntilCompleted(restore);
+
+            Assert.Equal(["a.txt"], main.Main.Tabs.Tabs.Select(t => t.Title));
+            Assert.Empty(main.Main.Explorer.ExpandedProjectIds);
+            Assert.Equal(1, dirty);
+        }
+    }
+
+    // Runs the continuations that were posted to it on the thread that calls RunUntilCompleted, one at a time.
+    private sealed class QueueContext : SynchronizationContext
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = [];
+
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+
+        public void RunUntilCompleted(Task task)
+        {
+            var previous = Current;
+            SetSynchronizationContext(this);
+            try
+            {
+                var deadline = Environment.TickCount64 + 30000;
+                while (!task.IsCompleted)
+                {
+                    Assert.True(Environment.TickCount64 < deadline, "The restore did not end in time.");
+                    if (_queue.TryTake(out var item, 50))
+                    {
+                        item.Callback(item.State);
+                    }
+                }
+            }
+            finally
+            {
+                SetSynchronizationContext(previous);
+            }
+
+            task.GetAwaiter().GetResult();
+        }
+    }
 }
