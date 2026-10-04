@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Threading;
 using TotalWarModTool.Localization;
@@ -154,6 +155,61 @@ public class ProgressRunnerTests
         Assert.True(main.IsHitTestVisible);
         await runner.RunAsync("fast", (_, _) => 0);
         Assert.True(main.IsHitTestVisible);
+    });
+
+    // If the modal window cannot be shown, the user can neither see the progress nor cancel: the runner cancels the work itself and fails the run.
+    [Fact] public void Work_is_cancelled_when_the_window_cannot_be_shown() => Sta.RunAsync(async () =>
+    {
+        var main = new Window();
+        var (runner, log, reported, shown) = Create(Soon, main);
+        runner.ShowDialogOverride = _ => throw new InvalidOperationException("no window");
+        var sawCancel = false;
+        var outcome = await runner.RunAsync("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); sawCancel = ct.IsCancellationRequested; return 1; });
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.IsType<InvalidOperationException>(outcome.Error);
+        Assert.Equal(0, outcome.Value);
+        Assert.True(sawCancel);
+        Assert.False(runner.IsRunning);
+        Assert.True(main.IsHitTestVisible);
+        Assert.Equal("op", Assert.Single(reported).Title); Assert.Single(log.Errors);
+        Assert.Empty(shown);
+    });
+
+    // The work ignores the cancel request and returns normally: the user still saw no progress and could not cancel, so the run still fails.
+    [Fact] public void Run_still_fails_when_the_work_ignores_the_cancel_after_the_window_failed() => Sta.RunAsync(async () =>
+    {
+        var (runner, _, reported, _) = Create(Soon);
+        using var gate = new ManualResetEventSlim();
+        runner.ShowDialogOverride = _ => { gate.Set(); throw new InvalidOperationException("no window"); };
+        var outcome = await runner.RunAsync("op", (_, _) => { gate.Wait(); return 9; });
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.IsType<InvalidOperationException>(outcome.Error);
+        Assert.Equal(0, outcome.Value);
+        Assert.False(runner.IsRunning);
+        Assert.Single(reported);
+    });
+
+    // The work throws something else once it was told to cancel: that exception is observed and does not change the outcome.
+    [Fact] public void Exception_of_the_work_after_the_window_failed_is_observed() => Sta.RunAsync(async () =>
+    {
+        var (runner, _, reported, _) = Create(Soon);
+        var unobserved = new List<Exception>();
+        void OnUnobserved(object? _, UnobservedTaskExceptionEventArgs e) => unobserved.Add(e.Exception);
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        try
+        {
+            runner.ShowDialogOverride = _ => throw new Win32Exception("no window");
+            var outcome = await runner.RunAsync<int>("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); throw new IOException("late"); });
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            Assert.Equal(OperationStatus.Failed, outcome.Status);
+            Assert.IsType<Win32Exception>(outcome.Error);
+            Assert.Single(reported);
+            Assert.Empty(unobserved);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= OnUnobserved;
+        }
     });
 
     [Fact] public void Second_run_while_one_is_active_throws() => Sta.RunAsync(async () =>

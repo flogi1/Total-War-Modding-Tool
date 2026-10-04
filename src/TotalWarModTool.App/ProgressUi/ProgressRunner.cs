@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -47,6 +48,9 @@ public sealed class ProgressRunner : IOperationRunner
     /// <summary>Raised on the UI thread when the progress window is loaded. It only exists for runs that outlast the show delay.</summary>
     public event EventHandler<ProgressWindow>? WindowShown;
 
+    /// <summary>Test seam: replaces <c>window.ShowDialog()</c>, so a test can make the window fail to show. <c>null</c> means the real call.</summary>
+    internal Func<ProgressWindow, bool?>? ShowDialogOverride { get; set; }
+
     /// <summary>
     /// Runs <paramref name="work"/> and returns when it has ended and the window is gone. Must be called on the UI thread.
     /// Throws <see cref="InvalidOperationException"/> when another run is active.
@@ -73,7 +77,11 @@ public sealed class ProgressRunner : IOperationRunner
             await WaitForShowDelay(task);
             if (!task.IsCompleted)
             {
-                ShowModal(title, progress, cts, task, windows);
+                var showError = ShowModal(title, progress, cts, task, windows);
+                if (showError is not null)
+                {
+                    return await FailAfterCancel<T>(title, task, cts, showError);
+                }
             }
 
             return await Evaluate(title, task, cts);
@@ -95,22 +103,63 @@ public sealed class ProgressRunner : IOperationRunner
     // Modal. The close is registered only once the window is loaded, i.e. after ShowDialog is running, so Close can never run before ShowDialog.
     // It is registered before WindowShown is raised: if a subscriber throws, the window still closes when the work has ended. The
     // continuation is posted to the UI thread, so it runs after this handler has returned.
-    private void ShowModal(string title, LatestProgress progress, CancellationTokenSource cts, Task work, IReadOnlyList<Window> windows)
+    // Returns the exception that kept the window from showing, or null when the window was shown and has closed again. Only the kinds of
+    // exception that creating or showing a window throws are caught; anything else is a bug and propagates.
+    private Exception? ShowModal(string title, LatestProgress progress, CancellationTokenSource cts, Task work, IReadOnlyList<Window> windows)
     {
-        // The active window; if the app lost activation during the delay, the first visible one, so the modal window is never left without
-        // an owner (it could end up behind other windows with Cancel out of reach). Only a shown window can be an owner.
-        var owner = windows.FirstOrDefault(window => window.IsActive) ?? windows.FirstOrDefault(window => window.IsVisible);
-        var window = new ProgressWindow(title, _texts, progress, cts.Cancel)
+        ProgressWindow? window = null;
+        try
         {
-            Owner = owner,
-            WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
-        };
-        window.Loaded += (_, _) =>
+            // The active window; if the app lost activation during the delay, the first visible one, so the modal window is never left without
+            // an owner (it could end up behind other windows with Cancel out of reach). Only a shown window can be an owner.
+            var owner = windows.FirstOrDefault(candidate => candidate.IsActive) ?? windows.FirstOrDefault(candidate => candidate.IsVisible);
+            var created = new ProgressWindow(title, _texts, progress, cts.Cancel);
+            window = created;
+            created.Owner = owner;
+            created.WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner;
+            created.Loaded += (_, _) =>
+            {
+                work.ContinueWith(_ => created.CloseByRunner(), TaskScheduler.FromCurrentSynchronizationContext());
+                WindowShown?.Invoke(this, created);
+            };
+            (ShowDialogOverride ?? (shown => shown.ShowDialog()))(created);
+            return null;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException)
         {
-            work.ContinueWith(_ => window.CloseByRunner(), TaskScheduler.FromCurrentSynchronizationContext());
-            WindowShown?.Invoke(this, window);
-        };
-        window.ShowDialog();
+            // A window that was never loaded is still known to the application and could keep it alive when the last window closes. A loaded one
+            // has its close registered already and closes when the work has ended.
+            if (window is { IsLoaded: false })
+            {
+                CloseUnshown(window);
+            }
+
+            return ex;
+        }
+    }
+
+    private static void CloseUnshown(ProgressWindow window)
+    {
+        try
+        {
+            window.CloseByRunner();
+        }
+        catch (InvalidOperationException)
+        {
+            // Best effort: a window that failed halfway through showing may refuse to close.
+        }
+    }
+
+    // The window could not be shown, so the user can neither see the progress nor cancel. The work is cancelled and awaited (so nothing keeps
+    // running behind the released input lock), its result or exception is discarded, and the run fails with the reason the window failed.
+    private async Task<OperationOutcome<T>> FailAfterCancel<T>(string title, Task<T> task, CancellationTokenSource cts, Exception showError)
+    {
+        cts.Cancel();
+        // Reading Exception marks a fault of the task as observed, so it cannot surface later as an unobserved task exception.
+        await task.ContinueWith(finished => finished.Exception, TaskScheduler.Default);
+        _log.Error($"Operation \"{title}\" failed: its progress window could not be shown.", showError);
+        _reportError(title, showError);
+        return new OperationOutcome<T>(OperationStatus.Failed, default, showError);
     }
 
     private async Task<OperationOutcome<T>> Evaluate<T>(string title, Task<T> task, CancellationTokenSource cts)

@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TotalWarModTool.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TotalWarModTool.GameProfiles\TotalWarModTool.GameProfiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
