@@ -1,4 +1,5 @@
-namespace TotalWarModTool.Projects.Tests;
+// Root namespace on purpose, like TempDir: resolves unqualified from every TotalWarModTool.<Module>.Tests namespace.
+namespace TotalWarModTool;
 
 internal static class JunctionHelper
 {

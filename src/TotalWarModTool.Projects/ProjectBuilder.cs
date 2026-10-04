@@ -89,7 +89,8 @@ public static class ProjectBuilder
 
     /// <summary>
     /// Writes build\&lt;PackName&gt; through a temp file in the same folder. The plan carries the content of the files, so it must come
-    /// from <see cref="ComputeBuild"/> for the same project folder. A plan with problems writes nothing. Stale temp files of earlier
+    /// from <see cref="ComputeBuild"/> for the same project folder. A plan with problems writes nothing, and a build folder that is a link
+    /// is a write failure that neither writes nor removes anything there. Stale temp files of earlier
     /// crashed runs are removed first. After a failure or a cancel the previous pack is untouched and the temp file is removed. Only
     /// <see cref="OperationCanceledException"/> and argument errors leave as exceptions.
     /// </summary>
@@ -107,6 +108,13 @@ public static class ProjectBuilder
         }
 
         var buildFolder = Path.Combine(projectFolder, ProjectFile.BuildFolder);
+
+        // A linked build folder would let the build write and clean up somewhere outside the project: refused before anything is touched.
+        if (ProjectFiles.IsLink(buildFolder))
+        {
+            return Failed($"the build folder '{buildFolder}' is a link; links to folders are not supported and nothing is written there");
+        }
+
         var target = Path.Combine(buildFolder, project.PackName);
         var temp = Path.Combine(buildFolder, project.PackName + "." + Guid.NewGuid().ToString("N")[..TempSuffixLength] + TempExtension);
         try

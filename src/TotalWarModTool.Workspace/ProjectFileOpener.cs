@@ -20,6 +20,7 @@ public static class ProjectFileOpener
     /// <see cref="OpenedEntry.EntryPath"/> of the result is the same path with '/'. Table and loc files in text form are read with
     /// <see cref="TableTsv"/>; other files are taken for a binary table, a binary loc file, text or something else by their pack path, as
     /// <see cref="EntryOpener.KindOf"/> does. A file that is not read (other files, a table without a schema) only reports its size.
+    /// A file whose path passes through a link (the pack folder, a folder below it or the file itself) is unreadable and never read.
     /// Only <see cref="OperationCanceledException"/> and argument errors (including a path outside the pack folder) are thrown.
     /// </summary>
     public static OpenedEntry Open(string projectFolder, string relativeFile, GameSchema? schema, CancellationToken cancellationToken)
@@ -41,6 +42,10 @@ public static class ProjectFileOpener
         var packFolder = Path.Combine(projectFolder, ProjectFile.PackFolder);
         var fullPath = Path.Combine(packFolder, relativeFile);
         CheckResolvedInsidePackFolder(packFolder, fullPath, relativeFile);
+        if (LinkOnPath(packFolder, relativeFile) is { } link)
+        {
+            return Result(entryPath, kind, 0, EntryProblem.Unreadable, $"links are not supported: the path passes through the link '{link}'");
+        }
 
         long length;
         try
@@ -155,6 +160,32 @@ public static class ProjectFileOpener
         {
             throw new ArgumentException("The file must be a relative path below the pack folder: " + relativeFile, nameof(relativeFile));
         }
+    }
+
+    /// <summary>
+    /// The first link on the way from the pack folder to the file: the pack folder itself ("pack"), a folder segment or the file, as a
+    /// path relative to the project folder. Null when there is none; a part that does not exist is no link (the read reports it).
+    /// </summary>
+    private static string? LinkOnPath(string packFolder, string relativeFile)
+    {
+        if (ProjectFiles.IsLink(packFolder))
+        {
+            return ProjectFile.PackFolder;
+        }
+
+        var path = packFolder;
+        var walked = ProjectFile.PackFolder;
+        foreach (var segment in relativeFile.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            path = Path.Combine(path, segment);
+            walked += "\\" + segment;
+            if (ProjectFiles.IsLink(path))
+            {
+                return walked;
+            }
+        }
+
+        return null;
     }
 
     private static bool TryDecodeStrict(byte[] bytes, out string text)

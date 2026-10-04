@@ -27,7 +27,8 @@ public static class ProjectFiles
 
     /// <summary>
     /// Lists the pack folder of a project folder by folder. A link to a folder is not followed and a folder that cannot be listed is a
-    /// problem; both are reported and the rest is still listed. Only <see cref="OperationCanceledException"/> (checked per folder and
+    /// problem; both are reported and the rest is still listed. A pack folder that is itself a link is one problem with an empty
+    /// relative path, and nothing is listed. Only <see cref="OperationCanceledException"/> (checked per folder and
     /// per file) and argument errors are thrown.
     /// </summary>
     public static ProjectFileList List(string projectFolder, CancellationToken cancellationToken)
@@ -39,6 +40,12 @@ public static class ProjectFiles
         if (!Directory.Exists(packRoot))
         {
             return new ProjectFileList(false, [], [], []);
+        }
+
+        // A linked pack folder is refused like a linked sub folder: nothing behind it belongs to the project.
+        if (IsLink(packRoot))
+        {
+            return new ProjectFileList(true, [], [], [new ProjectFileProblem(string.Empty, LinkProblem)]);
         }
 
         var files = new List<ProjectFileItem>();
@@ -103,6 +110,24 @@ public static class ProjectFiles
         ignored.Sort(StringComparer.Ordinal);
         problems.Sort((a, b) => string.CompareOrdinal(a.RelativePath, b.RelativePath));
         return new ProjectFileList(true, files, ignored, problems);
+    }
+
+    /// <summary>
+    /// True when the file or folder at <paramref name="path"/> exists and is a link (a reparse point such as a junction or a symbolic
+    /// link). The link itself is looked at, never its target. A path that cannot be read counts as no link: the caller's own read
+    /// reports it.
+    /// </summary>
+    public static bool IsLink(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        try
+        {
+            return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

@@ -208,6 +208,61 @@ public class ProjectFileOpenerTests
         Assert.Throws<ArgumentException>(() => ProjectFileOpener.Open(dir.Path, relative, Schema, CancellationToken.None));
     }
 
+    [Fact] public void A_file_below_a_junction_in_the_pack_folder_is_unreadable_and_not_read()
+    {
+        using var dir = new TempDir();
+        Put(dir, "a.lua", Utf8("print(1)"));
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(Path.Combine(outside, "deep"));
+        File.WriteAllBytes(Path.Combine(outside, "deep", "secret.lua"), Utf8("secret"));
+        var link = Path.Combine(dir.Path, "pack", "linked");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var opened = ProjectFileOpener.Open(dir.Path, @"linked\deep\secret.lua", Schema, CancellationToken.None);
+            Assert.Equal(EntryProblem.Unreadable, opened.ReadProblem);
+            Assert.Contains("link", opened.ReadDetail);
+            Assert.Contains("linked", opened.ReadDetail);
+            Assert.Null(opened.Text);
+            Assert.Equal("print(1)", ProjectFileOpener.Open(dir.Path, "a.lua", Schema, CancellationToken.None).Text!.Text);
+        }
+        finally
+        {
+            Directory.Delete(link);   // the link itself, never the target behind it
+        }
+    }
+
+    [Fact] public void A_file_in_a_linked_pack_folder_is_unreadable_and_not_read()
+    {
+        using var dir = new TempDir();
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(outside, "secret.lua"), Utf8("secret"));
+        var project = Path.Combine(dir.Path, "project");
+        Directory.CreateDirectory(project);
+        var link = Path.Combine(project, "pack");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var opened = ProjectFileOpener.Open(project, "secret.lua", Schema, CancellationToken.None);
+            Assert.Equal(EntryProblem.Unreadable, opened.ReadProblem);
+            Assert.Contains("link", opened.ReadDetail);
+            Assert.Null(opened.Text);
+        }
+        finally
+        {
+            Directory.Delete(link);   // the link itself, never the target behind it
+        }
+    }
+
     [Fact] public void A_cancelled_token_stops_opening()
     {
         using var dir = new TempDir();

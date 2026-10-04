@@ -161,6 +161,73 @@ public class ProjectBuilderTests
         Assert.True(File.Exists(Path.Combine(outside, "secret.bin")));
     }
 
+    [Fact] public void A_linked_build_folder_is_refused_and_nothing_behind_it_is_written_or_removed()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, "a.bin", [1]);
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(outside, "my_mod.pack"), [9, 9]);
+        File.WriteAllBytes(Path.Combine(outside, "my_mod.pack.0123abcd.tmp"), [5]);
+        var link = Path.Combine(folder, "build");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+            Assert.Empty(plan.Problems);
+            var result = ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None);
+            Assert.Equal(BuildOutcome.WriteFailed, result.Outcome);
+            Assert.Null(result.PackPath);
+            Assert.Contains(link, result.Detail);
+            Assert.Contains("link", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(link);   // the link itself, never the target behind it
+        }
+
+        Assert.Equal(["my_mod.pack", "my_mod.pack.0123abcd.tmp"], Directory.EnumerateFileSystemEntries(outside).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Equal(new byte[] { 9, 9 }, File.ReadAllBytes(Path.Combine(outside, "my_mod.pack")));
+        Assert.Equal(new byte[] { 5 }, File.ReadAllBytes(Path.Combine(outside, "my_mod.pack.0123abcd.tmp")));
+    }
+
+    [Fact] public void A_linked_pack_folder_is_a_problem_and_nothing_behind_it_is_packed()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(outside, "secret.bin"), [7]);
+        var link = Path.Combine(folder, "pack");
+        Directory.Delete(link, recursive: true);   // the new project made an empty pack folder
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+            var problem = Assert.Single(plan.Problems);
+            Assert.Equal("", problem.RelativeFile);
+            Assert.Contains("links to folders are not supported", problem.Detail);
+            Assert.Empty(plan.Entries);
+            Assert.Equal(BuildOutcome.HasProblems, ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None).Outcome);
+        }
+        finally
+        {
+            Directory.Delete(link);   // the link itself, never the target behind it
+        }
+
+        Assert.False(Directory.Exists(Path.Combine(folder, "build")));
+        Assert.Equal(["secret.bin"], Directory.EnumerateFileSystemEntries(outside).Select(Path.GetFileName));
+    }
+
     [Fact] public void A_cancelled_token_stops_the_listing()
     {
         using var dir = new TempDir();

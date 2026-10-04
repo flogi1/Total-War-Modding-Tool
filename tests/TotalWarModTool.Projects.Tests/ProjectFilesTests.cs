@@ -119,6 +119,39 @@ public class ProjectFilesTests
         Assert.True(File.Exists(Path.Combine(outside, "secret.bin")));
     }
 
+    [Fact] public void A_linked_pack_folder_is_a_problem_and_nothing_below_it_is_listed()
+    {
+        using var dir = new TempDir();
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(Path.Combine(outside, "sub"));
+        File.WriteAllBytes(Path.Combine(outside, "secret.bin"), [7]);
+        File.WriteAllBytes(Path.Combine(outside, "sub", "deep.bin"), [8]);
+        var project = Path.Combine(dir.Path, "project");
+        Directory.CreateDirectory(project);
+        var link = Path.Combine(project, "pack");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var list = ProjectFiles.List(project, CancellationToken.None);
+            Assert.True(list.PackFolderExists);
+            var problem = Assert.Single(list.Problems);
+            Assert.Equal("", problem.RelativePath);
+            Assert.Contains("links to folders are not supported", problem.Detail);
+            Assert.Empty(list.Files);
+            Assert.Empty(list.Ignored);
+        }
+        finally
+        {
+            Directory.Delete(link);   // the link itself, never the target behind it
+        }
+
+        Assert.True(File.Exists(Path.Combine(outside, "secret.bin")));
+    }
+
     [Fact] public void A_cancelled_token_stops_the_listing()
     {
         using var dir = new TempDir();
