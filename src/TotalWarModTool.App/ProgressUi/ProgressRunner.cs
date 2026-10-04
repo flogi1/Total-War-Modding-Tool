@@ -9,7 +9,12 @@ namespace TotalWarModTool.App;
 
 public enum OperationStatus { Completed, Cancelled, Failed }
 
-/// <summary>Result of a run. <c>Value</c> is the return value of the work (also after a cancel, if the work returned normally) and the default otherwise.</summary>
+/// <summary>
+/// Result of a run. <c>Value</c> is the return value of the work if the work returned normally, and the default if it faulted or was cancelled
+/// by throwing. It can therefore be set for <see cref="OperationStatus.Completed"/>, for <see cref="OperationStatus.Cancelled"/> and for
+/// <see cref="OperationStatus.Failed"/> after the progress window could not be shown (the work was asked to cancel but may have finished anyway).
+/// A caller that needs to know what the work did must look at the value, not only at the status.
+/// </summary>
 public sealed record OperationOutcome<T>(OperationStatus Status, T? Value, Exception? Error);
 
 /// <summary>
@@ -65,6 +70,7 @@ public sealed class ProgressRunner : IOperationRunner
 
         _running = true;
         InputLock? inputLock = null;
+        Task<T>? task = null;
         using var cts = new CancellationTokenSource();
         try
         {
@@ -72,7 +78,7 @@ public sealed class ProgressRunner : IOperationRunner
             inputLock = new InputLock(windows);
 
             var progress = new LatestProgress();
-            var task = Task.Run(() => work(progress, cts.Token));
+            task = Task.Run(() => work(progress, cts.Token));
 
             await WaitForShowDelay(task);
             if (!task.IsCompleted)
@@ -88,6 +94,15 @@ public sealed class ProgressRunner : IOperationRunner
         }
         finally
         {
+            // Invariant: the input lock is never released while the work still runs. On the normal paths the work has ended here. If anything
+            // else left the run early (a bug in showing the window, an exception from a subscriber), the work is cancelled and awaited first, so
+            // that exception still propagates, but only after the work has ended. The cancellation source is disposed after this block.
+            if (task is { IsCompleted: false })
+            {
+                cts.Cancel();
+                await WaitForEnd(title, task);
+            }
+
             inputLock?.Dispose();
             _running = false;
         }
@@ -125,6 +140,8 @@ public sealed class ProgressRunner : IOperationRunner
             (ShowDialogOverride ?? (shown => shown.ShowDialog()))(created);
             return null;
         }
+        // An exception thrown from inside the message loop of ShowDialog is treated as "cannot be shown" too. That relies on the dispatcher
+        // exception handler of the application marking exceptions of UI handlers as handled, so such an exception never reaches this catch.
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException)
         {
             // A window that was never loaded is still known to the application and could keep it alive when the last window closes. A loaded one
@@ -151,15 +168,28 @@ public sealed class ProgressRunner : IOperationRunner
     }
 
     // The window could not be shown, so the user can neither see the progress nor cancel. The work is cancelled and awaited (so nothing keeps
-    // running behind the released input lock), its result or exception is discarded, and the run fails with the reason the window failed.
+    // running behind the released input lock) and the run fails with the reason the window failed. The value of the work is kept if it returned
+    // normally, like for a cancelled run; a fault of the work is only logged as a warning, so the show error stays the one logged error.
     private async Task<OperationOutcome<T>> FailAfterCancel<T>(string title, Task<T> task, CancellationTokenSource cts, Exception showError)
     {
         cts.Cancel();
-        // Reading Exception marks a fault of the task as observed, so it cannot surface later as an unobserved task exception.
-        await task.ContinueWith(finished => finished.Exception, TaskScheduler.Default);
+        await WaitForEnd(title, task);
         _log.Error($"Operation \"{title}\" failed: its progress window could not be shown.", showError);
         _reportError(title, showError);
-        return new OperationOutcome<T>(OperationStatus.Failed, default, showError);
+        return new OperationOutcome<T>(OperationStatus.Failed, task.IsCompletedSuccessfully ? task.Result : default, showError);
+    }
+
+    // Waits for the end of work that was asked to cancel. The wait is unbounded if the work ignores the token, and that is deliberate: a timeout
+    // would release the input lock while the work may still be writing files. A fault is observed (reading Exception) so it cannot surface later
+    // as an unobserved task exception, and logged as a warning; a cancellation after the request is expected and not logged.
+    private async Task WaitForEnd(string title, Task work)
+    {
+        var fault = await work.ContinueWith(finished => finished.Exception, TaskScheduler.Default);
+        var cause = fault?.InnerException;
+        if (cause is not null and not OperationCanceledException)
+        {
+            _log.Warn($"Operation \"{title}\" ended with {cause.GetType().Name} after it was asked to cancel: {cause.Message}");
+        }
     }
 
     private async Task<OperationOutcome<T>> Evaluate<T>(string title, Task<T> task, CancellationTokenSource cts)

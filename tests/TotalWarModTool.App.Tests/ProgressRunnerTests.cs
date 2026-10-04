@@ -167,7 +167,7 @@ public class ProgressRunnerTests
         var outcome = await runner.RunAsync("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); sawCancel = ct.IsCancellationRequested; return 1; });
         Assert.Equal(OperationStatus.Failed, outcome.Status);
         Assert.IsType<InvalidOperationException>(outcome.Error);
-        Assert.Equal(0, outcome.Value);
+        Assert.Equal(1, outcome.Value);   // the work returned normally after the cancel: its value is kept, like for a cancelled run
         Assert.True(sawCancel);
         Assert.False(runner.IsRunning);
         Assert.True(main.IsHitTestVisible);
@@ -184,32 +184,80 @@ public class ProgressRunnerTests
         var outcome = await runner.RunAsync("op", (_, _) => { gate.Wait(); return 9; });
         Assert.Equal(OperationStatus.Failed, outcome.Status);
         Assert.IsType<InvalidOperationException>(outcome.Error);
-        Assert.Equal(0, outcome.Value);
+        Assert.Equal(9, outcome.Value);
         Assert.False(runner.IsRunning);
         Assert.Single(reported);
     });
 
-    // The work throws something else once it was told to cancel: that exception is observed and does not change the outcome.
-    [Fact] public void Exception_of_the_work_after_the_window_failed_is_observed() => Sta.RunAsync(async () =>
+    // The work throws something else once it was told to cancel: the outcome stays the show failure, and the fault of the work is logged as a
+    // warning (not as an error), so the show error is the single logged error.
+    [Fact] public void Fault_of_the_work_after_the_window_failed_is_logged_as_a_warning() => Sta.RunAsync(async () =>
     {
-        var (runner, _, reported, _) = Create(Soon);
-        var unobserved = new List<Exception>();
-        void OnUnobserved(object? _, UnobservedTaskExceptionEventArgs e) => unobserved.Add(e.Exception);
-        TaskScheduler.UnobservedTaskException += OnUnobserved;
-        try
+        var (runner, log, reported, _) = Create(Soon);
+        runner.ShowDialogOverride = _ => throw new Win32Exception("no window");
+        var outcome = await runner.RunAsync<int>("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); throw new IOException("late"); });
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.IsType<Win32Exception>(outcome.Error);
+        Assert.Equal(0, outcome.Value);
+        Assert.Single(reported);
+        Assert.Single(log.Errors);
+        var warning = Assert.Single(log.Warnings);
+        Assert.Contains("op", warning); Assert.Contains("IOException", warning); Assert.Contains("late", warning);
+    });
+
+    // A cancellation of the work after the requested cancel is the expected reaction and is not logged.
+    [Fact] public void Cancellation_of_the_work_after_the_window_failed_is_not_logged() => Sta.RunAsync(async () =>
+    {
+        var (runner, log, reported, _) = Create(Soon);
+        runner.ShowDialogOverride = _ => throw new InvalidOperationException("no window");
+        var outcome = await runner.RunAsync<int>("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); ct.ThrowIfCancellationRequested(); return 1; });
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.Equal(0, outcome.Value);
+        Assert.Single(reported); Assert.Single(log.Errors); Assert.Empty(log.Warnings);
+    });
+
+    // Whatever else leaves the run early, the lock stays until the work has ended; the foreign exception propagates only after that.
+    [Fact] public void Foreign_exception_while_showing_the_window_propagates_after_the_work_was_cancelled_and_ended() => Sta.RunAsync(async () =>
+    {
+        var main = new Window();
+        var (runner, _, reported, _) = Create(Soon, main);
+        runner.ShowDialogOverride = _ => throw new NullReferenceException();
+        var sawCancel = false;
+        await Assert.ThrowsAsync<NullReferenceException>(() => runner.RunAsync("op", (_, ct) =>
         {
-            runner.ShowDialogOverride = _ => throw new Win32Exception("no window");
-            var outcome = await runner.RunAsync<int>("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); throw new IOException("late"); });
-            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-            Assert.Equal(OperationStatus.Failed, outcome.Status);
-            Assert.IsType<Win32Exception>(outcome.Error);
-            Assert.Single(reported);
-            Assert.Empty(unobserved);
-        }
-        finally
+            ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); sawCancel = ct.IsCancellationRequested; return 1;
+        }));
+        Assert.True(sawCancel);
+        Assert.True(main.IsHitTestVisible);
+        Assert.False(runner.IsRunning);
+        Assert.Empty(reported);
+    });
+
+    // The runner waits for work that ignores the token: no timeout, the lock stays and the run is still active until the work ends.
+    [Fact] public void Run_waits_for_work_that_ignores_the_cancel_after_the_window_failed() => Sta.RunAsync(async () =>
+    {
+        var main = new Window();
+        var (runner, _, _, _) = Create(Soon, main);
+        using var gate = new ManualResetEventSlim();
+        var showAttempted = false;
+        runner.ShowDialogOverride = _ => { showAttempted = true; throw new InvalidOperationException("no window"); };
+        var run = runner.RunAsync("op", (_, _) => { gate.Wait(); return 3; });
+        while (!showAttempted)
         {
-            TaskScheduler.UnobservedTaskException -= OnUnobserved;
+            await Task.Delay(5);
         }
+
+        await Task.Delay(50);   // gives the runner every chance to (wrongly) finish while the work blocks
+        Assert.False(run.IsCompleted);
+        Assert.True(runner.IsRunning);
+        Assert.False(main.IsHitTestVisible);
+
+        gate.Set();
+        var outcome = await run;
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.Equal(3, outcome.Value);
+        Assert.False(runner.IsRunning);
+        Assert.True(main.IsHitTestVisible);
     });
 
     [Fact] public void Second_run_while_one_is_active_throws() => Sta.RunAsync(async () =>
