@@ -15,6 +15,7 @@ public sealed class MainViewModel : ObservableObject
     private static readonly TimeSpan FailDelay = TimeSpan.FromSeconds(1);
 
     private readonly WorkspaceController _workspace;
+    private readonly ProjectsController? _projects;
     private readonly RelayCommand _refreshCommand;
     private ResolvedSchema? _seenSchema;
 
@@ -22,21 +23,33 @@ public sealed class MainViewModel : ObservableObject
     /// <param name="progress">The runner every user-started operation goes through. The workspace and the debug commands use it.</param>
     /// <param name="openSettings">Opens the settings window (or activates it if it is open). Passed in so the view model knows no windows.</param>
     /// <param name="workspace">The state of the game. The explorer, the tabs and the status line are built on it.</param>
-    /// <param name="openGameSettings">Opens the settings window on the page "Game". The explorer uses it for its button; null: the explorer uses <paramref name="openSettings"/>.</param>
+    /// <param name="projects">The mod projects of the game; null: the app has no projects (no menu, no group in the explorer).</param>
+    /// <param name="projectCommands">The project commands the menu, the hotkeys and the context menus use; null without projects.</param>
     public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings,
-        WorkspaceController workspace, Action? openGameSettings = null)
+        WorkspaceController workspace, Action? openGameSettings = null, ProjectsController? projects = null, ProjectsViewModel? projectCommands = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         Texts = texts;
         _workspace = workspace;
+        _projects = projects;
+        Projects = projectCommands;
         OpenSettingsCommand = new RelayCommand(openSettings);
         OpenLogFolderCommand = new RelayCommand(() => openFolder(paths.LogDirectory));
 
         Tabs = new TabsViewModel(texts);
-        Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings);
+        Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync);
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.
-        _refreshCommand = new RelayCommand(async () => await workspace.RefreshAsync(), () => workspace.CanStartOperation && workspace.Profile is not null);
+        // After the packs, the projects are read again (their files may have changed outside), and the open ones are listed again silently.
+        _refreshCommand = new RelayCommand(async () =>
+        {
+            await workspace.RefreshAsync();
+            if (projects is not null)
+            {
+                projects.Reload();
+                await Explorer.RefreshProjectFilesAsync();
+            }
+        }, () => workspace.CanStartOperation && workspace.Profile is not null);
         workspace.PackChanged += (_, pack) => Tabs.MarkStale(pack.Path);
         _seenSchema = workspace.Schema;
         workspace.Changed += (_, _) =>
@@ -54,7 +67,27 @@ public sealed class MainViewModel : ObservableObject
         };
 
         // The status line is built from texts: a language switch changes all of it.
-        texts.PropertyChanged += (_, _) => RaiseStatusChanged();
+        texts.PropertyChanged += (_, _) =>
+        {
+            RaiseStatusChanged();
+            RaiseProjectReasonsChanged();
+        };
+
+        if (projects is not null && projectCommands is not null)
+        {
+            // The status bar shows the result of the last project command; the menu says why Build is disabled.
+            projectCommands.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(ProjectsViewModel.StatusMessage) or null)
+                {
+                    OnPropertyChanged(nameof(ProjectStatusLine));
+                    OnPropertyChanged(nameof(ProjectStatusToolTip));
+                    OnPropertyChanged(nameof(HasProjectStatus));
+                }
+            };
+            projects.Changed += (_, _) => RaiseProjectReasonsChanged();
+            projects.OperationStateChanged += (_, _) => RaiseProjectReasonsChanged();
+        }
 
         // The debug commands exist in every build; only the menu that offers them is limited to the debug build (IsDebugBuild).
         DebugThrowCommand = new RelayCommand(() => throw new InvalidOperationException("Debug test exception"));
@@ -67,6 +100,39 @@ public sealed class MainViewModel : ObservableObject
     public ExplorerViewModel Explorer { get; }
 
     public TabsViewModel Tabs { get; }
+
+    /// <summary>The project commands; null when the app has no projects.</summary>
+    public ProjectsViewModel? Projects { get; }
+
+    /// <summary>The menu "Project" is shown.</summary>
+    public bool HasProjects => Projects is not null;
+
+    /// <summary>The first line of the result of the last project command, for the status bar; null when there is none.</summary>
+    public string? ProjectStatusLine
+    {
+        get
+        {
+            var message = Projects?.StatusMessage;
+            if (string.IsNullOrEmpty(message))
+            {
+                return null;
+            }
+
+            var end = message.IndexOfAny(['\r', '\n']);
+            return end < 0 ? message : message[..end];
+        }
+    }
+
+    /// <summary>The whole result of the last project command: it can have several lines. Null when there is none.</summary>
+    public string? ProjectStatusToolTip => string.IsNullOrEmpty(Projects?.StatusMessage) ? null : Projects.StatusMessage;
+
+    public bool HasProjectStatus => ProjectStatusLine is not null;
+
+    /// <summary>Why "Build" of the menu is disabled (no active project, or it cannot be used); null when it can run.</summary>
+    public string? ProjectBuildToolTip => Projects?.BuildDisabledReason(_projects?.ActiveId);
+
+    /// <summary>Why "Build and install" of the menu is disabled; null when it can run.</summary>
+    public string? ProjectBuildAndInstallToolTip => Projects?.InstallDisabledReason(_projects?.ActiveId);
 
     /// <summary>Scans the packs and loads the schema again. Enabled when a game profile exists and no operation runs.</summary>
     public ICommand RefreshCommand => _refreshCommand;
@@ -130,6 +196,36 @@ public sealed class MainViewModel : ObservableObject
         {
             Tabs.Add(pack, opened, _workspace.Schema);
         }
+    }
+
+    /// <summary>
+    /// Opens a file of a project in a tab. <paramref name="relativeFile"/> is the path below the pack folder (the explorer gives it with '\'); the
+    /// tab keeps it with '/'. A file that is already open only gets its tab selected; nothing is read then.
+    /// </summary>
+    public async Task OpenProjectFileAsync(Guid projectId, string relativeFile)
+    {
+        ArgumentNullException.ThrowIfNull(relativeFile);
+        if (_projects is null || _projects.Projects.FirstOrDefault(state => state.Id == projectId) is not { } state)
+        {
+            return;
+        }
+
+        var source = TabSource.ForProject(projectId, MessageText.EscapeControlCharacters(state.DisplayName));
+        if (Tabs.TryActivate(source.Key, relativeFile.Replace('\\', '/')))
+        {
+            return;
+        }
+
+        if (await _projects.OpenFileAsync(projectId, relativeFile) is { } opened)
+        {
+            Tabs.Add(source, opened, _workspace.Schema);
+        }
+    }
+
+    private void RaiseProjectReasonsChanged()
+    {
+        OnPropertyChanged(nameof(ProjectBuildToolTip));
+        OnPropertyChanged(nameof(ProjectBuildAndInstallToolTip));
     }
 
     // A reload that resolves the same file with the same date is no change: a refresh alone must not mark any tab.

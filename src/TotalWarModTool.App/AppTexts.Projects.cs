@@ -236,6 +236,31 @@ public sealed partial class AppTexts
 
     public string DialogPackFilter => T("dialog.packFilter", "Pack files (*.pack)");
 
+    // ---- explorer, menu and context menus ----------------------------------------------------------------------------------------
+    // "New project", "Build", "Uninstall" and the menu title "Project" reuse ProjectNewTitle, BuildMessageTitle, UninstallMessageTitle and
+    // ProjectMessageTitle: the words are the same.
+
+    /// <param name="count">Number of projects in the list.</param>
+    public string ExplorerProjectsGroup(int count) => F("explorer.projects", "Projects ({0})", count);
+
+    public string MenuProjectOpen => T("menu.project.open", "Open project");
+
+    public string MenuProjectImport => T("menu.project.import", "Import pack");
+
+    /// <summary>The shortcut shown next to "Build" in the menu; the shortcut itself is bound in the window.</summary>
+    public string MenuProjectBuildGesture => T("menu.project.buildGesture", "Ctrl+B");
+
+    /// <summary>The shortcut shown next to "Build and install" in the menu; the shortcut itself is bound in the window.</summary>
+    public string MenuProjectBuildAndInstallGesture => T("menu.project.buildAndInstallGesture", "Ctrl+Shift+B");
+
+    public string ProjectActionSetActive => T("project.action.setActive", "Set as active");
+
+    public string ProjectActionBuildAndInstall => T("project.action.buildAndInstall", "Build and install");
+
+    public string ProjectActionRemove => T("project.action.remove", "Remove from list");
+
+    public string ProjectActionImport => T("project.action.import", "Import as project");
+
     /// <summary>The text for an import problem; empty for <see cref="ImportProblem.None"/>.</summary>
     public string ImportProblemText(ImportProblem problem) => problem switch
     {

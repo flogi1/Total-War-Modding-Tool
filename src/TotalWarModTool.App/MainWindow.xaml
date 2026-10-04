@@ -10,6 +10,8 @@
     <Window.InputBindings>
         <KeyBinding Key="F5" Command="{Binding RefreshCommand}" />
         <KeyBinding Key="W" Modifiers="Control" Command="{Binding Tabs.CloseSelectedCommand}" />
+        <KeyBinding Key="B" Modifiers="Control" Command="{Binding Projects.BuildActiveCommand}" />
+        <KeyBinding Key="B" Modifiers="Control+Shift" Command="{Binding Projects.BuildAndInstallActiveCommand}" />
     </Window.InputBindings>
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -20,6 +22,22 @@
                 <MenuItem Header="{Binding Texts.OperationRefreshPacks}" Command="{Binding RefreshCommand}" />
                 <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
                 <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
+            </MenuItem>
+            <!-- The mod projects; only when the app has projects. A disabled entry says why in its tool tip. -->
+            <MenuItem Header="{Binding Texts.ProjectMessageTitle}" Visibility="{Binding HasProjects, Converter={StaticResource BoolToVisibility}}">
+                <MenuItem Header="{Binding Texts.ProjectNewTitle}" Command="{Binding Projects.NewProjectCommand}"
+                          ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
+                <MenuItem Header="{Binding Texts.MenuProjectOpen}" Command="{Binding Projects.OpenProjectCommand}"
+                          ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
+                <MenuItem Header="{Binding Texts.MenuProjectImport}" Command="{Binding Projects.ImportPackCommand}"
+                          ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
+                <Separator />
+                <MenuItem Header="{Binding Texts.BuildMessageTitle}" Command="{Binding Projects.BuildActiveCommand}"
+                          InputGestureText="{Binding Texts.MenuProjectBuildGesture}"
+                          ToolTip="{Binding ProjectBuildToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <MenuItem Header="{Binding Texts.ProjectActionBuildAndInstall}" Command="{Binding Projects.BuildAndInstallActiveCommand}"
+                          InputGestureText="{Binding Texts.MenuProjectBuildAndInstallGesture}"
+                          ToolTip="{Binding ProjectBuildAndInstallToolTip}" ToolTipService.ShowOnDisabled="True" />
             </MenuItem>
             <!-- Only in the debug build: IsDebugBuild is false in a release build, so the menu is collapsed there. -->
             <MenuItem Header="{Binding Texts.MenuDebug}" Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVisibility}}">
@@ -42,6 +60,10 @@
             </StatusBarItem>
             <StatusBarItem x:Name="StatusHintItem" Visibility="{Binding HasStatusHint, Converter={StaticResource BoolToVisibility}}">
                 <TextBlock Text="{Binding StatusHint}" Foreground="{DynamicResource Theme.Warning}" />
+            </StatusBarItem>
+            <!-- The result of the last project command: its first line, the whole text as the tool tip. Hidden when there is none. -->
+            <StatusBarItem x:Name="ProjectStatusItem" Visibility="{Binding HasProjectStatus, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="{Binding ProjectStatusLine}" ToolTip="{Binding ProjectStatusToolTip}" />
             </StatusBarItem>
         </StatusBar>
 

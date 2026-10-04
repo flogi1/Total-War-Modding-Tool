@@ -18,6 +18,8 @@ public abstract class ExplorerNode : ObservableObject
     private string? _toolTip;
     private bool _hasProblem;
     private bool _isExpanded;
+    private bool _isEmphasized;
+    private IReadOnlyList<NodeAction> _actions = [];
 
     protected ExplorerNode(string name)
     {
@@ -46,6 +48,31 @@ public abstract class ExplorerNode : ObservableObject
     {
         get => _hasProblem;
         protected set => SetProperty(ref _hasProblem, value);
+    }
+
+    /// <summary>The entries of the context menu of the node; empty (no menu) by default.</summary>
+    public IReadOnlyList<NodeAction> Actions
+    {
+        get => _actions;
+        protected set
+        {
+            if (SetProperty(ref _actions, value))
+            {
+                OnPropertyChanged(nameof(HasActions));
+            }
+        }
+    }
+
+    public bool HasActions => _actions.Count > 0;
+
+    /// <summary>Replaces the entries of the context menu (set by the view model, which knows the commands).</summary>
+    internal void ReplaceActions(IReadOnlyList<NodeAction> actions) => Actions = actions;
+
+    /// <summary>The node is shown in bold: the active project.</summary>
+    public bool IsEmphasized
+    {
+        get => _isEmphasized;
+        protected set => SetProperty(ref _isEmphasized, value);
     }
 
     public ObservableCollection<ExplorerNode> Children => _children;

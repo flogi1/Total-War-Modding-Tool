@@ -118,6 +118,37 @@ internal sealed class TestGame : IDisposable
         return new ProjectsController(store, store.Load(), workspace, runner ?? Runner, Log, Texts, TimeProvider.System);
     }
 
+    /// <summary>The main view model of the app with projects: the controller of <see cref="NewProjects"/>, the commands over a fake dialog.</summary>
+    public MainSetup NewMain(WorkspaceController workspace, IOperationRunner? runner = null)
+    {
+        var projects = NewProjects(workspace, runner);
+        var dialogs = new FakeProjectDialogs();
+        var commands = new ProjectsViewModel(projects, dialogs, Texts);
+        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands);
+        return new MainSetup(main, projects, dialogs);
+    }
+
+    /// <summary>Creates a project (it becomes the active one when it is the first) and writes the given files below its pack folder.</summary>
+    public ProjectState NewProject(ProjectsController projects, string name, params (string RelativeFile, string Text)[] files)
+    {
+        var folder = NewFolder(name.ToLowerInvariant().Replace(' ', '_'));
+        var result = projects.Create(folder, name, name.ToLowerInvariant().Replace(' ', '_') + ".pack");
+        if (!result.Ok)
+        {
+            throw new InvalidOperationException(result.Message);
+        }
+
+        var state = projects.Projects[^1];
+        foreach (var (relative, text) in files)
+        {
+            var path = Path.Combine(state.Folder, "pack", relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
+
+        return state;
+    }
+
     /// <summary>Creates an empty folder below the temp folder and returns its path.</summary>
     public string NewFolder(string name)
     {
@@ -131,6 +162,9 @@ internal sealed class TestGame : IDisposable
 
     public void Dispose() => Root.Dispose();
 }
+
+/// <summary>What <see cref="TestGame.NewMain"/> built.</summary>
+internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs);
 
 /// <summary>A Steam source that finds no Steam installation.</summary>
 internal sealed class NoSteam : ISteamLocationSource

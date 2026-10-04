@@ -5,6 +5,7 @@ using Microsoft.Win32;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Logging;
+using TotalWarModTool.Projects;
 using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
 using TotalWarModTool.Storage;
@@ -102,6 +103,8 @@ public partial class App : Application
         var gameSettings = new GameSettings();
         SessionStore? sessionStore = null;
         var sessionLoaded = new SessionLoadResult(SessionState.Empty, LoadStatus.Missing, null);
+        ProjectListStore? projectListStore = null;
+        var projectListLoaded = new ProjectListLoadResult(ProjectList.Empty, LoadStatus.Missing, null);
         if (profile is not null)
         {
             var gameSettingsStore = new GameSettingsStore(paths.RoamingRoot, profile.Id);
@@ -130,6 +133,14 @@ public partial class App : Application
             {
                 log.Warn(sessionProblem);
             }
+
+            // The controller decides what a list that was not loaded as it is means for saving (see ProjectsController).
+            projectListStore = new ProjectListStore(paths.RoamingRoot, profile.Id);
+            projectListLoaded = projectListStore.Load();
+            if (SettingsLoadMessage.Build(projectListStore.FilePath, projectListLoaded.Status, projectListLoaded.BadCopyPath, "Project list") is { } projectListProblem)
+            {
+                log.Warn(projectListProblem);
+            }
         }
 
         var workspace = new WorkspaceController(profile, gameSettings, settings, paths, new RegistrySteamLocationSource(), progressRunner, log, texts);
@@ -147,12 +158,17 @@ public partial class App : Application
             return new SettingsWindow(settingsViewModel) { Owner = mainWindow };
         });
 
+        // The mod projects of the game. Without a game profile the store is null and the controller is unavailable: the menu shows, but says why it is disabled.
+        // The dialogs are owned by the main window, which is read only when a dialog opens.
+        var projects = new ProjectsController(projectListStore, projectListLoaded, workspace, progressRunner, log, texts, TimeProvider.System);
+        var projectCommands = new ProjectsViewModel(projects, new ProjectDialogs(texts, () => mainWindow), texts);
+
         // The button of the explorer ("game not found") leads to the page "Game"; the menu entry keeps the page that was shown last.
         var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace, () =>
         {
             settingsViewModel.SelectedCategory = SettingsViewModel.GameCategory;
             settingsWindows.ShowOrActivate();
-        });
+        }, projects, projectCommands);
 
         SessionCoordinator? session = null;
         if (sessionStore is not null)

@@ -32,6 +32,26 @@ public class MainWindowTests
         return new Setup(game, controller, viewModel, window, logFolders);
     }
 
+    private sealed record ProjectSetup(Setup Setup, MainSetup Main) : IDisposable
+    {
+        public void Dispose() => Setup.Dispose();
+    }
+
+    // Like Create, over a main view model with projects (the fake dialogs are in Main).
+    private static async Task<ProjectSetup> CreateWithProjects()
+    {
+        var game = new TestGame();
+        var controller = game.NewController();
+        var main = game.NewMain(controller);
+        await controller.LoadAsync();
+        var window = new MainWindow(main.Main);
+        window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
+            File.ReadAllText(Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml"))));
+        window.Show();
+        Pump(window);
+        return new ProjectSetup(new Setup(game, controller, main.Main, window, []), main);
+    }
+
     private static void Pump(Window window)
     {
         window.UpdateLayout();
@@ -110,5 +130,63 @@ public class MainWindowTests
         var bindings = setup.Window.InputBindings.OfType<KeyBinding>().ToList();
         Assert.Same(setup.ViewModel.Tabs.CloseSelectedCommand, Assert.Single(bindings, b => b.Key == Key.W && b.Modifiers == ModifierKeys.Control).Command);
         Assert.Same(setup.ViewModel.RefreshCommand, Assert.Single(bindings, b => b.Key == Key.F5 && b.Modifiers == ModifierKeys.None).Command);
+    });
+
+    [Fact] public void The_project_menu_is_second_and_binds_the_commands() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var projects = setup.Setup.ViewModel.Projects!;
+        var menus = Descendants<MenuItem>(window).ToList();
+        Assert.Equal([texts.MenuTools, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
+        var project = menus[1];
+        Assert.Equal(Visibility.Visible, project.Visibility);
+
+        var entries = project.Items.Cast<object>().ToList();
+        Assert.Equal(6, entries.Count);
+        Assert.IsType<Separator>(entries[3]);
+        var items = entries.OfType<MenuItem>().ToList();
+        Assert.Equal([texts.ProjectNewTitle, texts.MenuProjectOpen, texts.MenuProjectImport, texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall],
+            items.Select(i => i.Header));
+        Assert.Equal([projects.NewProjectCommand, projects.OpenProjectCommand, projects.ImportPackCommand, projects.BuildActiveCommand, projects.BuildAndInstallActiveCommand],
+            items.Select(i => i.Command));
+        Assert.Equal(["", "", "", texts.MenuProjectBuildGesture, texts.MenuProjectBuildAndInstallGesture], items.Select(i => i.InputGestureText ?? ""));
+
+        // A menu item asks its command when the menu opens.
+        project.IsSubmenuOpen = true;
+        Pump(window);
+        Assert.False(items[3].Command.CanExecute(null));
+        Assert.False(items[3].IsEnabled);
+        project.IsSubmenuOpen = false;
+        Assert.Equal(texts.ProjectNoneActive, items[3].ToolTip);
+        Assert.True(ToolTipService.GetShowOnDisabled(items[3]));
+
+        var bindings = window.InputBindings.OfType<KeyBinding>().ToList();
+        Assert.Same(projects.BuildActiveCommand, Assert.Single(bindings, b => b.Key == Key.B && b.Modifiers == ModifierKeys.Control).Command);
+        Assert.Same(projects.BuildAndInstallActiveCommand, Assert.Single(bindings, b => b.Key == Key.B && b.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)).Command);
+    });
+
+    [Fact] public void The_project_menu_is_hidden_without_projects() => Sta.RunAsync(async () =>
+    {
+        using var setup = await Create();
+        var menus = Descendants<MenuItem>(setup.Window).ToList();
+        Assert.Equal(Visibility.Collapsed, menus[1].Visibility);
+        Assert.Equal(setup.Game.Texts.MenuTools, menus[0].Header);
+    });
+
+    [Fact] public void The_status_bar_shows_the_last_project_message() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var item = (FrameworkElement)window.FindName("ProjectStatusItem");
+        Assert.Equal(Visibility.Collapsed, item.Visibility);
+
+        setup.Main.Dialogs.ProjectAnswer = new ProjectInput("Alpha", setup.Setup.Game.NewFolder("alpha"), "alpha.pack");
+        setup.Setup.ViewModel.Projects!.NewProjectCommand.Execute(null);
+        Pump(window);
+
+        Assert.Equal(Visibility.Visible, item.Visibility);
+        var text = Assert.Single(Descendants<TextBlock>(item));
+        Assert.Equal(texts.ProjectCreated("Alpha"), text.Text);
+        Assert.Equal(texts.ProjectCreated("Alpha"), text.ToolTip);
     });
 }

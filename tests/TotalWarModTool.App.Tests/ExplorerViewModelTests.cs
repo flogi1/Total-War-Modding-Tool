@@ -1,6 +1,8 @@
 using TotalWarModTool.Localization;
 using TotalWarModTool.PackFiles;
+using TotalWarModTool.Projects;
 using TotalWarModTool.Session;
+using TotalWarModTool.Storage;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App.Tests;
@@ -341,5 +343,310 @@ public class ExplorerViewModelTests
         Assert.Equal(("Workshop (1)", PackOrigin.Workshop, false), (group.Name, ((GroupNode)group).Origin, group.IsExpanded));
         var pack = Assert.IsType<PackNode>(Assert.Single(group.Children));
         Assert.Equal(("mod.pack (777)", pack.Pack.Path), (pack.Name, pack.ToolTip));
+    }
+
+    // ---- projects --------------------------------------------------------------------------------------------------------------
+
+    private sealed record ProjectSetup(TestGame Game, WorkspaceController C, ProjectsController Projects, ProjectsViewModel Commands,
+        ExplorerViewModel Vm, List<(Guid Id, string File)> OpenedFiles) : IDisposable
+    {
+        public AppTexts Texts => Game.Texts;
+
+        public void Dispose() => Game.Dispose();
+
+        public ProjectsGroupNode Group => Assert.IsType<ProjectsGroupNode>(Vm.Groups[0]);
+
+        public ProjectNode NodeOf(string name) => Group.Children.OfType<ProjectNode>().Single(n => n.Name == name);
+    }
+
+    // An explorer with projects over a TestGame; the projects are created before the explorer, as the list is loaded at start.
+    private static async Task<ProjectSetup> CreateWithProjects(Action<TestGame>? arrange = null, Action<TestGame, ProjectsController>? projects = null,
+        bool inSteamLibrary = false)
+    {
+        var game = new TestGame(inSteamLibrary: inSteamLibrary); arrange?.Invoke(game);
+        var c = game.NewController();
+        var p = game.NewProjects(c);
+        projects?.Invoke(game, p);
+        var commands = new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts);
+        var opened = new List<(Guid, string)>();
+        var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (id, file) => { opened.Add((id, file)); return Task.CompletedTask; });
+        await c.LoadAsync();
+        return new ProjectSetup(game, c, p, commands, vm, opened);
+    }
+
+    [Fact] public async Task The_projects_group_comes_first_and_lists_the_projects()
+    {
+        using var setup = await CreateWithProjects(g => g.AddPack("a.pack"), projects: (g, p) =>
+        {
+            g.NewProject(p, "Alpha");
+            var beta = g.NewProject(p, "Beta");
+            p.SetActive(beta.Id);
+        });
+        var group = setup.Group;
+        Assert.Equal(setup.Texts.ExplorerProjectsGroup(2), group.Name);
+        Assert.Equal(["Alpha", "Beta"], group.Children.Select(n => n.Name));
+        Assert.Equal([false, true], group.Children.Select(n => n.IsEmphasized));
+        Assert.IsType<GroupNode>(setup.Vm.Groups[1]);
+        Assert.All(group.Children, n => Assert.IsType<PlaceholderNode>(Assert.Single(n.Children)));
+        Assert.Equal(setup.Projects.Projects[0].Folder, group.Children[0].ToolTip);
+    }
+
+    [Fact] public async Task The_group_is_there_without_projects_and_follows_the_list()
+    {
+        using var setup = await CreateWithProjects();
+        Assert.Equal(setup.Texts.ExplorerProjectsGroup(0), setup.Group.Name);
+        setup.Game.NewProject(setup.Projects, "Alpha");
+        Assert.Equal((setup.Texts.ExplorerProjectsGroup(1), "Alpha"), (setup.Group.Name, Assert.Single(setup.Group.Children).Name));
+        setup.Commands.Remove(setup.Projects.Projects[0].Id);
+        Assert.Equal((setup.Texts.ExplorerProjectsGroup(0), 0), (setup.Group.Name, setup.Group.Children.Count));
+    }
+
+    [Fact] public async Task Projects_are_shown_while_the_game_is_not_found()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"), inSteamLibrary: true);
+        var vm = setup.Vm;
+        Assert.Equal((setup.Texts.ExplorerGameNotFound, true, true), (vm.Message, vm.ShowOpenSettings, vm.ShowTree));
+        Assert.Single(vm.Groups);
+        Assert.Equal(["Alpha"], setup.Group.Children.Select(n => n.Name));
+    }
+
+    [Fact] public async Task Without_a_game_profile_there_is_no_projects_group()
+    {
+        using var game = new TestGame();
+        var noProfile = new WorkspaceController(null, game.GameSettings, game.Settings, game.Paths, new NoSteam(), game.Runner, game.Log, game.Texts);
+        var projects = new ProjectsController(null, new ProjectListLoadResult(ProjectList.Empty, LoadStatus.Missing, null),
+            noProfile, game.Runner, game.Log, game.Texts, TimeProvider.System);
+        var vm = new ExplorerViewModel(noProfile, game.Texts, (_, _) => Task.CompletedTask, () => { }, projects,
+            new ProjectsViewModel(projects, new FakeProjectDialogs(), game.Texts), (_, _) => Task.CompletedTask);
+        await noProfile.LoadAsync();
+        Assert.Empty(vm.Groups);
+        Assert.False(vm.ShowTree);
+    }
+
+    [Fact] public async Task A_broken_project_node_shows_its_problem_and_disables_its_actions()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"));
+        var state = setup.Projects.Projects[0];
+        File.WriteAllText(Path.Combine(state.Folder, "twmt-project.json"), "{ not json");
+        setup.Projects.Reload();
+        var node = setup.Group.Children.OfType<ProjectNode>().Single();
+        var reason = setup.Texts.ProjectProblemText(ProjectProblem.Corrupt);
+        Assert.True(node.HasProblem);
+        Assert.Contains(reason, node.ToolTip);
+        Assert.Equal("alpha", node.Name);                                                // the name of the folder: the project file cannot be read
+        node.IsExpanded = true;
+        Assert.False(node.IsExpanded);                                                   // not expandable, no read
+        Assert.Empty(node.Children);
+
+        var build = Assert.Single(node.Actions, a => a.Header == setup.Texts.BuildMessageTitle);
+        Assert.Equal(reason, build.DisabledReason);
+        Assert.False(build.Command.CanExecute(null));
+        var remove = Assert.Single(node.Actions, a => a.Header == setup.Texts.ProjectActionRemove);
+        Assert.Null(remove.DisabledReason);
+        Assert.True(remove.Command.CanExecute(null));
+    }
+
+    [Fact] public async Task Expanding_a_project_shows_folders_before_files()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", (@"db\units_tables\a.tsv", "x"), ("b.lua", "x"), ("A.lua", "x")));
+        var node = setup.NodeOf("Alpha"); var raised = 0; setup.Vm.ExpandedPacksChanged += (_, _) => raised++;
+        node.IsExpanded = true;
+        Assert.Equal(["db", "A.lua", "b.lua"], node.Children.Select(n => n.Name));
+        Assert.IsType<ProjectFolderNode>(node.Children[0]);
+        Assert.IsType<ProjectFileNode>(node.Children[1]);
+        Assert.Equal(setup.Texts.OperationOpenProject("Alpha"), setup.Game.Runner.Titles[^1]);
+        Assert.Equal([node.ProjectId], setup.Vm.ExpandedProjectIds);
+        Assert.Equal(1, raised);
+
+        var folder = (ProjectFolderNode)node.Children[0];
+        Assert.IsType<PlaceholderNode>(Assert.Single(folder.Children));
+        folder.IsExpanded = true;
+        var inner = Assert.IsType<ProjectFolderNode>(Assert.Single(folder.Children));
+        inner.IsExpanded = true;
+        Assert.Equal(["a.tsv"], inner.Children.Select(n => n.Name));
+
+        node.IsExpanded = false;                                                         // collapsed: the tree is released, the next expand reads again
+        Assert.IsType<PlaceholderNode>(Assert.Single(node.Children));
+        Assert.Empty(setup.Vm.ExpandedProjectIds);
+    }
+
+    [Fact] public async Task An_empty_project_stays_expanded_without_children()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"));
+        var node = setup.NodeOf("Alpha");
+        node.IsExpanded = true;                                                          // the pack folder is empty
+        Assert.Equal((true, 0), (node.IsExpanded, node.Children.Count));
+    }
+
+    [Fact] public async Task A_problem_of_the_list_hangs_below_the_project_as_a_marked_node()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var state = setup.Projects.Projects[0];
+        var list = new ProjectFileList(true, [new ProjectFileItem("a.lua", "a.lua", ProjectFileKind.Raw)], [],
+            [new ProjectFileProblem("sub", "links to folders are not supported")]);
+        setup.Vm.ApplyRestoredProjects([(state.Id, list)]);
+        var node = setup.NodeOf("Alpha");
+        Assert.Equal(["a.lua", "sub"], node.Children.Select(n => n.Name));
+        var problem = node.Children[1];
+        Assert.True(problem.HasProblem);
+        Assert.Equal("links to folders are not supported", problem.ToolTip);
+    }
+
+    [Fact] public async Task A_cancelled_listing_collapses_the_project_again()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var node = setup.NodeOf("Alpha");
+        setup.Game.Runner.CancelNext = true;
+        node.IsExpanded = true;
+        Assert.False(node.IsExpanded);
+        Assert.IsType<PlaceholderNode>(Assert.Single(node.Children));
+        Assert.Empty(setup.Vm.ExpandedProjectIds);
+    }
+
+    [Fact] public async Task Opening_a_project_file_calls_the_delegate_with_id_and_relative_file()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", (@"db\units_tables\a.tsv", "x")));
+        var node = setup.NodeOf("Alpha");
+        node.IsExpanded = true;
+        var folder = (ProjectFolderNode)node.Children[0]; folder.IsExpanded = true;
+        var inner = (ProjectFolderNode)folder.Children[0]; inner.IsExpanded = true;
+        var file = Assert.IsType<ProjectFileNode>(Assert.Single(inner.Children));
+        file.OpenCommand.Execute(null);
+        Assert.Equal((node.ProjectId, @"db\units_tables\a.tsv"), Assert.Single(setup.OpenedFiles));
+        Assert.Equal((node.ProjectId, @"db\units_tables\a.tsv"), (file.ProjectId, file.RelativeFile));
+    }
+
+    [Fact] public async Task A_change_of_the_list_keeps_expanded_projects_and_updates_names()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) =>
+        {
+            g.NewProject(p, "Alpha", ("a.lua", "x"));
+            g.NewProject(p, "Beta");
+        });
+        var a = setup.NodeOf("Alpha"); var b = setup.NodeOf("Beta");
+        a.IsExpanded = true;
+        var children = a.Children.ToList();
+        setup.Commands.SetActive(b.ProjectId);
+        var file = Path.Combine(setup.Projects.Projects[0].Folder, "twmt-project.json");
+        File.WriteAllText(file, File.ReadAllText(file).Replace("\"Alpha\"", "\"Alpha renamed\""));
+        setup.Projects.Reload();
+
+        Assert.Same(a, setup.Group.Children[0]);
+        Assert.Equal(("Alpha renamed", true, false, true), (a.Name, a.IsExpanded, a.IsEmphasized, b.IsEmphasized));
+        Assert.Equal(children, a.Children);
+        Assert.Equal([a.ProjectId], setup.Vm.ExpandedProjectIds);
+
+        setup.Commands.Remove(a.ProjectId);                                              // a node that is gone from the list goes from the tree
+        Assert.Equal([b], setup.Group.Children);
+        Assert.Empty(setup.Vm.ExpandedProjectIds);
+    }
+
+    [Fact] public async Task A_silent_refresh_replaces_the_children_and_keeps_expanded_folders()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", (@"db\a.tsv", "x"), (@"other\o.lua", "x")));
+        var node = setup.NodeOf("Alpha");
+        node.IsExpanded = true;
+        var db = node.Children.OfType<ProjectFolderNode>().Single(f => f.Name == "db"); db.IsExpanded = true;
+        var titles = setup.Game.Runner.Titles.Count;
+        var state = setup.Projects.Projects[0];
+        File.WriteAllText(Path.Combine(state.Folder, "pack", "db", "b.tsv"), "x");
+        File.WriteAllText(Path.Combine(state.Folder, "pack", "new.lua"), "x");
+
+        await setup.Vm.RefreshProjectFilesAsync();
+
+        Assert.Equal(["db", "other", "new.lua"], node.Children.Select(n => n.Name));
+        var newDb = node.Children.OfType<ProjectFolderNode>().Single(f => f.Name == "db");
+        Assert.True(newDb.IsExpanded);
+        Assert.Equal(["a.tsv", "b.tsv"], newDb.Children.Select(n => n.Name));
+        Assert.False(node.Children.OfType<ProjectFolderNode>().Single(f => f.Name == "other").IsExpanded);
+        Assert.Equal(titles, setup.Game.Runner.Titles.Count);                            // silent: no runner run
+        Assert.True(node.IsExpanded);
+    }
+
+    [Fact] public async Task A_pack_refresh_does_not_collapse_the_projects()
+    {
+        using var setup = await CreateWithProjects(g => g.AddPack("a.pack"), projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var node = setup.NodeOf("Alpha"); var group = setup.Group;
+        node.IsExpanded = true; group.IsExpanded = true;
+        setup.Game.AddPack("b.pack");
+        await setup.C.RefreshAsync();
+        Assert.Same(group, setup.Vm.Groups[0]);
+        Assert.Equal(2, setup.Vm.Groups.Count);
+        Assert.Same(node, Assert.Single(group.Children));
+        Assert.Equal((true, true, 1), (group.IsExpanded, node.IsExpanded, node.Children.Count));
+    }
+
+    [Fact] public async Task A_pack_node_offers_import_and_a_project_node_its_five_actions()
+    {
+        using var setup = await CreateWithProjects(g => g.AddPack("a.pack"), projects: (g, p) => g.NewProject(p, "Alpha"));
+        var texts = setup.Texts;
+        var pack = PackNodeOf(setup.Vm, "a.pack");
+        var import = Assert.Single(pack.Actions);
+        Assert.Equal((texts.ProjectActionImport, (string?)null), (import.Header, import.DisabledReason));
+        Assert.True(pack.HasActions);
+        Assert.False(setup.Group.HasActions);
+
+        var actions = setup.NodeOf("Alpha").Actions;
+        Assert.Equal([texts.ProjectActionSetActive, texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall, texts.UninstallMessageTitle, texts.ProjectActionRemove],
+            actions.Select(a => a.Header));
+        Assert.Equal(texts.UninstallNothing, actions[3].DisabledReason);
+        Assert.False(actions[3].Command.CanExecute(null));
+        Assert.All(new[] { 0, 1, 2, 4 }, i => Assert.Null(actions[i].DisabledReason));
+
+        // The pack action starts the import: the pack is read first, then the (fake) dialog is cancelled.
+        import.Command.Execute(null);
+        Assert.Contains(texts.OperationReadPack("a.pack"), setup.Game.Runner.Titles);
+    }
+
+    [Fact] public async Task Install_actions_say_why_they_are_disabled_without_a_game_folder()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"), inSteamLibrary: true);
+        var actions = setup.NodeOf("Alpha").Actions;
+        Assert.Equal(setup.Texts.InstallNoGameFolder, actions[2].DisabledReason);
+        Assert.Null(actions[1].DisabledReason);
+        Assert.Equal(setup.Texts.InstallNoGameFolder, actions[3].DisabledReason);
+    }
+
+    [Fact] public async Task The_actions_are_disabled_while_an_operation_runs_without_a_reason_text()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"));
+        var build = setup.NodeOf("Alpha").Actions[1];
+        Assert.True(build.Command.CanExecute(null));
+        setup.Game.Runner.IsRunning = true;
+        Assert.False(build.Command.CanExecute(null));
+        Assert.Null(build.DisabledReason);
+    }
+
+    [Fact] public async Task ApplyRestoredProjects_expands_without_a_runner_run()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var state = setup.Projects.Projects[0];
+        var list = ProjectFiles.List(state.Folder, CancellationToken.None);
+        var titles = setup.Game.Runner.Titles.Count; var raised = 0; setup.Vm.ExpandedPacksChanged += (_, _) => raised++;
+        setup.Vm.ApplyRestoredProjects([(state.Id, list), (Guid.NewGuid(), list)]);          // an unknown project is skipped
+        var node = setup.NodeOf("Alpha");
+        Assert.Equal((true, 1, 1), (node.IsExpanded, node.Children.Count, raised));
+        Assert.Equal([state.Id], setup.Vm.ExpandedProjectIds);
+        Assert.Equal(titles, setup.Game.Runner.Titles.Count);
+    }
+
+    [Fact] public async Task The_group_name_and_the_actions_follow_a_language_switch()
+    {
+        var locales = Path.Combine(RepoRoot.Find(), "locales");
+        using var game = new TestGame();
+        var ui = new UiText(locales); var texts = new AppTexts(ui);
+        var c = new WorkspaceController(TestGame.Profile, game.GameSettings, game.Settings, game.Paths, new NoSteam(), game.Runner, game.Log, texts);
+        var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
+        var p = new ProjectsController(store, store.Load(), c, game.Runner, game.Log, texts, TimeProvider.System);
+        game.NewProject(p, "Alpha");
+        var vm = new ExplorerViewModel(c, texts, (_, _) => Task.CompletedTask, () => { }, p, new ProjectsViewModel(p, new FakeProjectDialogs(), texts),
+            (_, _) => Task.CompletedTask);
+        await c.LoadAsync();
+        var group = Assert.IsType<ProjectsGroupNode>(vm.Groups[0]);
+        var node = group.Children.OfType<ProjectNode>().Single();
+        ui.Load("de");
+        Assert.Equal("Projekte (1)", group.Name);
+        Assert.Equal(["Als aktiv setzen", "Bauen", "Bauen und installieren", "Deinstallieren", "Aus der Liste entfernen"], node.Actions.Select(a => a.Header));
+        Assert.Same(group, vm.Groups[0]);
     }
 }

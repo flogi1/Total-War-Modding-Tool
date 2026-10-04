@@ -1,5 +1,6 @@
 using System.Windows;
 using TotalWarModTool.Localization;
+using TotalWarModTool.Projects;
 using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
 using TotalWarModTool.Workspace;
@@ -326,6 +327,116 @@ public class MainViewModelWorkspaceTests
         var shared = new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => calls.Add("shared"), c);
         shared.Explorer.OpenSettingsCommand.Execute(null);
         Assert.Equal("shared", calls[^1]);
+    }
+
+    // ---- projects --------------------------------------------------------------------------------------------------------------
+
+    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = 8000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (!condition() && Environment.TickCount64 < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition(), "The expected state was not reached in time.");
+    }
+
+    [Fact] public async Task A_project_file_opens_in_a_tab_once()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        var state = game.NewProject(m.Projects, "Alpha", ("readme.txt", "hello"), (@"sub\more.txt", "more"));
+        var main = m.Main; var titlesBefore = game.Runner.Titles.Count;
+
+        await main.OpenProjectFileAsync(state.Id, "readme.txt");
+        await main.OpenProjectFileAsync(state.Id, "readme.txt");
+        await main.OpenProjectFileAsync(state.Id, @"sub\more.txt");
+        await main.OpenProjectFileAsync(state.Id, @"SUB\More.txt");                       // the explorer gives '\', the tab has '/', case is ignored
+
+        Assert.Equal(2, main.Tabs.Tabs.Count);
+        var tab = main.Tabs.Tabs[0];
+        Assert.StartsWith("project:", tab.PackPath);
+        Assert.Equal((TabSource.ForProject(state.Id, "Alpha").Key, "readme.txt", "Alpha: readme.txt"), (tab.PackPath, tab.EntryPath, tab.ToolTip));
+        Assert.Equal("sub/more.txt", main.Tabs.Tabs[1].EntryPath);
+        Assert.Equal(["Open readme.txt", "Open more.txt"], game.Runner.Titles.Skip(titlesBefore));      // the repeated requests read nothing
+        Assert.Same(main.Tabs.Tabs[1], main.Tabs.SelectedTab);
+    }
+
+    [Fact] public async Task A_project_file_of_an_unknown_project_or_a_cancelled_open_adds_no_tab()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        var state = game.NewProject(m.Projects, "Alpha", ("readme.txt", "hello"));
+        await m.Main.OpenProjectFileAsync(Guid.NewGuid(), "readme.txt");
+        game.Runner.CancelNext = true;
+        await m.Main.OpenProjectFileAsync(state.Id, "readme.txt");
+        Assert.Empty(m.Main.Tabs.Tabs);
+    }
+
+    [Fact] public async Task Refresh_reloads_the_projects()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        var state = game.NewProject(m.Projects, "Alpha");
+        Assert.True(m.Projects.Projects[0].IsUsable);
+
+        File.Delete(Path.Combine(state.Folder, "twmt-project.json"));
+        m.Main.RefreshCommand.Execute(null);
+
+        await WaitUntil(() => !m.Projects.Projects[0].IsUsable);
+        Assert.True(m.Main.Explorer.Groups[0].Children.OfType<ProjectNode>().Single().HasProblem);
+    }
+
+    [Fact] public async Task The_project_status_shows_the_first_line_and_the_whole_text_as_tool_tip()
+    {
+        using var game = new TestGame();
+        var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
+        Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        File.WriteAllText(store.FilePath, """{ "schemaVersion": 99, "projects": [] }""");          // a newer list: it is not saved, so a note follows the status
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        var main = m.Main;
+        Assert.Equal((false, (string?)null, (string?)null), (main.HasProjectStatus, main.ProjectStatusLine, main.ProjectStatusToolTip));
+        var changed = new List<string?>(); main.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        m.Dialogs.ProjectAnswer = new ProjectInput("Alpha", game.NewFolder("alpha"), "alpha.pack");
+        main.Projects!.NewProjectCommand.Execute(null);
+
+        var texts = game.Texts;
+        Assert.Equal(texts.ProjectCreated("Alpha") + "\n" + texts.ProjectListNotSaved, main.Projects.StatusMessage);
+        Assert.Equal((true, texts.ProjectCreated("Alpha"), main.Projects.StatusMessage), (main.HasProjectStatus, main.ProjectStatusLine, main.ProjectStatusToolTip));
+        Assert.Contains(nameof(MainViewModel.ProjectStatusLine), changed);
+        Assert.Contains(nameof(MainViewModel.ProjectStatusToolTip), changed);
+        Assert.Contains(nameof(MainViewModel.HasProjectStatus), changed);
+    }
+
+    [Fact] public async Task Without_projects_there_is_no_project_menu_state()
+    {
+        var (game, c, vm) = Create();
+        using (game)
+        {
+            await c.LoadAsync();
+            Assert.Null(vm.Projects);
+            Assert.False(vm.HasProjects);
+            Assert.Equal((false, (string?)null), (vm.HasProjectStatus, vm.ProjectStatusLine));
+            await vm.OpenProjectFileAsync(Guid.NewGuid(), "a.txt");                      // nothing to open it with: no tab, no exception
+            Assert.Empty(vm.Tabs.Tabs);
+        }
+    }
+
+    [Fact] public async Task The_menu_tool_tips_of_build_name_the_reason()
+    {
+        using var game = new TestGame(inSteamLibrary: true);                               // the game is not found: nothing can be installed
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        var texts = game.Texts;
+        Assert.Equal((texts.ProjectNoneActive, texts.ProjectNoneActive), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
+        game.NewProject(m.Projects, "Alpha");
+        Assert.Equal(((string?)null, texts.InstallNoGameFolder), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
     }
 
     // The status line and the explorer both follow a language switch (the explorer has its own test).

@@ -207,5 +207,14 @@
   "dialog.browse": "Durchsuchen",
   "dialog.close": "Schließen",
   "dialog.chooseFolder": "Ordner des Projekts wählen",
-  "dialog.packFilter": "Pack-Dateien (*.pack)"
+  "dialog.packFilter": "Pack-Dateien (*.pack)",
+  "explorer.projects": "Projekte ({0})",
+  "menu.project.open": "Projekt öffnen",
+  "menu.project.import": "Pack importieren",
+  "menu.project.buildGesture": "Strg+B",
+  "menu.project.buildAndInstallGesture": "Strg+Umschalt+B",
+  "project.action.setActive": "Als aktiv setzen",
+  "project.action.buildAndInstall": "Bauen und installieren",
+  "project.action.remove": "Aus der Liste entfernen",
+  "project.action.import": "Als Projekt importieren"
 }

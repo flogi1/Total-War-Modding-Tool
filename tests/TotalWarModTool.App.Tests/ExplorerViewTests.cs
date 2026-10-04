@@ -195,6 +195,114 @@ public class ExplorerViewTests
         Assert.Equal(["Open a.pack"], setup.Game.Runner.Titles);                       // never read again
     });
 
+    // ---- projects --------------------------------------------------------------------------------------------------------------
+
+    // Like Create, with a projects controller and its commands; the game can be left unfound (a Steam library the controller does not find).
+    private static async Task<Setup> CreateWithProjects(Action<TestGame, ProjectsController> projects, bool gameFound = true)
+    {
+        var game = new TestGame(inSteamLibrary: !gameFound);
+        var controller = game.NewController();
+        var p = game.NewProjects(controller);
+        projects(game, p);
+        var viewModel = new ExplorerViewModel(controller, game.Texts, (_, _) => Task.CompletedTask, () => { }, p,
+            new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts), (_, _) => Task.CompletedTask);
+        await controller.LoadAsync();
+        var view = new ExplorerView(viewModel);
+        view.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
+            File.ReadAllText(Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml"))));
+        view.ApplyThemedItemStyle();
+        var window = new Window { Width = 400, Height = 400, Content = view };
+        window.Show();
+        Pump(window);
+        return new Setup(game, controller, viewModel, view, window, [], []);
+    }
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var nested in Descendants<T>(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    // The row panel of a node: the element of the template that carries the tool tip and the context menu.
+    private static StackPanel RowOf(TreeViewItem container, ExplorerNode node) =>
+        Descendants<StackPanel>(container).First(panel => ReferenceEquals(panel.DataContext, node));
+
+    [Fact] public void The_message_is_shown_above_the_tree() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects((g, p) => g.NewProject(p, "Alpha"), gameFound: false);
+        Assert.Equal((Visibility.Visible, Visibility.Visible, Visibility.Visible), (setup.Tree.Visibility, setup.MessageBlock.Visibility, setup.OpenSettingsButton.Visibility));
+        Assert.Equal(setup.Game.Texts.ExplorerGameNotFound, setup.MessageBlock.Text);
+        Assert.Single(setup.Tree.Items);
+        var message = setup.MessageBlock.TranslatePoint(new Point(0, 0), setup.View);
+        var tree = setup.Tree.TranslatePoint(new Point(0, 0), setup.View);
+        Assert.True(message.Y < tree.Y, $"The message ({message.Y}) must be above the tree ({tree.Y}).");
+        Assert.True(setup.Tree.ActualHeight > 50);                                       // the tree gets the rest of the space
+    });
+
+    [Fact] public void The_context_menu_lists_the_actions_and_marks_the_active_project() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects((g, p) => { g.NewProject(p, "Alpha"); g.NewProject(p, "Beta"); });
+        var vm = setup.ViewModel;
+        var group = (ProjectsGroupNode)vm.Groups[0];
+        var groupContainer = ContainerOf(setup.Window, setup.Tree, group);
+        var alpha = group.Children.OfType<ProjectNode>().Single(n => n.Name == "Alpha");
+        var beta = group.Children.OfType<ProjectNode>().Single(n => n.Name == "Beta");
+        var alphaRow = RowOf(ContainerOf(setup.Window, groupContainer, alpha), alpha);
+        var betaRow = RowOf(ContainerOf(setup.Window, groupContainer, beta), beta);
+
+        // The active project is bold, the other is not; the group has no menu at all.
+        Assert.Equal(FontWeights.Bold, Descendants<TextBlock>(alphaRow).Single().FontWeight);
+        Assert.NotEqual(FontWeights.Bold, Descendants<TextBlock>(betaRow).Single().FontWeight);
+        Assert.Null(RowOf(groupContainer, group).ContextMenu);
+
+        var menu = alphaRow.ContextMenu;
+        Assert.NotNull(menu);
+        menu.PlacementTarget = alphaRow;
+        menu.IsOpen = true;
+        try
+        {
+            Pump(setup.Window);
+            var texts = setup.Game.Texts;
+            var items = Enumerable.Range(0, menu.Items.Count).Select(i => Assert.IsType<MenuItem>(menu.ItemContainerGenerator.ContainerFromIndex(i))).ToList();
+            Assert.Equal([texts.ProjectActionSetActive, texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall, texts.UninstallMessageTitle, texts.ProjectActionRemove],
+                items.Select(i => i.Header));
+            for (var i = 0; i < items.Count; i++)
+            {
+                Assert.Same(alpha.Actions[i].Command, items[i].Command);
+                Assert.Equal(alpha.Actions[i].DisabledReason, items[i].ToolTip);
+                Assert.Equal(alpha.Actions[i].DisabledReason is null, items[i].IsEnabled);
+                Assert.True(ToolTipService.GetShowOnDisabled(items[i]));
+            }
+
+            Assert.Equal(texts.UninstallNothing, items[3].ToolTip);                      // the disabled item says why
+        }
+        finally
+        {
+            menu.IsOpen = false;
+        }
+    });
+
+    [Fact] public void A_pack_row_has_a_menu_and_its_group_has_none() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects((g, p) => g.AddPack("a.pack"));
+        var pack = setup.ViewModel.Groups.OfType<GroupNode>().Single().Children.OfType<PackNode>().Single();
+        var groupContainer = ContainerOf(setup.Window, setup.Tree, setup.ViewModel.Groups[1]);
+        var row = RowOf(ContainerOf(setup.Window, groupContainer, pack), pack);
+        Assert.NotNull(row.ContextMenu);
+        Assert.Null(RowOf(ContainerOf(setup.Window, setup.Tree, setup.ViewModel.Groups[1]), setup.ViewModel.Groups[1]).ContextMenu);
+    });
+
     private static ScrollViewer? FindScrollViewer(DependencyObject root)
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)

@@ -5,7 +5,7 @@
     <!--
         DataContext is the ExplorerViewModel. The tree is virtualized (also its nested levels): a folder can hold tens of thousands of entries.
         Virtualization needs ScrollViewer.CanContentScroll=True on the tree; the TreeView template of Themes/Controls.xaml honours it.
-        The container style sits on top of the themed TreeViewItem style of the app: the code-behind sets its BasedOn (see ApplyThemedItemStyle).
+        The container styles sit on top of the themed TreeViewItem and MenuItem styles of the app: the code-behind sets their BasedOn (see ApplyThemedItemStyle).
     -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -18,12 +18,47 @@
             <EventSetter Event="MouseDoubleClick" Handler="OnItemMouseDoubleClick" />
         </Style>
 
-        <!-- One template for every node: the mark of a problem (the colour of a warning) and the name. -->
+        <!-- An entry of a context menu: the item of the menu is a NodeAction. A disabled item says why in its tool tip. -->
+        <Style x:Key="ActionItemStyle" TargetType="MenuItem">
+            <Setter Property="Header" Value="{Binding Header}" />
+            <Setter Property="Command" Value="{Binding Command}" />
+            <Setter Property="ToolTip" Value="{Binding DisabledReason}" />
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        </Style>
+
+        <!--
+            One template for every node: the mark of a problem (the colour of a warning) and the name, in bold for the active project.
+            The context menu exists only for a node with actions. A context menu is not in the visual tree of its owner: it gets the node as its
+            DataContext from the element it opens on.
+        -->
         <HierarchicalDataTemplate DataType="{x:Type local:ExplorerNode}" ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding ToolTip}">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasActions}" Value="True">
+                                <Setter Property="ContextMenu">
+                                    <Setter.Value>
+                                        <ContextMenu ItemsSource="{Binding Actions}" ItemContainerStyle="{StaticResource ActionItemStyle}" />
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
                 <Ellipse Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Theme.Warning}"
                          Visibility="{Binding HasProblem, Converter={StaticResource BoolToVisibility}}" />
-                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsEmphasized}" Value="True">
+                                    <Setter Property="FontWeight" Value="Bold" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
         </HierarchicalDataTemplate>
 
@@ -33,19 +68,20 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid>
-        <TreeView x:Name="Tree" ItemsSource="{Binding Groups}" ItemContainerStyle="{StaticResource NodeContainerStyle}"
-                  ScrollViewer.CanContentScroll="True"
-                  VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
-                  Visibility="{Binding ShowTree, Converter={StaticResource BoolToVisibility}}"
-                  KeyDown="OnTreeKeyDown" />
-
-        <StackPanel Margin="12" VerticalAlignment="Top">
+    <!-- The message about the packs stands above the tree, which takes the rest of the space; the tree is hidden only when it has no group. -->
+    <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="12" Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}">
             <TextBlock x:Name="MessageBlock" Text="{Binding Message}" TextWrapping="Wrap"
                        Visibility="{Binding HasMessage, Converter={StaticResource BoolToVisibility}}" />
             <Button x:Name="OpenSettingsButton" Content="{Binding Texts.ExplorerOpenSettings}" Command="{Binding OpenSettingsCommand}"
                     HorizontalAlignment="Left" Margin="0,12,0,0"
                     Visibility="{Binding ShowOpenSettings, Converter={StaticResource BoolToVisibility}}" />
         </StackPanel>
-    </Grid>
+
+        <TreeView x:Name="Tree" ItemsSource="{Binding Groups}" ItemContainerStyle="{StaticResource NodeContainerStyle}"
+                  ScrollViewer.CanContentScroll="True"
+                  VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling"
+                  Visibility="{Binding ShowTree, Converter={StaticResource BoolToVisibility}}"
+                  KeyDown="OnTreeKeyDown" />
+    </DockPanel>
 </UserControl>
