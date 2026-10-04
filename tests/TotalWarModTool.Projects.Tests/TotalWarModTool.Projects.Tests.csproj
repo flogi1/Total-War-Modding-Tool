@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TotalWarModTool.Projects\TotalWarModTool.Projects.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Storage\TotalWarModTool.Storage.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
+  </ItemGroup>
+
+</Project>
