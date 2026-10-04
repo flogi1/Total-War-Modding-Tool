@@ -11,6 +11,7 @@ public sealed record BuildProblem(string RelativeFile, int Line, string Detail);
 /// <summary>Entries are ready for <see cref="PackWriter"/>. An empty <paramref name="Problems"/> list means the plan can be written.</summary>
 public sealed record BuildPlan(IReadOnlyList<PackWriteEntry> Entries, IReadOnlyList<string> Dependencies, IReadOnlyList<BuildProblem> Problems);
 
+/// <summary>How a build ended: the pack was written, the plan had problems (nothing was written), or writing failed (the previous pack is untouched).</summary>
 public enum BuildOutcome
 {
     Built,

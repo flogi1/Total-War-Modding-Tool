@@ -27,7 +27,7 @@ public class ProjectBuilderTests
     {
         using var dir = new TempDir();
         var (folder, project) = NewProject(dir);
-        Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8("﻿" + UnitsTsv.Replace("\n", "\r\n")));
+        Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8("\uFEFF" + UnitsTsv.Replace("\n", "\r\n")));
         Put(folder, @"text\db\my_mod.loc.tsv", TestData.Utf8("key\ttext\ttooltip\n#Loc;1;x\t\t\nk\tText\tfalse\n"));
         Put(folder, @"script\a.lua", TestData.Utf8("print(1)"));
         Put(folder, @"db\other_tables\binary", [1, 2, 3]);
@@ -68,10 +68,10 @@ public class ProjectBuilderTests
         File.WriteAllBytes(Path.Combine(folder, "build", "my_mod.pack"), [9, 9]);
 
         var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None);
-        Assert.Equal([(@"db\other_tables\wrong_folder.tsv", 2), (@"db\units_tables\bad_value.tsv", 3), (@"db\units_tables\not_utf8.tsv", 0), (@"text\broken.loc.tsv", 2), ("", 0)],
+        Assert.Equal([(@"db\other_tables\wrong_folder.tsv", 2), (@"db\units_tables\bad_value.tsv", 3), (@"db\units_tables\not_utf8.tsv", 0), (@"db\units_tables\twice.tsv", 0), (@"text\broken.loc.tsv", 2)],
             plan.Problems.Select(p => (p.RelativeFile, p.Line)));
         Assert.All(plan.Problems, p => Assert.False(string.IsNullOrWhiteSpace(p.Detail)));
-        Assert.Contains("twice", plan.Problems[^1].Detail);
+        Assert.Contains(@"db\units_tables\twice", plan.Problems[3].Detail);
 
         var result = ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None);
         Assert.Equal(BuildOutcome.HasProblems, result.Outcome);
@@ -113,6 +113,125 @@ public class ProjectBuilderTests
 
         Assert.Equal(new byte[] { 9, 9 }, File.ReadAllBytes(Path.Combine(build, "my_mod.pack")));
         Assert.Equal(["my_mod.pack"], Directory.EnumerateFileSystemEntries(build).Select(Path.GetFileName));
+    }
+
+    [Fact] public void A_second_file_for_the_same_pack_path_ignoring_case_is_a_problem_naming_both_files()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"db\units_tables\Mixed.tsv", TestData.Utf8(UnitsTsv));
+        Put(folder, @"db\units_tables\mixed", [1]);
+
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None);
+        var problem = Assert.Single(plan.Problems);
+        Assert.Equal(@"db\units_tables\mixed", problem.RelativeFile);
+        Assert.Contains(@"db\units_tables\Mixed.tsv", problem.Detail);
+        Assert.Contains("db/units_tables/mixed", problem.Detail);
+        Assert.Single(plan.Entries);
+    }
+
+    [Fact] public void A_link_to_a_folder_is_not_followed_and_is_a_problem_naming_it()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, "a.bin", [1]);
+        Put(folder, "z.bin", [2]);
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(outside, "secret.bin"), [7]);
+        var link = Path.Combine(folder, "pack", "linked");
+        if (!TryCreateJunction(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+            var problem = Assert.Single(plan.Problems);
+            Assert.Equal("linked", problem.RelativeFile);
+            Assert.Contains("links to folders are not supported", problem.Detail);
+            Assert.Equal(["a.bin", "z.bin"], plan.Entries.Select(e => e.Path));
+        }
+        finally
+        {
+            Directory.Delete(link);   // the link itself, never the target behind it
+        }
+
+        Assert.True(File.Exists(Path.Combine(outside, "secret.bin")));
+    }
+
+    [Fact] public void A_cancelled_token_stops_the_listing()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"sub\a.bin", [1]);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.ThrowsAny<OperationCanceledException>(() => ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, cts.Token));
+    }
+
+    [Fact] public void An_invalid_pack_name_is_rejected_before_the_disk_is_touched()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+        foreach (var name in new[] { "bad", @"..\x.pack", "" })
+        {
+            var broken = project with { PackName = name };
+            Assert.Throws<ArgumentException>(() => ProjectBuilder.ComputeBuild(folder, broken, null, NewGuid, null, CancellationToken.None));
+            Assert.Throws<ArgumentException>(() => ProjectBuilder.WriteBuild(folder, broken, plan, BuildTime, null, CancellationToken.None));
+        }
+
+        Assert.False(Directory.Exists(Path.Combine(folder, "build")));
+    }
+
+    [Fact] public void Stale_temp_files_of_earlier_runs_are_removed_and_other_files_stay()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, "a.bin", [1]);
+        var build = Path.Combine(folder, "build");
+        Directory.CreateDirectory(build);
+        File.WriteAllBytes(Path.Combine(build, "my_mod.pack.0123abcd.tmp"), [1]);
+        File.WriteAllBytes(Path.Combine(build, "my_mod.pack.notes.tmp"), [2]);
+
+        var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+        Assert.Equal(BuildOutcome.Built, ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None).Outcome);
+        Assert.Equal(["my_mod.pack", "my_mod.pack.notes.tmp"], Directory.EnumerateFileSystemEntries(build).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    private static bool TryCreateJunction(string link, string target)
+    {
+        var info = new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        info.ArgumentList.Add("/c");
+        info.ArgumentList.Add("mklink");
+        info.ArgumentList.Add("/J");
+        info.ArgumentList.Add(link);
+        info.ArgumentList.Add(target);
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(info)!;
+            process.StandardInput.Close();
+            if (!process.WaitForExit(10_000))
+            {
+                process.Kill(entireProcessTree: true);
+                return false;
+            }
+
+            return process.ExitCode == 0 && Directory.Exists(link);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private sealed class SyncProgress(Action<OperationProgress> report) : IProgress<OperationProgress>

@@ -1,4 +1,3 @@
-using System.Globalization;
 using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
@@ -13,11 +12,16 @@ namespace TotalWarModTool.Projects;
 public static class ProjectBuilder
 {
     private const string PackFolderMissing = "the pack folder is missing";
+    private const string TempExtension = ".tmp";
+    private const int TempSuffixLength = 8;
+
+    /// <summary>A file below the pack folder, or a folder that cannot be read (then <paramref name="FolderProblem"/> is set). Relative paths use '\'.</summary>
+    private sealed record WalkItem(string RelativePath, BuildProblem? FolderProblem);
 
     /// <summary>
     /// Reads the pack folder of the project and prepares every entry. Writes nothing. Table and loc files are read and converted into
-    /// memory, other files are opened only when the pack is written. Every problem is collected, one per file; a file with a problem
-    /// contributes no entry.
+    /// memory, other files are opened only when the pack is written. Every problem is collected, one per file or folder; a file with a
+    /// problem contributes no entry. A folder that cannot be listed or that is a link is a problem and its files are not read.
     /// </summary>
     public static BuildPlan ComputeBuild(string projectFolder, ModProject project, GameSchema? schema, Func<string> newGuid,
         IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
@@ -25,6 +29,7 @@ public static class ProjectBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(newGuid);
+        CheckPackName(project);
 
         var entries = new List<PackWriteEntry>();
         var problems = new List<BuildProblem>();
@@ -36,25 +41,36 @@ public static class ProjectBuilder
             return new BuildPlan(entries, project.Dependencies, problems);
         }
 
-        List<string> files;
-        try
-        {
-            files = Directory.EnumerateFiles(packRoot, "*", SearchOption.AllDirectories)
-                .Select(file => Path.GetRelativePath(packRoot, file))
-                .OrderBy(file => file, StringComparer.Ordinal)
-                .ToList();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            problems.Add(new BuildProblem(string.Empty, 0, "the pack folder cannot be read (" + ex.GetType().Name + ")"));
-            return new BuildPlan(entries, project.Dependencies, problems);
-        }
+        var items = Walk(packRoot, cancellationToken).OrderBy(item => item.RelativePath, StringComparer.Ordinal).ToList();
+        var total = items.Count(item => item.FolderProblem is null);
+        var firstFileOfPackPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var done = 0;
 
-        for (var i = 0; i < files.Count; i++)
+        foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Prepare(packRoot, files[i], schema, newGuid, entries, problems);
-            progress?.Report(new OperationProgress(i + 1, files.Count, files[i]));
+            if (item.FolderProblem is { } folderProblem)
+            {
+                problems.Add(folderProblem);
+                continue;
+            }
+
+            var (packPath, kind) = ProjectLayout.FromRelativeFile(item.RelativePath);
+            if (firstFileOfPackPath.TryGetValue(packPath, out var earlier))
+            {
+                problems.Add(new BuildProblem(item.RelativePath, 0, $"the pack path '{packPath}' is already used by the file '{earlier}'"));
+            }
+            else
+            {
+                firstFileOfPackPath[packPath] = item.RelativePath;
+                var entry = Prepare(packRoot, item.RelativePath, packPath, kind, schema, newGuid, problems);
+                if (entry is not null)
+                {
+                    entries.Add(entry);
+                }
+            }
+
+            progress?.Report(new OperationProgress(++done, total, item.RelativePath));
         }
 
         var validation = PackWriter.Validate(project.Dependencies, entries);
@@ -67,9 +83,10 @@ public static class ProjectBuilder
     }
 
     /// <summary>
-    /// Writes build\&lt;PackName&gt; through a temp file in the same folder. A plan with problems writes nothing. After a failure or a
-    /// cancel the previous pack is untouched and the temp file is removed. Only <see cref="OperationCanceledException"/> and argument
-    /// errors leave as exceptions.
+    /// Writes build\&lt;PackName&gt; through a temp file in the same folder. The plan carries the content of the files, so it must come
+    /// from <see cref="ComputeBuild"/> for the same project folder. A plan with problems writes nothing. Stale temp files of earlier
+    /// crashed runs are removed first. After a failure or a cancel the previous pack is untouched and the temp file is removed. Only
+    /// <see cref="OperationCanceledException"/> and argument errors leave as exceptions.
     /// </summary>
     public static BuildResult WriteBuild(string projectFolder, ModProject project, BuildPlan plan, DateTimeOffset buildTime,
         IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
@@ -77,6 +94,7 @@ public static class ProjectBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(plan);
+        CheckPackName(project);
 
         if (plan.Problems.Count > 0)
         {
@@ -85,7 +103,7 @@ public static class ProjectBuilder
 
         var buildFolder = Path.Combine(projectFolder, ProjectFile.BuildFolder);
         var target = Path.Combine(buildFolder, project.PackName);
-        var temp = Path.Combine(buildFolder, project.PackName + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp");
+        var temp = Path.Combine(buildFolder, project.PackName + "." + Guid.NewGuid().ToString("N")[..TempSuffixLength] + TempExtension);
         try
         {
             try
@@ -94,8 +112,10 @@ public static class ProjectBuilder
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Failed("the build folder cannot be created (" + ex.GetType().Name + ")");
+                return Failed("the build folder cannot be created: " + ex.Message);
             }
+
+            RemoveStaleTempFiles(buildFolder, project.PackName);
 
             var total = plan.Entries.Count;
             var written = progress is null ? null : new SyncProgress(done => progress.Report(new OperationProgress(done, total, null)));
@@ -111,7 +131,7 @@ public static class ProjectBuilder
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return Failed("the pack cannot replace the previous one (" + ex.GetType().Name + ": " + ex.Message + ")");
+                return Failed("the pack cannot replace the previous one: " + ex.Message);
             }
 
             return new BuildResult(BuildOutcome.Built, target, null);
@@ -122,34 +142,141 @@ public static class ProjectBuilder
         }
     }
 
-    private static void Prepare(string packRoot, string relativeFile, GameSchema? schema, Func<string> newGuid,
-        List<PackWriteEntry> entries, List<BuildProblem> problems)
+    private static void CheckPackName(ModProject project)
     {
-        var (packPath, kind) = ProjectLayout.FromRelativeFile(relativeFile);
+        if (PackNameRules.Check(project.PackName) is { } reason)
+        {
+            throw new ArgumentException("The pack name of the project is not valid: " + reason, nameof(project));
+        }
+    }
+
+    /// <summary>Lists the pack folder folder by folder. A link to a folder is not followed; a folder that cannot be listed is a problem.</summary>
+    private static List<WalkItem> Walk(string packRoot, CancellationToken cancellationToken)
+    {
+        var items = new List<WalkItem>();
+        var pending = new Stack<string>();
+        pending.Push(string.Empty);
+
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relativeFolder = pending.Pop();
+            var folder = relativeFolder.Length == 0 ? packRoot : Path.Combine(packRoot, relativeFolder);
+            var files = new List<WalkItem>();
+            var subfolders = new List<(string Relative, bool IsLink)>();
+
+            try
+            {
+                foreach (var entry in new DirectoryInfo(folder).EnumerateFileSystemInfos())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var relative = relativeFolder.Length == 0 ? entry.Name : relativeFolder + "\\" + entry.Name;
+                    if (entry is DirectoryInfo)
+                    {
+                        subfolders.Add((relative, entry.Attributes.HasFlag(FileAttributes.ReparsePoint)));
+                    }
+                    else
+                    {
+                        files.Add(new WalkItem(relative, null));
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                items.Add(new WalkItem(relativeFolder, new BuildProblem(relativeFolder, 0, "the folder cannot be listed: " + ex.Message)));
+                continue;
+            }
+
+            items.AddRange(files);
+            foreach (var (relative, isLink) in subfolders)
+            {
+                if (isLink)
+                {
+                    items.Add(new WalkItem(relative, new BuildProblem(relative, 0, "links to folders are not supported")));
+                }
+                else
+                {
+                    pending.Push(relative);
+                }
+            }
+        }
+
+        return items;
+    }
+
+    private static PackWriteEntry? Prepare(string packRoot, string relativeFile, string packPath, ProjectFileKind kind, GameSchema? schema,
+        Func<string> newGuid, List<BuildProblem> problems)
+    {
         var fullPath = Path.Combine(packRoot, relativeFile);
         try
         {
             if (kind == ProjectFileKind.Raw)
             {
                 var length = new FileInfo(fullPath).Length;
-                entries.Add(new PackWriteEntry(packPath, length, () => new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read)));
-                return;
+                return new PackWriteEntry(packPath, length, () => new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read));
             }
 
             var converted = EntryConversion.ToPackEntry(kind, packPath, File.ReadAllBytes(fullPath), schema, newGuid);
             if (converted.Bytes is null)
             {
                 problems.Add(new BuildProblem(relativeFile, converted.Line, converted.Detail ?? "the file cannot be converted"));
-                return;
+                return null;
             }
 
             var bytes = converted.Bytes;
-            entries.Add(new PackWriteEntry(packPath, bytes.Length, () => new MemoryStream(bytes, writable: false)));
+            return new PackWriteEntry(packPath, bytes.Length, () => new MemoryStream(bytes, writable: false));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            problems.Add(new BuildProblem(relativeFile, 0, "the file cannot be read (" + ex.GetType().Name + ")"));
+            problems.Add(new BuildProblem(relativeFile, 0, "the file cannot be read: " + ex.Message));
+            return null;
         }
+    }
+
+    /// <summary>Removes <c>&lt;PackName&gt;.&lt;8 hex digits&gt;.tmp</c> files that an earlier crashed run left behind. Best effort.</summary>
+    private static void RemoveStaleTempFiles(string buildFolder, string packName)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(buildFolder))
+            {
+                if (IsTempFileOf(Path.GetFileName(file), packName))
+                {
+                    RemoveIfPresent(file);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Stale files are only clutter; the build goes on.
+        }
+    }
+
+    private static bool IsTempFileOf(string fileName, string packName)
+    {
+        var prefixLength = packName.Length + 1;
+        if (fileName.Length != prefixLength + TempSuffixLength + TempExtension.Length
+            || !fileName.StartsWith(packName, StringComparison.OrdinalIgnoreCase)
+            || fileName[packName.Length] != '.'
+            || !fileName.EndsWith(TempExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return IsHex(fileName.AsSpan(prefixLength, TempSuffixLength));
+    }
+
+    private static bool IsHex(ReadOnlySpan<char> text)
+    {
+        foreach (var c in text)
+        {
+            if (!char.IsAsciiHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static BuildResult Failed(string detail) => new(BuildOutcome.WriteFailed, null, detail);
