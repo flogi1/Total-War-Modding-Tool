@@ -85,8 +85,6 @@ public sealed partial class AppTexts
 
     public string InstallNoGameFolder => T("install.noGameFolder", "The game folder was not found, so nothing can be installed. Choose the game folder in the settings.");
 
-    public string UninstallNotInstalled => T("uninstall.notInstalled", "This tool has not installed a pack for this project, so there is nothing to remove.");
-
     /// <param name="tables">Number of tables written as text.</param>
     /// <param name="locFiles">Number of loc files written as text.</param>
     /// <param name="otherFiles">Number of files written as they are.</param>
@@ -206,7 +204,16 @@ public sealed partial class AppTexts
 
     public string UninstallMessageTitle => T("uninstall.messageTitle", "Uninstall");
 
-    public string UninstallNothing => T("uninstall.nothing", "Nothing is installed for this project.");
+    public string UninstallNothing => T("uninstall.nothing",
+        "This tool has not installed a pack for this project, so there is nothing to remove.");
+
+    public string ProjectNoGameProfile => T("project.noGameProfile", "No game profile was found, so projects are not available.");
+
+    /// <summary>The marker after a text that was cut, shown as "(shortened)".</summary>
+    public string TextShortened => T("text.shortened", "shortened");
+
+    /// <param name="count">Number of lines that are not shown.</param>
+    public string ReportMoreLines(int count) => F("report.moreLines", "and {0} more", count);
 
     /// <param name="name">Name of the project. Data, not a UI text.</param>
     public string UninstallDone(string name) => F("uninstall.done", "Removed the installed pack of {0}.", name);

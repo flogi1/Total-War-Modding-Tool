@@ -42,20 +42,32 @@ public class ProjectInputViewModelTests
         Assert.Equal("mod.pack", viewModel.PackName);
     }
 
-    [Fact] public void A_pack_name_that_was_given_as_a_default_follows_only_when_it_is_the_derived_one()
+    [Fact] public void A_pack_name_that_is_given_as_a_default_is_kept_whatever_it_is()
     {
-        var derived = Create(new ProjectInput("source", "", "source.pack"));
+        // The import: the default is the file name of the source. A second attempt after a refusal: the default is the user's own input.
+        var fromSource = Create(new ProjectInput("source", "", "source.pack"));
         var custom = Create(new ProjectInput("source", "", "Custom.pack"));
         var empty = Create(new ProjectInput("", "", ""));
 
-        derived.Name = "Renamed";
+        fromSource.Name = "Renamed";
         custom.Name = "Renamed";
         empty.Name = "Renamed";
 
-        Assert.Equal("renamed.pack", derived.PackName);
+        Assert.Equal("source.pack", fromSource.PackName);
         Assert.Equal("Custom.pack", custom.PackName);
-        Assert.Equal("renamed.pack", empty.PackName);
+        Assert.Equal("renamed.pack", empty.PackName);          // only an empty default follows the name
         Assert.Equal(new ProjectInput("source", "", "source.pack"), Create(new ProjectInput("source", "", "source.pack")).Result);
+    }
+
+    [Fact] public void The_pack_name_that_followed_the_name_is_no_user_edit()
+    {
+        var viewModel = Create();
+
+        viewModel.Name = "One";
+        viewModel.Name = "Two";
+        viewModel.Name = "Three";
+
+        Assert.Equal("three.pack", viewModel.PackName);
     }
 
     [Fact] public void The_error_text_comes_from_the_validation_and_blocks_accept()

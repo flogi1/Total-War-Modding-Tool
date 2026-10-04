@@ -349,7 +349,7 @@ public class ProjectsControllerOperationsTests
         var state = NewProject(game, projects);
 
         var none = await projects.UninstallAsync(state.Id);
-        Assert.Equal((false, game.Texts.UninstallNotInstalled), (none!.Ok, none.Message));
+        Assert.Equal((false, game.Texts.UninstallNothing), (none!.Ok, none.Message));
 
         Assert.True((await projects.BuildAsync(state.Id, install: true))!.Installed);
         var result = await projects.UninstallAsync(state.Id);

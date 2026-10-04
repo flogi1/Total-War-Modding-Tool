@@ -2,6 +2,7 @@ using System.Text;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Settings;
+using TotalWarModTool.Storage;
 using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
@@ -83,33 +84,69 @@ public class ProjectsViewModelTests
         Assert.Empty(setup.Dialogs.Messages);
 
         var ask = Assert.Single(setup.Dialogs.Asks);
+        var other = setup.Game.Root.File("another");          // the folder of the new project is in the list now
         Assert.Equal((setup.Texts.ProjectNewTitle, new ProjectInput("", "", "")), (ask.Title, ask.Defaults));
         Assert.Empty(ask.Info);
-        Assert.NotNull(ask.Validate(new ProjectInput("", folder, "x.pack")));
-        Assert.NotNull(ask.Validate(new ProjectInput("  ", folder, "x.pack")));
+        Assert.NotNull(ask.Validate(new ProjectInput("", other, "x.pack")));
+        Assert.NotNull(ask.Validate(new ProjectInput("  ", other, "x.pack")));
         Assert.Equal(setup.Texts.ProjectFolderNotAbsolute, ask.Validate(new ProjectInput("N", @"relative\x", "x.pack")));
         Assert.Equal(setup.Texts.ProjectFolderNotAbsolute, ask.Validate(new ProjectInput("N", "", "x.pack")));
-        var vanilla = ask.Validate(new ProjectInput("N", folder, "DATA.pack"));          // the name of a vanilla pack, whatever the case
+        var vanilla = ask.Validate(new ProjectInput("N", other, "DATA.pack"));          // the name of a vanilla pack, whatever the case
         Assert.NotNull(vanilla);
         Assert.Equal(setup.Projects.CheckPackName("DATA.pack"), vanilla);
-        Assert.Equal(setup.Projects.CheckPackName("data"), ask.Validate(new ProjectInput("N", folder, "data")));
-        Assert.Null(ask.Validate(new ProjectInput("My Mod", folder, "my_mod.pack")));
+        Assert.Equal(setup.Projects.CheckPackName("data"), ask.Validate(new ProjectInput("N", other, "data")));
+        Assert.Null(ask.Validate(new ProjectInput("My Mod", other, "my_mod.pack")));
     }
 
-    [Fact] public async Task A_project_the_controller_refuses_is_shown_as_a_message()
+    [Fact] public async Task A_project_the_controller_refuses_is_shown_as_a_message_and_asked_again_with_the_input()
     {
         using var setup = await CreateAsync();
         var busy = setup.Game.NewFolder("busy");
         File.WriteAllText(Path.Combine(busy, "x.txt"), "x");
-        setup.Dialogs.ProjectAnswer = new ProjectInput("N", busy, "n.pack");
+        var refused = new ProjectInput("N", busy, "n.pack");
+        setup.Dialogs.ProjectAnswers.Enqueue(refused);          // then the queue is empty and the answer is a cancel
 
         setup.ViewModel.NewProjectCommand.Execute(null);
 
         var (title, message) = Assert.Single(setup.Dialogs.Messages);
         Assert.Equal(setup.Texts.ProjectMessageTitle, title);
         Assert.StartsWith(setup.Texts.ProjectProblemText(ProjectProblem.FolderNotEmpty), message);
+        Assert.Equal([new ProjectInput("", "", ""), refused], setup.Dialogs.Asks.Select(ask => ask.Defaults));
         Assert.Empty(setup.Projects.Projects);
         Assert.Null(setup.ViewModel.StatusMessage);
+
+        // The second attempt with another folder succeeds and ends the command.
+        setup.Dialogs.Messages.Clear(); setup.Dialogs.Asks.Clear();
+        setup.Dialogs.ProjectAnswers.Enqueue(refused);
+        setup.Dialogs.ProjectAnswers.Enqueue(refused with { Folder = setup.Game.Root.File("fresh") });
+
+        setup.ViewModel.NewProjectCommand.Execute(null);
+
+        Assert.Equal(2, setup.Dialogs.Asks.Count);
+        Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal("N", Assert.Single(setup.Projects.Projects).DisplayName);
+        Assert.Equal(setup.Texts.ProjectCreated("N"), setup.ViewModel.StatusMessage);
+    }
+
+    [Fact] public async Task The_dialog_validation_refuses_what_the_controller_would_refuse()
+    {
+        using var setup = await CreateAsync();
+        var existing = NewProject(setup);
+        setup.Dialogs.ProjectAnswers.Enqueue(null);
+        setup.ViewModel.NewProjectCommand.Execute(null);
+        var validate = Assert.Single(setup.Dialogs.Asks).Validate;
+        var other = setup.Game.Root.File("other");
+
+        Assert.Null(validate(new ProjectInput("Mod", other, "mod.pack")));
+
+        // A folder of the list is refused whatever the case or a trailing separator.
+        var listed = setup.Texts.ProjectAlreadyInList(existing.Folder);
+        Assert.Equal(listed, validate(new ProjectInput("Mod", existing.Folder, "mod.pack")));
+        Assert.Equal(listed, validate(new ProjectInput("Mod", existing.Folder.ToUpperInvariant() + Path.DirectorySeparatorChar, "mod.pack")));
+
+        // A name the controller would refuse comes back with the controller's own text.
+        Assert.Equal(setup.Texts.ProjectNameInvalid, validate(new ProjectInput("bad" + (char)0xD800, other, "mod.pack")));
+        Assert.Equal(setup.Texts.ProjectNameEmpty, validate(new ProjectInput(" ", other, "mod.pack")));
     }
 
     [Fact] public async Task A_cancelled_dialog_changes_nothing()
@@ -195,6 +232,7 @@ public class ProjectsViewModelTests
         await setup.ViewModel.ImportAsync(source, "source.pack");
 
         var ask = Assert.Single(setup.Dialogs.Asks);
+        var other = setup.Game.Root.File("another");          // the folder of the new project is in the list now
         Assert.Equal(setup.Texts.ImportTitle("source.pack"), ask.Title);
         Assert.Equal(new ProjectInput("source", "", "source.pack"), ask.Defaults);
         Assert.Contains(setup.Texts.ImportPreviewLineTables(1), ask.Info);
@@ -203,7 +241,7 @@ public class ProjectsViewModelTests
         Assert.Contains(setup.Texts.ImportPreviewLineSkipped(2), ask.Info);
         Assert.Contains(ask.Info, line => line.StartsWith(setup.Texts.ImportPreviewLineSize(""), StringComparison.Ordinal));
         Assert.Equal(setup.Texts.ProjectFolderNotAbsolute, ask.Validate(new ProjectInput("Imported", "", "imported.pack")));
-        Assert.Null(ask.Validate(new ProjectInput("Imported", target, "imported.pack")));
+        Assert.Null(ask.Validate(new ProjectInput("Imported", setup.Game.Root.File("another"), "imported.pack")));
 
         Assert.Equal("Imported", Assert.Single(setup.Projects.Projects).DisplayName);
         Assert.Contains(setup.Texts.ImportSummary(1, 1, 1), setup.ViewModel.StatusMessage);
@@ -281,16 +319,66 @@ public class ProjectsViewModelTests
         Assert.All(setup.Dialogs.Messages, message => Assert.Equal(setup.Texts.ImportMessageTitle, message.Title));
         Assert.Equal(setup.Texts.ProjectPackPathNotAbsolute, setup.Dialogs.Messages[0].Message);
 
+        // A refusal after the dialog: the message, then the dialog again with the input of the user; the cancel there ends the command.
         setup.Dialogs.Messages.Clear();
-        setup.Dialogs.ProjectAnswer = new ProjectInput("N", busy, "n.pack");
+        var refused = new ProjectInput("N", busy, "n.pack");
+        setup.Dialogs.ProjectAnswers.Enqueue(refused);
         await setup.ViewModel.ImportAsync(SourcePack(setup.Game), "source.pack");
 
         var (title, message) = Assert.Single(setup.Dialogs.Messages);
         Assert.Equal(setup.Texts.ImportMessageTitle, title);
         Assert.StartsWith(setup.Texts.ImportProblemText(ImportProblem.TargetNotEmpty), message);
+        Assert.Equal([new ProjectInput("source", "", "source.pack"), refused], setup.Dialogs.Asks.Select(ask => ask.Defaults));
         Assert.Empty(setup.Projects.Projects);
         Assert.Empty(setup.Dialogs.Reports);
         Assert.Null(setup.ViewModel.StatusMessage);
+
+        // The second attempt with another folder imports.
+        setup.Dialogs.Messages.Clear(); setup.Dialogs.Asks.Clear();
+        setup.Dialogs.ProjectAnswers.Enqueue(refused);
+        setup.Dialogs.ProjectAnswers.Enqueue(refused with { Folder = setup.Game.Root.File("imported") });
+        await setup.ViewModel.ImportAsync(SourcePack(setup.Game), "source.pack");
+
+        Assert.Equal(2, setup.Dialogs.Asks.Count);
+        Assert.Equal("N", Assert.Single(setup.Projects.Projects).DisplayName);
+        Assert.Single(setup.Dialogs.Messages);
+    }
+
+    [Fact] public async Task A_cancelled_import_run_shows_its_message_and_does_not_ask_again()
+    {
+        using var setup = await CreateAsync();
+        var target = setup.Game.Root.File("cancelled");
+        setup.Dialogs.ProjectAnswers.Enqueue(new ProjectInput("N", target, "n.pack"));
+        setup.Dialogs.WhileAsking = () => setup.Game.Runner.CancelNext = true;          // the preview has run; the import run is cancelled
+
+        await setup.ViewModel.ImportAsync(SourcePack(setup.Game), "source.pack");
+
+        Assert.Single(setup.Dialogs.Asks);
+        var (title, message) = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal((setup.Texts.ImportMessageTitle, setup.Texts.ImportCancelled), (title, message));
+        Assert.Empty(setup.Projects.Projects);
+        Assert.Empty(setup.Dialogs.Reports);
+    }
+
+    [Fact] public async Task A_report_section_shows_at_most_1000_lines_and_says_how_many_are_missing()
+    {
+        using var setup = await CreateAsync();
+        var builder = new PackBuilder();
+        for (var i = 0; i < 1005; i++)
+        {
+            builder.AddEntry(@"script\bad" + i + (char)7 + ".lua", [1]);          // every one is skipped: a control character in the path
+        }
+
+        var source = builder.WriteTo(setup.Game.Root.File("many.pack"));
+        setup.Dialogs.ProjectAnswers.Enqueue(new ProjectInput("Many", setup.Game.Root.File("many"), "many.pack"));
+
+        await setup.ViewModel.ImportAsync(source, "many.pack");
+
+        var report = Assert.Single(setup.Dialogs.Reports);
+        var lines = Assert.Single(report.Sections).Lines;
+        Assert.Equal(1001, lines.Count);
+        Assert.Equal(setup.Texts.ReportMoreLines(5), lines[^1]);
+        Assert.Contains(setup.Texts.ImportSkipped(1005), report.Summary);          // the summary keeps the full number
     }
 
     [Fact] public void A_hostile_path_is_shown_escaped()
@@ -315,6 +403,47 @@ public class ProjectsViewModelTests
         // A pair is never split by the cut.
         Assert.Equal("a (shortened)", DisplayText.Safe("a" + smile, 2));
         Assert.Equal("a" + smile + " (shortened)", DisplayText.Safe("a" + smile + "b", 3));
+
+        // The marker is a parameter, so that the UI can give the text of its language.
+        Assert.Equal("abc [gekuerzt]", DisplayText.Safe("abcdef", 3, " [gekuerzt]"));
+    }
+
+    [Fact] public void Characters_that_disguise_or_break_a_line_are_escaped_and_other_format_characters_stay()
+    {
+        // Right-to-left override (U+202E) would show "gpj.exe" for "exe.jpg"; U+2028 and U+2029 break the line.
+        var disguised = "exe" + (char)0x202E + "gpj.txt";
+        Assert.Equal(string.Concat("exe", Backslash, "u202Egpj.txt"), DisplayText.Safe(disguised));
+        Assert.Equal(string.Concat("a", Backslash, "u2028b", Backslash, "u2029c"), DisplayText.Safe("a" + (char)0x2028 + "b" + (char)0x2029 + "c"));
+
+        foreach (var code in new[] { 0x061C, 0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0x2028, 0x2029 })
+        {
+            Assert.Equal(string.Concat("x", Backslash, "u", code.ToString("X4"), "y"), DisplayText.Safe("x" + (char)code + "y"));
+        }
+
+        // Zero width joiner and non-joiner are needed by real scripts and stay; so do the neighbours of the escaped ranges.
+        var kept = "a" + (char)0x200D + "b" + (char)0x200C + "c" + (char)0x2065 + (char)0x206A + (char)0x2027 + (char)0x202F;
+        Assert.Equal(kept, DisplayText.Safe(kept));
+
+        // The escape rule of the older helper is the same one.
+        Assert.Equal(string.Concat("exe", Backslash, "u202Egpj"), MessageText.EscapeControlCharacters("exe" + (char)0x202E + "gpj"));
+    }
+
+    [Fact] public async Task Foreign_text_is_cut_with_the_marker_of_the_current_language()
+    {
+        using var setup = await CreateAsync();
+        var ui = new TotalWarModTool.Localization.UiText(Path.Combine(RepoRoot.Find(), "locales"));
+        ui.Load("de");
+        var german = new AppTexts(ui);
+        var viewModel = new ProjectsViewModel(setup.Projects, setup.Dialogs, german);
+        var source = new PackBuilder().AddEntry(@"script\a" + (char)7 + new string('b', 400) + ".lua", [1]).WriteTo(setup.Game.Root.File("long.pack"));
+        setup.Dialogs.ProjectAnswers.Enqueue(new ProjectInput("Long", setup.Game.Root.File("long"), "long.pack"));
+
+        await viewModel.ImportAsync(source, "long.pack");
+
+        var line = Assert.Single(Assert.Single(Assert.Single(setup.Dialogs.Reports).Sections).Lines);
+        Assert.NotEqual("shortened", german.TextShortened);
+        Assert.StartsWith("script/a" + Backslash + "u0007bbb", line);
+        Assert.Contains(" (" + german.TextShortened + "): ", line);          // the cut is marked, then the reason follows
     }
 
     // ---- build -----------------------------------------------------------------------------------------------------------------
@@ -418,7 +547,7 @@ public class ProjectsViewModelTests
 
         await setup.ViewModel.UninstallAsync(state.Id);
 
-        Assert.Equal(setup.Texts.UninstallNotInstalled, Assert.Single(setup.Dialogs.Messages).Message);
+        Assert.Equal(setup.Texts.UninstallNothing, Assert.Single(setup.Dialogs.Messages).Message);
         Assert.Equal(setup.Texts.UninstallMessageTitle, setup.Dialogs.Messages[0].Title);
 
         await setup.ViewModel.BuildAsync(state.Id, install: true);
@@ -539,4 +668,107 @@ public class ProjectsViewModelTests
         Assert.Equal(setup.Texts.OperationBuild("My Mod"), setup.Game.Runner.Titles[^1]);
     }
 
+    [Fact] public async Task The_active_build_commands_do_nothing_without_an_active_project()
+    {
+        using var setup = await CreateAsync();
+
+        setup.ViewModel.BuildActiveCommand.Execute(null);
+        setup.ViewModel.BuildAndInstallActiveCommand.Execute(null);
+
+        Assert.Empty(setup.Game.Runner.Titles);
+        Assert.Empty(setup.Dialogs.Messages);
+        Assert.Null(setup.ViewModel.StatusMessage);
+    }
+
+    [Fact] public async Task A_command_asks_the_commands_again_when_it_ends()
+    {
+        using var setup = await CreateAsync();
+        NewProject(setup);
+        var raised = 0; ((RelayCommand)setup.ViewModel.BuildActiveCommand).CanExecuteChanged += (_, _) => raised++;
+        var changes = 0; setup.Projects.Changed += (_, _) => changes++;
+
+        setup.ViewModel.BuildActiveCommand.Execute(null);          // a plain build changes nothing in the list
+
+        Assert.Equal(0, changes);
+        Assert.True(raised > 0);
+        Assert.Equal(setup.Texts.BuildDone("my_mod.pack", 1), setup.ViewModel.StatusMessage);
+    }
+
+    [Fact] public async Task The_commands_are_asked_again_when_the_workspace_changes()
+    {
+        using var game = new TestGame();
+        var workspace = game.NewController();          // not loaded yet: the silent start-up load comes later
+        var setup = Wire(game, workspace);
+        var raised = new Dictionary<string, int>();
+        foreach (var (name, command) in new[]
+        {
+            ("build", setup.ViewModel.BuildActiveCommand), ("install", setup.ViewModel.BuildAndInstallActiveCommand),
+            ("new", setup.ViewModel.NewProjectCommand), ("open", setup.ViewModel.OpenProjectCommand), ("import", setup.ViewModel.ImportPackCommand),
+        })
+        {
+            raised[name] = 0;
+            ((RelayCommand)command).CanExecuteChanged += (_, _) => raised[name]++;
+        }
+
+        await workspace.LoadAsync();
+
+        Assert.All(raised, pair => Assert.True(pair.Value > 0, pair.Key));
+    }
+
+    [Fact] public async Task Projects_are_disabled_without_a_game_profile()
+    {
+        using var game = new TestGame();
+        var workspace = game.NewController();
+        var projects = new ProjectsController(null, new ProjectListLoadResult(ProjectList.Empty, LoadStatus.Missing, null), workspace,
+            game.Runner, game.Log, game.Texts, TimeProvider.System);
+        var dialogs = new FakeProjectDialogs { ProjectAnswer = new ProjectInput("N", game.Root.File("n"), "n.pack") };
+        dialogs.FolderAnswers.Enqueue(game.NewFolder("e"));
+        dialogs.PackFileAnswers.Enqueue(game.Root.File("x.pack"));
+        var viewModel = new ProjectsViewModel(projects, dialogs, game.Texts);
+
+        Assert.Equal(game.Texts.ProjectNoGameProfile, viewModel.ProjectsDisabledReason);
+        Assert.False(viewModel.NewProjectCommand.CanExecute(null));
+        Assert.False(viewModel.OpenProjectCommand.CanExecute(null));
+        Assert.False(viewModel.ImportPackCommand.CanExecute(null));
+
+        await viewModel.ImportAsync(game.Root.File("x.pack"), "x.pack");
+
+        Assert.Equal(game.Texts.ProjectNoGameProfile, viewModel.StatusMessage);
+        Assert.Empty(dialogs.Asks);
+        Assert.Empty(dialogs.Messages);
+        Assert.Empty(game.Runner.Titles);
+
+        // Even when a command is invoked anyway, nothing is asked.
+        viewModel.NewProjectCommand.Execute(null);
+        viewModel.OpenProjectCommand.Execute(null);
+        viewModel.ImportPackCommand.Execute(null);
+
+        Assert.Empty(dialogs.Asks);
+        Assert.Empty(dialogs.FolderTitles);
+        Assert.Equal(0, dialogs.PackFileCalls);
+    }
+
+    [Fact] public async Task Projects_are_enabled_with_a_game_profile()
+    {
+        using var setup = await CreateAsync();
+
+        Assert.Null(setup.ViewModel.ProjectsDisabledReason);
+        Assert.True(setup.ViewModel.NewProjectCommand.CanExecute(null));
+        Assert.True(setup.ViewModel.OpenProjectCommand.CanExecute(null));
+        Assert.True(setup.ViewModel.ImportPackCommand.CanExecute(null));
+    }
+
+    [Fact] public async Task Open_project_for_a_folder_that_is_in_the_list_shows_the_message()
+    {
+        using var setup = await CreateAsync();
+        var state = NewProject(setup);
+        setup.Dialogs.FolderAnswers.Enqueue(state.Folder);
+
+        setup.ViewModel.OpenProjectCommand.Execute(null);
+
+        var (title, message) = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal((setup.Texts.ProjectMessageTitle, setup.Texts.ProjectAlreadyInList(state.Folder)), (title, message));
+        Assert.Single(setup.Projects.Projects);
+        Assert.Null(setup.ViewModel.StatusMessage);
+    }
 }

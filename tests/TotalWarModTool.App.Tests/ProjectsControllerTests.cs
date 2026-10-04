@@ -347,6 +347,42 @@ public class ProjectsControllerTests
         Assert.Equal(1, changes);                                           // the scan raised several workspace changes, one of them changed the names
     }
 
+    [Fact] public void CheckName_answers_for_empty_blank_and_broken_names_and_Create_uses_it()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(game.NewController());
+        var broken = "bad" + (char)0xD800;
+
+        Assert.Equal(game.Texts.ProjectNameEmpty, projects.CheckName(""));
+        Assert.Equal(game.Texts.ProjectNameEmpty, projects.CheckName("  "));
+        Assert.Equal(game.Texts.ProjectNameInvalid, projects.CheckName(broken));
+        Assert.Null(projects.CheckName("My Mod"));
+
+        var empty = projects.Create(game.NewFolder("a"), " ", "a.pack");
+        var invalid = projects.Create(game.NewFolder("b"), broken, "b.pack");
+
+        Assert.Equal((false, game.Texts.ProjectNameEmpty), (empty.Ok, empty.Message));
+        Assert.Equal((false, game.Texts.ProjectNameInvalid), (invalid.Ok, invalid.Message));
+        Assert.Empty(projects.Projects);
+        Assert.False(File.Exists(ProjectFilePath(game.Root.File(Path.Combine("projects", "a")))));
+    }
+
+    [Fact] public async Task OperationStateChanged_is_raised_on_every_change_of_the_workspace()
+    {
+        using var game = new TestGame();
+        var workspace = game.NewController();
+        var projects = game.NewProjects(workspace);
+        var workspaceChanges = 0; workspace.Changed += (_, _) => workspaceChanges++;
+        var stateChanges = 0; projects.OperationStateChanged += (_, _) => stateChanges++;
+        var listChanges = 0; projects.Changed += (_, _) => listChanges++;
+
+        await workspace.LoadAsync();
+
+        Assert.True(workspaceChanges > 0);
+        Assert.Equal(workspaceChanges, stateChanges);          // without comparing states: a load flips CanStartOperation only
+        Assert.True(stateChanges >= listChanges);
+    }
+
     [Fact] public void Without_a_game_profile_the_controller_is_empty_and_every_action_fails()
     {
         using var game = new TestGame();

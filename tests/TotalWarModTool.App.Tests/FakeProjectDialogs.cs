@@ -9,8 +9,17 @@ internal sealed class FakeProjectDialogs : IProjectDialogs
     /// <summary>The answers of <see cref="PickPackFile"/>, one per call; an empty queue means the user cancels.</summary>
     public Queue<string?> PackFileAnswers { get; } = new();
 
-    /// <summary>The answer of every <see cref="AskProject"/> call; null means the user cancels.</summary>
+    /// <summary>
+    /// The answers of <see cref="AskProject"/>, one per call (null is a cancel). When the queue is empty the call gets
+    /// <see cref="ProjectAnswer"/>. A command that asks again after a refusal needs a queue that ends in a cancel or a good answer.
+    /// </summary>
+    public Queue<ProjectInput?> ProjectAnswers { get; } = new();
+
+    /// <summary>The answer of every <see cref="AskProject"/> call that the queue does not answer; null means the user cancels.</summary>
     public ProjectInput? ProjectAnswer { get; set; }
+
+    /// <summary>Runs inside <see cref="AskProject"/>, before the answer is returned: lets a test change the world while the dialog is open.</summary>
+    public Action? WhileAsking { get; set; }
 
     public List<string> FolderTitles { get; } = [];
 
@@ -37,7 +46,8 @@ internal sealed class FakeProjectDialogs : IProjectDialogs
     public ProjectInput? AskProject(string title, ProjectInput defaults, IReadOnlyList<string> info, Func<ProjectInput, string?> validate)
     {
         Asks.Add(new AskCall(title, defaults, info, validate));
-        return ProjectAnswer;
+        WhileAsking?.Invoke();
+        return ProjectAnswers.Count > 0 ? ProjectAnswers.Dequeue() : ProjectAnswer;
     }
 
     public void ShowReport(Report report) => Reports.Add(report);

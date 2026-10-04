@@ -18,11 +18,18 @@ public class ProjectWindowsTests
         window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
             File.ReadAllText(Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml"))));
 
-    private static void Show(Window window)
+    // Shows the window; disposing the result closes it, so that a failing assertion does not leave the window open.
+    private static IDisposable Show(Window window)
     {
         AddControlStyles(window);
         window.Show();
         Pump(window);
+        return new WindowCloser(window);
+    }
+
+    private sealed class WindowCloser(Window window) : IDisposable
+    {
+        public void Dispose() => window.Close();
     }
 
     // Bindings are delivered by the dispatcher; a window nobody pumps needs this nudge.
@@ -58,10 +65,10 @@ public class ProjectWindowsTests
     [Fact] public void The_input_window_binds_fields_error_and_buttons() => Sta.Run(() =>
     {
         string? browsed = @"C:\browsed";
-        var viewModel = new ProjectInputViewModel(Texts, new ProjectInput("Mod", @"C:\mods", "mod.pack"), ["Tables: 1", "Loc files: 2"],
+        var viewModel = new ProjectInputViewModel(Texts, new ProjectInput("Mod", @"C:\mods", ""), ["Tables: 1", "Loc files: 2"],
             input => input.Name.Length == 0 ? "Enter a name" : null, () => browsed);
         var window = new ProjectInputWindow(viewModel, "Import source.pack");
-        Show(window);
+        using var shown = Show(window);
         var nameBox = Find<TextBox>(window, "NameBox");
         var folderBox = Find<TextBox>(window, "FolderBox");
         var packNameBox = Find<TextBox>(window, "PackNameBox");
@@ -73,7 +80,7 @@ public class ProjectWindowsTests
 
         // What the window shows at the start.
         Assert.Equal(("Import source.pack", WindowStartupLocation.CenterOwner, false), (window.Title, window.WindowStartupLocation, window.ShowInTaskbar));
-        Assert.Equal(("Mod", @"C:\mods", "mod.pack"), (nameBox.Text, folderBox.Text, packNameBox.Text));
+        Assert.Equal(("Mod", @"C:\mods", ""), (nameBox.Text, folderBox.Text, packNameBox.Text));
         Assert.Equal(("Tables: 1\nLoc files: 2", true), (info.Text, info.IsVisible));
         Assert.False(error.IsVisible);
         Assert.Equal(("Name", "Folder", "Pack name"),
@@ -112,7 +119,7 @@ public class ProjectWindowsTests
     {
         var viewModel = new ProjectInputViewModel(Texts, new ProjectInput("", "", ""), [], _ => null, () => null);
         var window = new ProjectInputWindow(viewModel, "New project");
-        Show(window);
+        using var shown = Show(window);
 
         Assert.False(Find<TextBlock>(window, "InfoText").IsVisible);
         Assert.True(Find<Button>(window, "OkButton").IsEnabled);
@@ -123,7 +130,7 @@ public class ProjectWindowsTests
         var report = new Report("Import report", "Imported 1 table.\nOne entry was left out.",
             [new ReportSection("Left out", ["a.txt: reason one", "b.txt: reason two"]), new ReportSection("Binary", ["t: no schema"])]);
         var window = new ReportWindow(report, Texts);
-        Show(window);
+        using var shown = Show(window);
         var summary = Find<TextBlock>(window, "SummaryText");
         var sections = Find<ItemsControl>(window, "SectionsList");
         var close = Find<Button>(window, "CloseButton");

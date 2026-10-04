@@ -25,5 +25,6 @@ public interface IProjectDialogs
 
     void ShowReport(Report report);
 
+    /// <summary>Tells the user that something could not be done or did not finish. Shown as a warning; the project commands use it for nothing else.</summary>
     void ShowMessage(string title, string message);
 }

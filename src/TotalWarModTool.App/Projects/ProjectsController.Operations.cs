@@ -70,15 +70,9 @@ public sealed partial class ProjectsController
             return ImportFailed(_texts.ProjectUnknown);
         }
 
-        if (string.IsNullOrWhiteSpace(name))
+        if (CheckName(name) is { } nameText)
         {
-            return ImportFailed(_texts.ProjectNameEmpty);
-        }
-
-        // The library refuses a name that cannot be written as UTF-8; the rule is the same, so it is answered here with its own text.
-        if (HasUnpairedSurrogate(name))
-        {
-            return ImportFailed(_texts.ProjectNameInvalid);
+            return ImportFailed(nameText);
         }
 
         if (!Path.IsPathFullyQualified(sourcePack))
@@ -244,7 +238,7 @@ public sealed partial class ProjectsController
 
         if (state.Installed is not { } recorded)
         {
-            return Fail(_texts.UninstallNotInstalled);
+            return Fail(_texts.UninstallNothing);
         }
 
         if (!CanStartOperation)

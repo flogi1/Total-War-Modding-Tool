@@ -26,7 +26,7 @@ public sealed class ProjectDialogs : IProjectDialogs
         var dialog = new OpenFileDialog
         {
             Title = _texts.ImportPickTitle,
-            Filter = _texts.DialogPackFilter + "|*.pack",
+            Filter = _texts.DialogPackFilter.Replace('|', '/') + "|*.pack",          // a pipe in the translation would break the filter
             CheckFileExists = true,
             Multiselect = false,
         };
@@ -55,11 +55,11 @@ public sealed class ProjectDialogs : IProjectDialogs
     {
         if (_owner() is { IsLoaded: true } owner)
         {
-            MessageBox.Show(owner, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(owner, message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         else
         {
-            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

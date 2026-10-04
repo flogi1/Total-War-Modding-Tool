@@ -7,16 +7,28 @@ namespace TotalWarModTool.App;
 public static class DisplayText
 {
     private const char Backslash = (char)0x5C;
-    private const string Shortened = " (shortened)";
+    private const string DefaultMarker = " (shortened)";
 
     /// <summary>
-    /// Control characters and unpaired surrogates as \uXXXX, at most <paramref name="maxChars"/> characters of <paramref name="text"/>.
-    /// The limit counts the characters of the text before the escaping; a cut is marked with " (shortened)" after them and never splits
-    /// a surrogate pair. The marker is an English literal on purpose: the text is data of a foreign file, not a UI text.
+    /// Characters that are escaped as \uXXXX: control characters (category Cc), unpaired surrogates, the line and paragraph separators
+    /// and the bidirectional controls, which can break a line of UI text or disguise what it says. Other format characters (for example
+    /// the zero width joiners) stay.
     /// </summary>
-    public static string Safe(string text, int maxChars = 300)
+    private static bool NeedsEscape(char c) =>
+        char.IsControl(c) || char.IsSurrogate(c)
+        || c is (char)0x2028 or (char)0x2029 or (char)0x061C or (char)0x200E or (char)0x200F
+            or (>= (char)0x202A and <= (char)0x202E) or (>= (char)0x2066 and <= (char)0x2069);
+
+    /// <summary>
+    /// Characters that need escaping as \uXXXX (see <see cref="NeedsEscape"/>), at most <paramref name="maxChars"/> characters of
+    /// <paramref name="text"/>. The limit counts the characters of the text before the escaping; a cut is marked with
+    /// <paramref name="marker"/> after them and never splits a surrogate pair. Valid surrogate pairs stay as they are.
+    /// </summary>
+    /// <param name="marker">Appended after a cut text. Pass the localised marker of the UI; the default is the English one.</param>
+    public static string Safe(string text, int maxChars = 300, string marker = DefaultMarker)
     {
         ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(marker);
         ArgumentOutOfRangeException.ThrowIfNegative(maxChars);
 
         var length = Math.Min(text.Length, maxChars);
@@ -26,7 +38,7 @@ public static class DisplayText
             length--;
         }
 
-        var result = new StringBuilder(length + Shortened.Length + 8);
+        var result = new StringBuilder(length + marker.Length + 8);
         for (var i = 0; i < length; i++)
         {
             var c = text[i];
@@ -34,7 +46,7 @@ public static class DisplayText
             {
                 result.Append(c).Append(text[++i]);
             }
-            else if (char.IsControl(c) || char.IsSurrogate(c))
+            else if (NeedsEscape(c))
             {
                 result.Append(Backslash).Append('u').Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
             }
@@ -44,6 +56,6 @@ public static class DisplayText
             }
         }
 
-        return cut ? result.Append(Shortened).ToString() : result.ToString();
+        return cut ? result.Append(marker).ToString() : result.ToString();
     }
 }

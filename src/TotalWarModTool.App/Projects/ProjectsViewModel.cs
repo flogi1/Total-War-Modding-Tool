@@ -15,9 +15,15 @@ public sealed class ProjectsViewModel : ObservableObject
 {
     private const int MaxNameChars = 100;
 
+    // A section of a report shows this many lines; the rest is one line that says how many are missing.
+    private const int MaxReportLines = 1000;
+
     private readonly ProjectsController _projects;
     private readonly IProjectDialogs _dialogs;
     private readonly AppTexts _texts;
+    private readonly RelayCommand _newProject;
+    private readonly RelayCommand _openProject;
+    private readonly RelayCommand _importPack;
     private readonly RelayCommand _buildActive;
     private readonly RelayCommand _buildAndInstallActive;
     private string? _statusMessage;
@@ -31,26 +37,30 @@ public sealed class ProjectsViewModel : ObservableObject
         _projects = projects;
         _dialogs = dialogs;
         _texts = texts;
-        NewProjectCommand = new RelayCommand(NewProject);
-        OpenProjectCommand = new RelayCommand(OpenProject);
-        ImportPackCommand = new RelayCommand(async () => await RunAsync(ImportFromPickedPackAsync));
-        _buildActive = new RelayCommand(async () => await BuildAsync(_projects.ActiveId!.Value, install: false), () => CanRun(BuildDisabledReason));
-        _buildAndInstallActive = new RelayCommand(async () => await BuildAsync(_projects.ActiveId!.Value, install: true), () => CanRun(InstallDisabledReason));
+        _newProject = new RelayCommand(NewProject, () => _projects.IsAvailable);
+        _openProject = new RelayCommand(OpenProject, () => _projects.IsAvailable);
+        _importPack = new RelayCommand(async () => await RunAsync(ImportFromPickedPackAsync), () => _projects.IsAvailable);
+        _buildActive = new RelayCommand(async () => await BuildActiveAsync(install: false), () => CanRun(BuildDisabledReason));
+        _buildAndInstallActive = new RelayCommand(async () => await BuildActiveAsync(install: true), () => CanRun(InstallDisabledReason));
         projects.Changed += (_, _) => RaiseCanExecuteChanged();
+        projects.OperationStateChanged += (_, _) => RaiseCanExecuteChanged();
     }
 
-    public ICommand NewProjectCommand { get; }
+    public ICommand NewProjectCommand => _newProject;
 
-    public ICommand OpenProjectCommand { get; }
+    public ICommand OpenProjectCommand => _openProject;
 
     /// <summary>Asks for a pack file and imports it into a new project.</summary>
-    public ICommand ImportPackCommand { get; }
+    public ICommand ImportPackCommand => _importPack;
 
     /// <summary>Builds the active project. Disabled with <see cref="BuildDisabledReason"/> or while an operation runs.</summary>
     public ICommand BuildActiveCommand => _buildActive;
 
     /// <summary>Builds the active project and installs the pack. Disabled with <see cref="InstallDisabledReason"/> or while an operation runs.</summary>
     public ICommand BuildAndInstallActiveCommand => _buildAndInstallActive;
+
+    /// <summary>The text that says why the new, open and import commands are disabled (no game profile); null when projects are available.</summary>
+    public string? ProjectsDisabledReason => _projects.IsAvailable ? null : _texts.ProjectNoGameProfile;
 
     /// <summary>The result of the last command, for the status bar; null when it had nothing to say. It can have several lines.</summary>
     public string? StatusMessage
@@ -59,7 +69,10 @@ public sealed class ProjectsViewModel : ObservableObject
         private set => SetProperty(ref _statusMessage, value);
     }
 
-    /// <summary>Reads the pack, asks what to import it as and imports it. <paramref name="sourceName"/> is the name shown in the dialog.</summary>
+    /// <summary>
+    /// Reads the pack, asks what to import it as and imports it. <paramref name="sourceName"/> is the name shown in the dialog. Without a
+    /// game profile nothing happens but the status message.
+    /// </summary>
     public Task ImportAsync(string sourcePack, string sourceName)
     {
         ArgumentNullException.ThrowIfNull(sourcePack);
@@ -121,23 +134,34 @@ public sealed class ProjectsViewModel : ObservableObject
 
     // ---- commands ----------------------------------------------------------------------------------------------------------------
 
+    // Asks again with the last input as long as the controller refuses it, until the project is created or the user cancels.
     private void NewProject()
     {
         StatusMessage = null;
-        var input = _dialogs.AskProject(_texts.ProjectNewTitle, new ProjectInput(string.Empty, string.Empty, string.Empty), [], Validate);
-        if (input is null)
+        if (!_projects.IsAvailable)
         {
             return;
         }
 
-        Complete(_projects.Create(input.Folder, input.Name, input.PackName), _texts.ProjectMessageTitle,
-            _texts.ProjectCreated(DisplayText.Safe(input.Name, MaxNameChars)));
+        var defaults = new ProjectInput(string.Empty, string.Empty, string.Empty);
+        while (_dialogs.AskProject(_texts.ProjectNewTitle, defaults, [], Validate) is { } input)
+        {
+            var result = _projects.Create(input.Folder, input.Name, input.PackName);
+            if (result.Ok)
+            {
+                Complete(result, _texts.ProjectMessageTitle, _texts.ProjectCreated(Safe(input.Name, MaxNameChars)));
+                return;
+            }
+
+            _dialogs.ShowMessage(_texts.ProjectMessageTitle, result.Message ?? string.Empty);
+            defaults = input;
+        }
     }
 
     private void OpenProject()
     {
         StatusMessage = null;
-        if (_dialogs.PickFolder(_texts.ProjectOpenTitle) is not { } folder)
+        if (!_projects.IsAvailable || _dialogs.PickFolder(_texts.ProjectOpenTitle) is not { } folder)
         {
             return;
         }
@@ -146,12 +170,12 @@ public sealed class ProjectsViewModel : ObservableObject
 
         // The controller appends the project to the list, so it is the last one.
         Complete(result, _texts.ProjectMessageTitle,
-            result.Ok && _projects.Projects.Count > 0 ? _texts.ProjectAdded(DisplayText.Safe(_projects.Projects[^1].DisplayName, MaxNameChars)) : null);
+            result.Ok && _projects.Projects.Count > 0 ? _texts.ProjectAdded(Safe(_projects.Projects[^1].DisplayName, MaxNameChars)) : null);
     }
 
     private async Task ImportFromPickedPackAsync()
     {
-        if (_dialogs.PickPackFile() is { } pack)
+        if (_projects.IsAvailable && _dialogs.PickPackFile() is { } pack)
         {
             await ImportCoreAsync(pack, Path.GetFileName(pack));
         }
@@ -159,6 +183,12 @@ public sealed class ProjectsViewModel : ObservableObject
 
     private async Task ImportCoreAsync(string sourcePack, string sourceName)
     {
+        if (ProjectsDisabledReason is { } disabled)
+        {
+            StatusMessage = disabled;
+            return;
+        }
+
         var read = await _projects.PreviewImportAsync(sourcePack);
         if (read is null)
         {
@@ -180,27 +210,44 @@ public sealed class ProjectsViewModel : ObservableObject
             _texts.ImportPreviewLineSize(TabFactory.FormatSize(preview.StoredBytes)),
             _texts.ImportPreviewLineSkipped(preview.Skipped.Count),
         };
-        if (_dialogs.AskProject(_texts.ImportTitle(DisplayText.Safe(sourceName, MaxNameChars)), defaults, info, Validate) is not { } input)
+
+        // Asks again with the last input after a refusal. A run without a report was cancelled (or refused before it started, which the
+        // validation of the dialog rules out): that ends the command.
+        while (_dialogs.AskProject(_texts.ImportTitle(Safe(sourceName, MaxNameChars)), defaults, info, Validate) is { } input)
         {
+            var outcome = await _projects.ImportAsync(sourcePack, input.Folder, input.Name, input.PackName);
+            if (outcome is null)
+            {
+                return;
+            }
+
+            if (!outcome.Ok)
+            {
+                _dialogs.ShowMessage(_texts.ImportMessageTitle, outcome.Message ?? string.Empty);
+                if (outcome.Report is null)
+                {
+                    return;
+                }
+
+                defaults = input;
+                continue;
+            }
+
+            StatusMessage = outcome.Message;
+            if (outcome.Report is { } report && ImportSections(report) is { Count: > 0 } sections)
+            {
+                _dialogs.ShowReport(new Report(_texts.ImportReportTitle, outcome.Message ?? string.Empty, sections));
+            }
+
             return;
         }
+    }
 
-        var outcome = await _projects.ImportAsync(sourcePack, input.Folder, input.Name, input.PackName);
-        if (outcome is null)
+    private async Task BuildActiveAsync(bool install)
+    {
+        if (_projects.ActiveId is { } id)
         {
-            return;
-        }
-
-        if (!outcome.Ok)
-        {
-            _dialogs.ShowMessage(_texts.ImportMessageTitle, outcome.Message ?? string.Empty);
-            return;
-        }
-
-        StatusMessage = outcome.Message;
-        if (outcome.Report is { } report && ImportSections(report) is { Count: > 0 } sections)
-        {
-            _dialogs.ShowReport(new Report(_texts.ImportReportTitle, outcome.Message ?? string.Empty, sections));
+            await BuildAsync(id, install);
         }
     }
 
@@ -242,10 +289,13 @@ public sealed class ProjectsViewModel : ObservableObject
             return;
         }
 
-        Complete(result, _texts.UninstallMessageTitle, _texts.UninstallDone(DisplayText.Safe(name, MaxNameChars)));
+        Complete(result, _texts.UninstallMessageTitle, _texts.UninstallDone(Safe(name, MaxNameChars)));
     }
 
     // ---- helpers -----------------------------------------------------------------------------------------------------------------
+
+    // The one place where foreign text becomes display text: escaped, cut, and marked with the marker of the current language.
+    private string Safe(string text, int maxChars = 300) => DisplayText.Safe(text, maxChars, " (" + _texts.TextShortened + ")");
 
     // Clears the status, runs the command and asks the commands again whether they may run: a command changes what is possible.
     private async Task RunAsync(Func<Task> command)
@@ -274,16 +324,24 @@ public sealed class ProjectsViewModel : ObservableObject
         StatusMessage = lines.Count == 0 ? null : string.Join("\n", lines);
     }
 
+    // What the controller would refuse is answered here, so that a refusal after the dialog is rare and the user does not lose the input.
     private string? Validate(ProjectInput input)
     {
-        if (string.IsNullOrWhiteSpace(input.Name))
+        if (_projects.CheckName(input.Name) is { } nameText)
         {
-            return _texts.ProjectNameEmpty;
+            return nameText;
         }
 
-        if (ProjectListEdits.NormalizePath(input.Folder) is null)
+        if (ProjectListEdits.NormalizePath(input.Folder) is not { } folder)
         {
             return _texts.ProjectFolderNotAbsolute;
+        }
+
+        var listed = _projects.Projects.FirstOrDefault(state =>
+            string.Equals(Path.TrimEndingDirectorySeparator(state.Folder), folder, StringComparison.OrdinalIgnoreCase));
+        if (listed is not null)
+        {
+            return _texts.ProjectAlreadyInList(Safe(listed.Folder));
         }
 
         return _projects.CheckPackName(input.PackName);
@@ -294,29 +352,39 @@ public sealed class ProjectsViewModel : ObservableObject
         var sections = new List<ReportSection>();
         AddSection(sections, _texts.ImportReportBinaryHeading, report.StayedBinary.Select(entry => Entry(entry.PackPath, entry.Reason)));
         AddSection(sections, _texts.ImportReportSkippedHeading, report.Skipped.Select(entry => Entry(entry.PackPath, entry.Reason)));
-        AddSection(sections, _texts.ImportReportDroppedHeading, report.DroppedDependencies.Select(name => DisplayText.Safe(name)));
+        AddSection(sections, _texts.ImportReportDroppedHeading, report.DroppedDependencies.Select(name => Safe(name)));
         return sections;
 
-        static string Entry(string path, string reason) => DisplayText.Safe(path) + ": " + DisplayText.Safe(reason);
+        string Entry(string path, string reason) => Safe(path) + ": " + Safe(reason);
     }
 
     private Report BuildProblemReport(BuildReport report)
     {
         var sections = new List<ReportSection>();
         AddSection(sections, _texts.BuildProblemsHeading, report.Problems.Select(problem => problem.Line > 0
-            ? string.Create(CultureInfo.InvariantCulture, $"{DisplayText.Safe(problem.RelativeFile)}({problem.Line}): {DisplayText.Safe(problem.Detail)}")
-            : $"{DisplayText.Safe(problem.RelativeFile)}: {DisplayText.Safe(problem.Detail)}"));
-        AddSection(sections, _texts.BuildIgnoredHeading, report.Ignored.Select(file => DisplayText.Safe(file)));
+            ? string.Create(CultureInfo.InvariantCulture, $"{Safe(problem.RelativeFile)}({problem.Line}): {Safe(problem.Detail)}")
+            : $"{Safe(problem.RelativeFile)}: {Safe(problem.Detail)}"));
+        AddSection(sections, _texts.BuildIgnoredHeading, report.Ignored.Select(file => Safe(file)));
         return new Report(_texts.BuildReportTitle, _texts.BuildProblemsSummary(report.Problems.Count), sections);
     }
 
-    private static void AddSection(List<ReportSection> sections, string heading, IEnumerable<string> lines)
+    // A section with no lines is left out; one with too many shows the first lines and how many more there are.
+    private void AddSection(List<ReportSection> sections, string heading, IEnumerable<string> lines)
     {
         var list = lines.ToList();
-        if (list.Count > 0)
+        if (list.Count == 0)
         {
-            sections.Add(new ReportSection(heading, list));
+            return;
         }
+
+        if (list.Count > MaxReportLines)
+        {
+            var more = list.Count - MaxReportLines;
+            list.RemoveRange(MaxReportLines, more);
+            list.Add(_texts.ReportMoreLines(more));
+        }
+
+        sections.Add(new ReportSection(heading, list));
     }
 
     private ProjectState? StateOf(Guid id) => _projects.Projects.FirstOrDefault(state => state.Id == id);
@@ -326,6 +394,9 @@ public sealed class ProjectsViewModel : ObservableObject
 
     private void RaiseCanExecuteChanged()
     {
+        _newProject.RaiseCanExecuteChanged();
+        _openProject.RaiseCanExecuteChanged();
+        _importPack.RaiseCanExecuteChanged();
         _buildActive.RaiseCanExecuteChanged();
         _buildAndInstallActive.RaiseCanExecuteChanged();
     }

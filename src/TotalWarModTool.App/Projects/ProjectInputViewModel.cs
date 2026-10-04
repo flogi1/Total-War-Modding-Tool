@@ -5,7 +5,9 @@ namespace TotalWarModTool.App;
 
 /// <summary>
 /// The model of the project dialog: name, folder and pack name, checked by the caller's <c>validate</c> on every change. The pack name
-/// follows the name (lower case, spaces as underscores, plus .pack) until the user types into it.
+/// follows the name (lower case, spaces as underscores, plus .pack) until the user types into it; a pack name that the dialog starts with
+/// is no user edit. The exception is a non-empty default pack name (the import, where it is the file name of the source, or a second
+/// attempt after a refusal): it is kept as it is and never follows the name.
 /// </summary>
 public sealed class ProjectInputViewModel : ObservableObject
 {
@@ -17,7 +19,7 @@ public sealed class ProjectInputViewModel : ObservableObject
     private string _packName;
     private string? _error;
 
-    // True while the pack name is not the user's own: it was empty at the start or the one derived from the name.
+    // True while the pack name follows the name: the dialog started with an empty pack name and the user has not typed into it.
     private bool _followsName;
 
     /// <param name="info">Lines shown above the fields.</param>
@@ -39,7 +41,7 @@ public sealed class ProjectInputViewModel : ObservableObject
         _name = defaults.Name;
         _folder = defaults.Folder;
         _packName = defaults.PackName;
-        _followsName = defaults.PackName.Length == 0 || defaults.PackName == DerivePackName(defaults.Name);
+        _followsName = defaults.PackName.Length == 0;
         _error = validate(Result);
         BrowseFolderCommand = new RelayCommand(() =>
         {

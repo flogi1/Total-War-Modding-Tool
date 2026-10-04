@@ -95,7 +95,11 @@ public sealed partial class ProjectsController
             }
         }
 
-        workspace.Changed += (_, _) => OnWorkspaceChanged();
+        workspace.Changed += (_, _) =>
+        {
+            OnWorkspaceChanged();
+            OperationStateChanged?.Invoke(this, EventArgs.Empty);
+        };
     }
 
     /// <summary>True when a game profile exists, so projects can be listed and changed. Without one the list is empty and every action fails.</summary>
@@ -115,8 +119,14 @@ public sealed partial class ProjectsController
     public event EventHandler? Changed;
 
     /// <summary>
-    /// Creates a project in a new or empty folder and adds it to the list. Nothing is created when the pack name, the folder or the list
-    /// refuse it.
+    /// The workspace changed, so <see cref="CanStartOperation"/> or <see cref="InstallDisabledReason"/> may have another answer. Raised on
+    /// every change of the workspace, without comparing states: a start-up load flips <see cref="CanStartOperation"/> without changing the list.
+    /// </summary>
+    public event EventHandler? OperationStateChanged;
+
+    /// <summary>
+    /// Creates a project in a new or empty folder and adds it to the list. Nothing is created when the name, the pack name, the folder or
+    /// the list refuse it.
     /// </summary>
     public ProjectActionResult Create(string folder, string name, string packName)
     {
@@ -127,6 +137,11 @@ public sealed partial class ProjectsController
         if (!IsAvailable)
         {
             return Fail(_texts.ProjectUnknown);
+        }
+
+        if (CheckName(name) is { } nameText)
+        {
+            return Fail(nameText);
         }
 
         if (CheckPackName(packName) is { } packNameText)
@@ -236,6 +251,22 @@ public sealed partial class ProjectsController
 
         _states = fresh;
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Null when <paramref name="name"/> may be the name of a project; otherwise the UI text that says why not (empty or blank, or characters
+    /// that cannot be written as UTF-8).
+    /// </summary>
+    public string? CheckName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return _texts.ProjectNameEmpty;
+        }
+
+        return HasUnpairedSurrogate(name) ? _texts.ProjectNameInvalid : null;
     }
 
     /// <summary>Null when <paramref name="packName"/> may be used for a project of this game; otherwise the UI text that says why not.</summary>
