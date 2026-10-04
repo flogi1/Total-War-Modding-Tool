@@ -758,6 +758,97 @@ public class ProjectsViewModelTests
         Assert.True(setup.ViewModel.ImportPackCommand.CanExecute(null));
     }
 
+    [Fact] public async Task Install_and_uninstall_are_disabled_while_the_list_cannot_be_saved()
+    {
+        using var game = new TestGame();
+        var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
+        Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        File.WriteAllText(store.FilePath, """{ "schemaVersion": 99, "projects": [] }""");          // a newer list: it is never saved
+        var workspace = game.NewController();
+        await workspace.LoadAsync();
+        var setup = Wire(game, workspace);
+        var state = NewProject(setup);
+
+        Assert.Null(setup.ViewModel.BuildDisabledReason(state.Id));
+        Assert.Equal(game.Texts.InstallListNotWritable, setup.ViewModel.InstallDisabledReason(state.Id));
+        Assert.Equal(game.Texts.InstallListNotWritable, setup.ViewModel.UninstallDisabledReason(state.Id));
+        Assert.True(setup.ViewModel.BuildActiveCommand.CanExecute(null));
+        Assert.False(setup.ViewModel.BuildAndInstallActiveCommand.CanExecute(null));
+    }
+
+    [Fact] public async Task An_install_or_uninstall_whose_record_cannot_be_saved_opens_a_message()
+    {
+        using var setup = await CreateAsync();
+        var state = NewProject(setup);
+        var games = Path.Combine(setup.Game.Paths.RoamingRoot, "games");
+        Directory.Delete(games, recursive: true);
+        File.WriteAllText(games, "x");                                          // every later save of the list fails
+
+        await setup.ViewModel.BuildAsync(state.Id, install: true);
+
+        var (title, message) = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(setup.Texts.BuildMessageTitle, title);
+        Assert.StartsWith(setup.Texts.InstallRecordNotSaved("my_mod.pack") + "\n\n", message);
+        Assert.Equal(setup.Texts.BuildInstalled("my_mod.pack") + "\n" + setup.Texts.ProjectListNotSaved, setup.ViewModel.StatusMessage);
+
+        setup.Dialogs.Messages.Clear();
+        await setup.ViewModel.UninstallAsync(state.Id);
+
+        (title, message) = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(setup.Texts.UninstallMessageTitle, title);
+        Assert.StartsWith(setup.Texts.UninstallRecordNotSaved("my_mod.pack") + "\n\n", message);
+        Assert.Equal(setup.Texts.UninstallDone("My Mod") + "\n" + setup.Texts.ProjectListNotSaved, setup.ViewModel.StatusMessage);
+    }
+
+    [Fact] public async Task Remove_is_disabled_while_the_project_has_an_installed_pack()
+    {
+        using var setup = await CreateAsync();
+        var vm = setup.ViewModel;
+        var state = NewProject(setup);
+        Assert.Null(vm.RemoveDisabledReason(state.Id));
+        Assert.Equal(setup.Texts.ProjectUnknown, vm.RemoveDisabledReason(Guid.NewGuid()));
+
+        await vm.BuildAsync(state.Id, install: true);
+        Assert.Equal(setup.Texts.ProjectRemoveInstalled, vm.RemoveDisabledReason(state.Id));
+
+        vm.Remove(state.Id);
+        Assert.Equal((setup.Texts.ProjectMessageTitle, setup.Texts.ProjectRemoveInstalled), Assert.Single(setup.Dialogs.Messages));
+        Assert.Single(setup.Projects.Projects);
+
+        await vm.UninstallAsync(state.Id);
+        Assert.Null(vm.RemoveDisabledReason(state.Id));
+    }
+
+    [Fact] public async Task The_import_command_waits_for_the_start_up_load_and_for_a_running_operation()
+    {
+        using var game = new TestGame();
+        var workspace = game.NewController();
+        var setup = Wire(game, workspace);
+
+        var load = workspace.LoadAsync();                                       // returns at its first await: the workspace is busy now
+        Assert.True(workspace.IsBusy);
+        Assert.False(setup.ViewModel.ImportPackCommand.CanExecute(null));
+
+        await load;
+        Assert.True(setup.ViewModel.ImportPackCommand.CanExecute(null));
+        game.Runner.IsRunning = true;
+        Assert.False(setup.ViewModel.ImportPackCommand.CanExecute(null));
+    }
+
+    [Fact] public async Task Building_is_disabled_without_a_schema()
+    {
+        using var game = new TestGame(withSchema: false);
+        var workspace = game.NewController();
+        await workspace.LoadAsync();
+        var setup = Wire(game, workspace);
+        var state = NewProject(setup);
+
+        Assert.Equal(game.Texts.BuildNoSchema, setup.ViewModel.BuildDisabledReason(state.Id));
+        Assert.Equal(game.Texts.BuildNoSchema, setup.ViewModel.InstallDisabledReason(state.Id));
+        Assert.False(setup.ViewModel.BuildActiveCommand.CanExecute(null));
+        Assert.False(setup.ViewModel.BuildAndInstallActiveCommand.CanExecute(null));
+    }
+
     [Fact] public async Task Open_project_for_a_folder_that_is_in_the_list_shows_the_message()
     {
         using var setup = await CreateAsync();

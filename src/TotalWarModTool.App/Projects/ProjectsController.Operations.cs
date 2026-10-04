@@ -18,8 +18,20 @@ public sealed partial class ProjectsController
     /// <summary>True when no other operation runs and the workspace is not busy; every operation below returns null otherwise.</summary>
     public bool CanStartOperation => _workspace.CanStartOperation;
 
-    /// <summary>The UI text that says why packs cannot be installed (no game folder); null when installing is possible.</summary>
-    public string? InstallDisabledReason => _workspace.Location is null ? _texts.InstallNoGameFolder : null;
+    /// <summary>
+    /// The UI text that says why packs can be neither installed nor uninstalled; null when that is possible. Reasons: no game folder, or a
+    /// project list that must not be saved in this session (the install record would be lost).
+    /// </summary>
+    public string? InstallDisabledReason =>
+        _workspace.Location is null ? _texts.InstallNoGameFolder
+        : IsAvailable && !_writable ? _texts.InstallListNotWritable
+        : null;
+
+    /// <summary>
+    /// The UI text that says why no project can be built (the workspace loaded no schema); null when building is possible. Before the
+    /// first load nothing is known yet, and the busy workspace stops a build anyway.
+    /// </summary>
+    public string? BuildDisabledReason => _workspace.Schema is { Schema: null } ? _texts.BuildNoSchema : null;
 
     /// <summary>
     /// Reads the index of a pack and counts what an import would do. Null when nothing can be started right now or the run was cancelled
@@ -51,7 +63,7 @@ public sealed partial class ProjectsController
 
         return preview.Preview is not null
             ? new ImportPreviewResult(preview.Preview, null)
-            : new ImportPreviewResult(null, MessageText.WithDetail(_texts.PackProblemText(preview.Problem, _workspace.Profile?.PackFormat), preview.Detail));
+            : new ImportPreviewResult(null, MessageText.WithDetail(_texts.PackProblemText(preview.Problem, _workspace.Profile?.PackFormat), ShownDetail(preview.Detail)));
     }
 
     /// <summary>
@@ -110,7 +122,7 @@ public sealed partial class ProjectsController
 
         if (report.Project is not { } project)
         {
-            return new ImportOutcome(false, MessageText.WithDetail(_texts.ImportProblemText(report.Problem), report.Detail), report, null);
+            return new ImportOutcome(false, MessageText.WithDetail(_texts.ImportProblemText(report.Problem), ShownDetail(report.Detail)), report, null);
         }
 
         var added = AddToList(project, fullTarget);
@@ -129,6 +141,8 @@ public sealed partial class ProjectsController
     /// <summary>
     /// Builds the pack of a project and, with <paramref name="install"/>, copies it into the data folder, all in one run. The list and
     /// <see cref="Changed"/> are updated after the run. Null when nothing can be started right now, the run was cancelled or it failed.
+    /// Refused without a schema (<see cref="BuildDisabledReason"/>) and, with <paramref name="install"/>, for <see cref="InstallDisabledReason"/>.
+    /// When the data folder changed but the list cannot be saved afterwards, the report carries a warning.
     /// </summary>
     public async Task<BuildReport?> BuildAsync(Guid id, bool install)
     {
@@ -139,7 +153,12 @@ public sealed partial class ProjectsController
 
         if (state.Project is not { } project)
         {
-            return BuildFailed(MessageText.WithDetail(_texts.ProjectProblemText(state.Problem), state.Detail));
+            return BuildFailed(MessageText.WithDetail(_texts.ProjectProblemText(state.Problem), ShownDetail(state.Detail)));
+        }
+
+        if (BuildDisabledReason is { } noBuild)
+        {
+            return BuildFailed(noBuild);
         }
 
         if (install && InstallDisabledReason is { } reason)
@@ -158,7 +177,8 @@ public sealed partial class ProjectsController
         var dataFolder = install ? _workspace.Location!.DataPath : null;
         var recorded = state.Installed;
         var vanilla = _vanilla;
-        var title = install ? _texts.OperationBuildAndInstall(state.DisplayName) : _texts.OperationBuild(state.DisplayName);
+        var name = Shown(state.DisplayName, MaxNameChars);
+        var title = install ? _texts.OperationBuildAndInstall(name) : _texts.OperationBuild(name);
         var outcome = await _runner.RunAsync(title, (progress, ct) =>
         {
             var plan = ProjectBuilder.ComputeBuild(folder, project, schema, () => Guid.NewGuid().ToString(), progress, ct);
@@ -223,7 +243,8 @@ public sealed partial class ProjectsController
 
     /// <summary>
     /// Deletes the pack the tool installed for the project from the data folder and forgets the record. Null when nothing can be started
-    /// right now, the run was cancelled or it failed.
+    /// right now, the run was cancelled or it failed. A record whose file is gone already is forgotten as well. When the list cannot be
+    /// saved afterwards, the result carries a warning.
     /// </summary>
     public async Task<ProjectActionResult?> UninstallAsync(Guid id)
     {
@@ -248,7 +269,7 @@ public sealed partial class ProjectsController
         }
 
         var request = new InstallRequest(_workspace.Location!.DataPath, recorded.FileName, recorded, _vanilla);
-        var outcome = await _runner.RunAsync(_texts.OperationUninstall(state.DisplayName), (_, _) => PackInstaller.Uninstall(request));
+        var outcome = await _runner.RunAsync(_texts.OperationUninstall(Shown(state.DisplayName, MaxNameChars)), (_, _) => PackInstaller.Uninstall(request));
         if (outcome.Value is not { } result)
         {
             return null;
@@ -256,11 +277,12 @@ public sealed partial class ProjectsController
 
         if (result.Problem != InstallProblem.None)
         {
-            return Fail(MessageText.WithDetail(_texts.InstallProblemText(result.Problem), result.Detail));
+            return Fail(MessageText.WithDetail(_texts.InstallProblemText(result.Problem), ShownDetail(result.Detail)));
         }
 
         SetInstalled(id, null);
-        return new ProjectActionResult(true, CommitInstalledChange());
+        var (note, warning) = CommitInstalledChange(_texts.UninstallRecordNotSaved(recorded.FileName));
+        return new ProjectActionResult(true, note, warning);
     }
 
     /// <summary>Lists the files of the pack folder of a project, through the runner. Null for an unknown project, when nothing can be started or the run did not finish.</summary>
@@ -272,7 +294,7 @@ public sealed partial class ProjectsController
         }
 
         var folder = state.Folder;
-        var outcome = await _runner.RunAsync(_texts.OperationOpenProject(state.DisplayName), (_, ct) => ProjectFiles.List(folder, ct));
+        var outcome = await _runner.RunAsync(_texts.OperationOpenProject(Shown(state.DisplayName, MaxNameChars)), (_, ct) => ProjectFiles.List(folder, ct));
         return outcome.Value;
     }
 
@@ -291,7 +313,7 @@ public sealed partial class ProjectsController
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _log.Warn($"The files of the project \"{state.DisplayName}\" cannot be listed: {ex.Message}");
+            _log.Warn($"The files of the project \"{DisplayText.Safe(state.DisplayName, MaxNameChars)}\" cannot be listed: {DisplayText.Safe(ex.Message)}");
             return null;
         }
     }
@@ -493,7 +515,7 @@ public sealed partial class ProjectsController
 
         if (written.Outcome != BuildOutcome.Built)
         {
-            return new BuildReport(false, false, null, [], ignored, MessageText.WithDetail(_texts.BuildWriteFailed, written.Detail));
+            return new BuildReport(false, false, null, [], ignored, MessageText.WithDetail(_texts.BuildWriteFailed, ShownDetail(written.Detail)));
         }
 
         var listChanged = false;
@@ -510,7 +532,7 @@ public sealed partial class ProjectsController
         var oldRemoved = run.Uninstalled is { Problem: InstallProblem.None };
         if (run.Uninstalled is { Problem: not InstallProblem.None } stuck)
         {
-            message = Join(_texts.BuildOldPackNotRemoved(oldName), MessageText.WithDetail(_texts.InstallProblemText(stuck.Problem), stuck.Detail));
+            message = Join(_texts.BuildOldPackNotRemoved(oldName), MessageText.WithDetail(_texts.InstallProblemText(stuck.Problem), ShownDetail(stuck.Detail)));
         }
         else if (run.InstallCancelled)
         {
@@ -536,7 +558,7 @@ public sealed partial class ProjectsController
                 listChanged = true;
             }
 
-            message = MessageText.WithDetail(_texts.InstallProblemText(result.Problem), result.Detail);
+            message = MessageText.WithDetail(_texts.InstallProblemText(result.Problem), ShownDetail(result.Detail));
             if (oldRemoved && result.Problem != InstallProblem.InstalledStateUnknown)
             {
                 // The user must know that nothing is installed any more, not only why the new pack could not be.
@@ -544,12 +566,18 @@ public sealed partial class ProjectsController
             }
         }
 
+        string? warning = null;
         if (listChanged)
         {
-            message = Join(message, CommitInstalledChange());
+            // The new pack reached the data folder (also when its state could not be read back); otherwise only the old one was removed.
+            var happened = run.Installed is { Problem: InstallProblem.None or InstallProblem.InstalledStateUnknown }
+                ? _texts.InstallRecordNotSaved(project.PackName)
+                : _texts.UninstallRecordNotSaved(oldName);
+            (var note, warning) = CommitInstalledChange(happened);
+            message = Join(message, note);
         }
 
-        return new BuildReport(true, installed, written.PackPath, [], ignored, message);
+        return new BuildReport(true, installed, written.PackPath, [], ignored, message, warning);
     }
 
     // The temp file the install of the library copies to first (the library's own suffix); null when it does not exist.
@@ -573,6 +601,12 @@ public sealed partial class ProjectsController
         _states = [.. _states.Select(state => state.Id == id ? state with { Installed = installed } : state)];
     }
 
-    // Saves the list and announces the change; returns the note when the list could not be saved.
-    private string? CommitInstalledChange() => Commit().Message;
+    // Saves the list after the data folder changed and announces the change. Note: the status note when the list is not saved. Warning:
+    // when saving was tried and failed, what happened in the data folder and the detail of the file error, for a message box.
+    private (string? Note, string? Warning) CommitInstalledChange(string happened)
+    {
+        var note = Persist(out var failure);
+        Changed?.Invoke(this, EventArgs.Empty);
+        return (note, failure is null ? null : MessageText.WithDetail(happened, Shown(failure)));
+    }
 }

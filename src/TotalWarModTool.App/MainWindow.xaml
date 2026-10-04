@@ -30,7 +30,7 @@
                 <MenuItem Header="{Binding Texts.MenuProjectOpen}" Command="{Binding Projects.OpenProjectCommand}"
                           ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.MenuProjectImport}" Command="{Binding Projects.ImportPackCommand}"
-                          ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
+                          ToolTip="{Binding ProjectImportToolTip}" ToolTipService.ShowOnDisabled="True" />
                 <Separator />
                 <MenuItem Header="{Binding Texts.BuildMessageTitle}" Command="{Binding Projects.BuildActiveCommand}"
                           InputGestureText="{Binding Texts.MenuProjectBuildGesture}"

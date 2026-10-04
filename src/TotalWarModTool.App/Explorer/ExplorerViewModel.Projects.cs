@@ -269,7 +269,7 @@ public sealed partial class ExplorerViewModel
                 await RefreshProjectFilesAsync();
             }),
             MakeAction(Texts.UninstallMessageTitle, commands.UninstallDisabledReason(id), () => commands.UninstallAsync(id)),
-            MakeAction(Texts.ProjectActionRemove, null, () =>
+            MakeAction(Texts.ProjectActionRemove, commands.RemoveDisabledReason(id), () =>
             {
                 commands.Remove(id);
                 return Task.CompletedTask;
@@ -279,12 +279,13 @@ public sealed partial class ExplorerViewModel
 
     // async void on purpose, as for every command that starts an operation: the controllers handle their failures, a surprise reaches the global handler.
     // An action that needs a free runner can run when there is no reason against it and nothing else runs. Its reason text is the reason of the
-    // project first (no game folder, nothing installed, ...), then "busy"; an entry is never disabled without one.
+    // project first (no game folder, nothing installed, ...), then "busy"; an entry is never disabled without one. A plain edit of the list
+    // ignores the runner and is disabled only by its own reason.
     private NodeAction MakeAction(string header, string? disabledReason, Func<Task> run, bool needsRunner = true)
     {
         if (!needsRunner)
         {
-            return new NodeAction(header, new RelayCommand(async () => await run()), null);
+            return new NodeAction(header, new RelayCommand(async () => await run(), () => disabledReason is null), disabledReason);
         }
 
         var shown = disabledReason ?? (_projects!.CanStartOperation ? null : Texts.ProjectBusy);

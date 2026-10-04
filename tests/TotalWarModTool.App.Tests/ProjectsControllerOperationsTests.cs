@@ -3,6 +3,7 @@ using TotalWarModTool.GameProfiles;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Settings;
+using TotalWarModTool.Storage;
 using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
@@ -14,6 +15,8 @@ public class ProjectsControllerOperationsTests
     private const string Tsv = "value\n#x_tables;0;db/x_tables/my_mod\n42\n";
 
     private static readonly byte[] Utf8Tsv = new UTF8Encoding(false).GetBytes(Tsv);
+
+    private const string Backslash = "\\";
 
     private static async Task<WorkspaceController> LoadedAsync(TestGame game)
     {
@@ -624,5 +627,174 @@ public class ProjectsControllerOperationsTests
 
         game.GameSettings.InstallPath = game.InstallPath;
         Assert.Equal(((string?)null, 2), (projects.InstallDisabledReason, changes));
+    }
+
+    // ---- a list that cannot be saved, a save that fails, the install record ------------------------------------------------------
+
+    // A controller over a list loaded with a status that forbids saving, with one project that has an install record of a pack in data.
+    private static (ProjectsController Projects, ProjectState State, string Installed) NotWritableWithInstalledProject(TestGame game,
+        WorkspaceController workspace, LoadStatus status)
+    {
+        var folder = game.NewFolder("mod");
+        var project = ProjectFile.CreateNew(folder, "My Mod", TestGame.Profile.Id, "my_mod.pack", []).Project!;
+        Put(folder, @"db\x_tables\my_mod.tsv", Utf8Tsv);
+        var installed = game.AddPack("my_mod.pack", ("a.txt", [1]));
+        var record = new InstalledPack("my_mod.pack", new FileInfo(installed).Length, File.GetLastWriteTimeUtc(installed));
+        var list = new ProjectList([new ProjectListEntry(project.Id, folder, record)], project.Id);
+        var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
+        var projects = new ProjectsController(store, new ProjectListLoadResult(list, status, null), workspace, game.Runner, game.Log, game.Texts,
+            TimeProvider.System);
+        return (projects, projects.Projects[0], installed);
+    }
+
+    // Every later save of the list fails: the folder "games" of the store is replaced by a file of that name.
+    private static void BreakTheListStore(TestGame game)
+    {
+        var games = Path.Combine(game.Paths.RoamingRoot, "games");
+        Directory.Delete(games, recursive: true);
+        File.WriteAllText(games, "x");
+    }
+
+    [Theory]
+    [InlineData(LoadStatus.Unreadable)]
+    [InlineData(LoadStatus.NewerVersion)]
+    [InlineData(LoadStatus.Corrupt)]                                          // without a .bad copy
+    public async Task A_list_that_must_not_be_saved_refuses_install_uninstall_and_remove_but_builds(LoadStatus status)
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var (projects, state, installed) = NotWritableWithInstalledProject(game, workspace, status);
+        var before = File.ReadAllBytes(installed);
+
+        var install = await projects.BuildAsync(state.Id, install: true);
+        var uninstall = await projects.UninstallAsync(state.Id);
+        var remove = projects.Remove(state.Id);
+
+        Assert.Equal(game.Texts.InstallListNotWritable, projects.InstallDisabledReason);
+        Assert.Equal((false, game.Texts.InstallListNotWritable), (install!.Built, install.Message));
+        Assert.Equal((false, game.Texts.InstallListNotWritable), (uninstall!.Ok, uninstall.Message));
+        Assert.Equal((false, game.Texts.ProjectRemoveInstalled), (remove.Ok, remove.Message));
+        Assert.Empty(game.Runner.Titles);
+        Assert.Equal(before, File.ReadAllBytes(installed));
+        Assert.NotNull(Assert.Single(projects.Projects).Installed);
+        Assert.False(Directory.Exists(Path.Combine(state.Folder, "build")));
+
+        var build = await projects.BuildAsync(state.Id, install: false);      // a plain build does not touch the list
+        Assert.True(build!.Built);
+    }
+
+    [Fact] public async Task An_install_whose_record_cannot_be_saved_comes_with_a_warning_and_the_detail()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var state = NewProject(game, projects);
+        BreakTheListStore(game);
+
+        var report = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.True(report!.Installed);
+        Assert.True(File.Exists(Path.Combine(game.DataPath, "my_mod.pack")));
+        Assert.Contains(game.Texts.ProjectListNotSaved, report.Message);
+        Assert.StartsWith(game.Texts.InstallRecordNotSaved("my_mod.pack") + "\n\n", report.Warning);
+        Assert.True(report.Warning!.Length > game.Texts.InstallRecordNotSaved("my_mod.pack").Length + 2);   // the detail follows
+        Assert.Single(game.Log.Warnings);
+    }
+
+    [Fact] public async Task An_uninstall_whose_record_cannot_be_saved_comes_with_a_warning_and_the_detail()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var state = NewProject(game, projects);
+        var report = await projects.BuildAsync(state.Id, install: true);
+        Assert.Equal((true, (string?)null), (report!.Installed, report.Warning));
+        BreakTheListStore(game);
+
+        var result = await projects.UninstallAsync(state.Id);
+
+        Assert.Equal((true, game.Texts.ProjectListNotSaved), (result!.Ok, result.Message));
+        Assert.StartsWith(game.Texts.UninstallRecordNotSaved("my_mod.pack") + "\n\n", result.Warning);
+        Assert.False(File.Exists(Path.Combine(game.DataPath, "my_mod.pack")));
+        Assert.Null(projects.Projects[0].Installed);
+        Assert.Single(game.Log.Warnings);
+    }
+
+    [Fact] public async Task Remove_is_refused_while_the_project_has_an_install_record()
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        var state = NewProject(game, projects);
+        Assert.True((await projects.BuildAsync(state.Id, install: true))!.Installed);
+        var changes = 0; projects.Changed += (_, _) => changes++;
+
+        var refused = projects.Remove(state.Id);
+
+        Assert.Equal((false, game.Texts.ProjectRemoveInstalled), (refused.Ok, refused.Message));
+        Assert.Single(projects.Projects);
+        Assert.Single(game.NewProjects(workspace).Projects);
+        Assert.Equal(0, changes);
+
+        Assert.True((await projects.UninstallAsync(state.Id))!.Ok);
+        Assert.True(projects.Remove(state.Id).Ok);
+        Assert.Empty(projects.Projects);
+    }
+
+    [Fact] public async Task Uninstall_clears_the_record_when_the_pack_was_deleted_by_hand()
+    {
+        using var game = new TestGame();
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        var state = NewProject(game, projects);
+        Assert.True((await projects.BuildAsync(state.Id, install: true))!.Installed);
+        File.Delete(Path.Combine(game.DataPath, "my_mod.pack"));
+
+        var result = await projects.UninstallAsync(state.Id);
+
+        Assert.Equal((true, (string?)null, (string?)null), (result!.Ok, result.Message, result.Warning));
+        Assert.Null(projects.Projects[0].Installed);
+        Assert.Null(game.NewProjects(workspace).Projects[0].Installed);
+        Assert.True(projects.Remove(state.Id).Ok);
+    }
+
+    [Fact] public async Task Without_a_schema_nothing_is_built_and_the_reason_says_why()
+    {
+        using var game = new TestGame(withSchema: false);
+        Assert.Null(game.NewProjects(game.NewController()).BuildDisabledReason);   // before the first load nothing is known yet
+        var workspace = await LoadedAsync(game);
+        var projects = game.NewProjects(workspace);
+        var state = NewProject(game, projects);
+        Assert.Null(workspace.Schema!.Schema);
+
+        var build = await projects.BuildAsync(state.Id, install: false);
+        var install = await projects.BuildAsync(state.Id, install: true);
+
+        Assert.Equal(game.Texts.BuildNoSchema, projects.BuildDisabledReason);
+        Assert.Equal((false, game.Texts.BuildNoSchema), (build!.Built, build.Message));
+        Assert.Equal((false, game.Texts.BuildNoSchema), (install!.Built, install.Message));
+        Assert.Empty(game.Runner.Titles);
+        Assert.False(Directory.Exists(Path.Combine(state.Folder, "build")));
+    }
+
+    [Fact] public async Task A_project_name_with_a_line_break_is_escaped_in_titles_and_in_the_log()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));
+        Assert.True(projects.Create(game.NewFolder("odd"), "My\nMod", "my_mod.pack").Ok);
+        var state = projects.Projects[0];
+        Put(state.Folder, @"db\x_tables\my_mod.tsv", Utf8Tsv);
+        var shown = "My" + Backslash + "u000AMod";
+
+        Assert.True((await projects.BuildAsync(state.Id, install: true))!.Installed);
+        Assert.True((await projects.UninstallAsync(state.Id))!.Ok);
+        Assert.NotNull(await projects.ListFilesAsync(state.Id));
+
+        Assert.Equal([game.Texts.OperationBuildAndInstall(shown), game.Texts.OperationUninstall(shown), game.Texts.OperationOpenProject(shown)],
+            game.Runner.Titles);
+
+        File.Delete(Path.Combine(state.Folder, ProjectFile.FileName));
+        projects.Reload();
+        var warning = Assert.Single(game.Log.Warnings);
+        Assert.Contains(shown, warning);
+        Assert.DoesNotContain("\n", warning);
     }
 }

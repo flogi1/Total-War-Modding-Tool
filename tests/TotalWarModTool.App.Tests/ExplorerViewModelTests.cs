@@ -636,6 +636,45 @@ public class ExplorerViewModelTests
         Assert.Equal(((string?)null, true), (import.DisabledReason, import.Command.CanExecute(null)));
     }
 
+    [Fact] public async Task The_pack_import_entry_waits_while_a_run_is_going()
+    {
+        using var setup = await CreateWithProjects(g => g.AddPack("a.pack"));
+        var import = Assert.Single(PackNodeOf(setup.Vm, "a.pack").Actions);
+        Assert.True(import.Command.CanExecute(null));
+        setup.Game.Runner.IsRunning = true;
+        Assert.False(import.Command.CanExecute(null));
+    }
+
+    [Fact] public async Task Remove_from_list_says_uninstall_first_while_a_pack_is_installed()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        Assert.True((await setup.Projects.BuildAsync(setup.Projects.Projects[0].Id, install: true))!.Installed);
+
+        var actions = setup.NodeOf("Alpha").Actions;
+        Assert.Equal((setup.Texts.ProjectRemoveInstalled, false), (actions[4].DisabledReason, actions[4].Command.CanExecute(null)));
+        Assert.Equal(((string?)null, true), (actions[0].DisabledReason, actions[0].Command.CanExecute(null)));
+    }
+
+    // The explorer's own handler of the workspace rebuilds the menus after the tree; no second pass through the controller's event.
+    [Fact] public async Task The_menus_are_built_once_per_change_of_the_workspace()
+    {
+        using var game = new TestGame();
+        var c = game.NewController();
+        var p = game.NewProjects(c);
+        game.NewProject(p, "Alpha");
+        var commands = new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts);
+        var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (_, _) => Task.CompletedTask);
+        var node = Assert.IsType<ProjectNode>(Assert.Single(vm.Groups[0].Children));
+        var replaced = 0; node.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(ExplorerNode.Actions)) { replaced++; } };
+        var workspaceChanges = 0; c.Changed += (_, _) => workspaceChanges++;
+        var listChanges = 0; p.Changed += (_, _) => listChanges++;
+
+        await c.LoadAsync();
+
+        Assert.True(workspaceChanges > 0);
+        Assert.Equal(workspaceChanges + listChanges, replaced);
+    }
+
     [Fact] public async Task While_a_run_is_going_the_runner_entries_are_disabled_and_list_edits_are_not()
     {
         using var setup = await CreateWithProjects(projects: (g, p) => { g.NewProject(p, "Alpha"); g.NewProject(p, "Beta"); });

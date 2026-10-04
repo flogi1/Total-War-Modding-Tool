@@ -74,6 +74,11 @@ public sealed class MainViewModel : ObservableObject
             RaiseProjectReasonsChanged();
         };
 
+        if (projects is not null)
+        {
+            projects.Changed += (_, _) => CloseTabsOfRemovedProjects();
+        }
+
         if (projects is not null && projectCommands is not null)
         {
             // The status bar shows the result of the last project command; the menu says why Build is disabled.
@@ -134,6 +139,9 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>Why "Build and install" of the menu is disabled (as for Build, and no game folder); null when it can run.</summary>
     public string? ProjectBuildAndInstallToolTip => ProjectReason(Projects?.InstallDisabledReason(_projects?.ActiveId));
+
+    /// <summary>Why "Import pack" of the menu is disabled (no game profile, or another operation runs); null when it can run.</summary>
+    public string? ProjectImportToolTip => ProjectReason(null);
 
     /// <summary>Scans the packs and loads the schema again. Enabled when a game profile exists and no operation runs.</summary>
     public ICommand RefreshCommand => _refreshCommand;
@@ -239,6 +247,17 @@ public sealed class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ProjectBuildToolTip));
         OnPropertyChanged(nameof(ProjectBuildAndInstallToolTip));
+        OnPropertyChanged(nameof(ProjectImportToolTip));
+    }
+
+    // A project that left the list takes its tabs with it: they would show files of a project the app no longer knows.
+    private void CloseTabsOfRemovedProjects()
+    {
+        var listed = _projects!.Projects.Select(state => state.Id).ToHashSet();
+        foreach (var tab in Tabs.Tabs.Where(tab => TabSource.TryGetProjectId(tab.PackPath, out var id) && !listed.Contains(id)).ToList())
+        {
+            Tabs.Close(tab);
+        }
     }
 
     // A reload that resolves the same file with the same date is no change: a refresh alone must not mark any tab.

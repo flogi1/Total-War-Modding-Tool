@@ -39,7 +39,7 @@ public sealed class ProjectsViewModel : ObservableObject
         _texts = texts;
         _newProject = new RelayCommand(NewProject, () => _projects.IsAvailable);
         _openProject = new RelayCommand(OpenProject, () => _projects.IsAvailable);
-        _importPack = new RelayCommand(async () => await RunAsync(ImportFromPickedPackAsync), () => _projects.IsAvailable);
+        _importPack = new RelayCommand(async () => await RunAsync(ImportFromPickedPackAsync), () => _projects.IsAvailable && _projects.CanStartOperation);
         _buildActive = new RelayCommand(async () => await BuildActiveAsync(install: false), () => CanRun(BuildDisabledReason));
         _buildAndInstallActive = new RelayCommand(async () => await BuildActiveAsync(install: true), () => CanRun(InstallDisabledReason));
         projects.Changed += (_, _) => RaiseCanExecuteChanged();
@@ -50,7 +50,7 @@ public sealed class ProjectsViewModel : ObservableObject
 
     public ICommand OpenProjectCommand => _openProject;
 
-    /// <summary>Asks for a pack file and imports it into a new project.</summary>
+    /// <summary>Asks for a pack file and imports it into a new project. Disabled without a game profile or while an operation runs.</summary>
     public ICommand ImportPackCommand => _importPack;
 
     /// <summary>Builds the active project. Disabled with <see cref="BuildDisabledReason"/> or while an operation runs.</summary>
@@ -111,7 +111,7 @@ public sealed class ProjectsViewModel : ObservableObject
         {
             null => _texts.ProjectUnknown,
             { IsUsable: false } state => _texts.ProjectProblemText(state.Problem),
-            _ => null,
+            _ => _projects.BuildDisabledReason,
         };
     }
 
@@ -131,6 +131,17 @@ public sealed class ProjectsViewModel : ObservableObject
 
         return _projects.InstallDisabledReason ?? (state.Installed is null ? _texts.UninstallNothing : null);
     }
+
+    /// <summary>
+    /// The text that says why the project cannot be removed from the list (unknown, or a pack the tool installed for it is still recorded:
+    /// uninstall first); null when it can.
+    /// </summary>
+    public string? RemoveDisabledReason(Guid id) => StateOf(id) switch
+    {
+        null => _texts.ProjectUnknown,
+        { Installed: not null } => _texts.ProjectRemoveInstalled,
+        _ => null,
+    };
 
     // ---- commands ----------------------------------------------------------------------------------------------------------------
 
@@ -273,10 +284,13 @@ public sealed class ProjectsViewModel : ObservableObject
 
         StatusMessage = report.Message;
 
-        // The pack is built, but the install did not happen: a status bar line is too easy to miss for that.
-        if (install && !report.Installed && report.Message is not null)
+        // The pack is built, but the install did not happen, or the data folder changed and the list could not be saved: a status bar
+        // line is too easy to miss for that.
+        var notInstalled = install && !report.Installed ? report.Message : null;
+        var dialog = string.Join("\n\n", new[] { notInstalled, report.Warning }.Where(part => !string.IsNullOrEmpty(part)));
+        if (dialog.Length > 0)
         {
-            _dialogs.ShowMessage(_texts.BuildMessageTitle, report.Message);
+            _dialogs.ShowMessage(_texts.BuildMessageTitle, dialog);
         }
     }
 
@@ -290,6 +304,12 @@ public sealed class ProjectsViewModel : ObservableObject
         }
 
         Complete(result, _texts.UninstallMessageTitle, _texts.UninstallDone(Safe(name, MaxNameChars)));
+
+        // The pack is gone, but the list still records it: the user must not miss that.
+        if (result.Warning is { } warning)
+        {
+            _dialogs.ShowMessage(_texts.UninstallMessageTitle, warning);
+        }
     }
 
     // ---- helpers -----------------------------------------------------------------------------------------------------------------

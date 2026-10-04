@@ -85,6 +85,24 @@ public sealed partial class AppTexts
 
     public string InstallNoGameFolder => T("install.noGameFolder", "The game folder was not found, so nothing can be installed. Choose the game folder in the settings.");
 
+    public string InstallListNotWritable => T("install.listNotWritable",
+        "The project list cannot be saved in this session, so installing and uninstalling are disabled: the tool would lose track of what it installed. The log names the reason; update the app if the list comes from a newer version.");
+
+    /// <param name="packName">File name of the pack that was installed. Data, not a UI text.</param>
+    public string InstallRecordNotSaved(string packName) => F("install.recordNotSaved",
+        "The pack {0} was installed, but the project list could not be saved. After a restart the tool does not know that it installed this pack and treats it as a foreign file. Check that the app can write its settings folder.",
+        packName);
+
+    /// <param name="packName">File name of the pack that was removed. Data, not a UI text.</param>
+    public string UninstallRecordNotSaved(string packName) => F("uninstall.recordNotSaved",
+        "The pack {0} was removed from the data folder, but the project list could not be saved. After a restart the project still counts as installed; uninstall it again then. Check that the app can write its settings folder.",
+        packName);
+
+    public string BuildNoSchema => T("build.noSchema", "No schema is loaded, so projects cannot be built. Check the schema folder in the settings.");
+
+    public string ProjectRemoveInstalled => T("project.removeInstalled",
+        "This project still has an installed pack in the data folder. Uninstall it first, then remove the project from the list.");
+
     /// <param name="tables">Number of tables written as text.</param>
     /// <param name="locFiles">Number of loc files written as text.</param>
     /// <param name="otherFiles">Number of files written as they are.</param>

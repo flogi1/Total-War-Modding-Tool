@@ -23,8 +23,12 @@ public sealed record ProjectState(Guid Id, string Folder, ModProject? Project, P
     }
 }
 
-/// <summary>Outcome of a change to the project list. With <paramref name="Ok"/> false, <paramref name="Message"/> is a ready UI text; with true it is null or a note.</summary>
-public sealed record ProjectActionResult(bool Ok, string? Message);
+/// <summary>
+/// Outcome of a change to the project list. With <paramref name="Ok"/> false, <paramref name="Message"/> is a ready UI text; with true it is
+/// null or a note. <paramref name="Warning"/> is a ready UI text for a message box when something happened that the user must not miss
+/// although the action succeeded: the data folder was changed, but the project list could not be saved.
+/// </summary>
+public sealed record ProjectActionResult(bool Ok, string? Message, string? Warning = null);
 
 /// <summary>What importing a pack would do. <paramref name="Message"/> is set (and <paramref name="Preview"/> null) when the pack cannot be read.</summary>
 public sealed record ImportPreviewResult(ImportPreview? Preview, string? Message);
@@ -38,10 +42,11 @@ public sealed record ImportOutcome(bool Ok, string? Message, ImportReport? Repor
 /// <summary>
 /// Outcome of a build, optionally with the install. <paramref name="Built"/> is true when the pack was written; <paramref name="Installed"/>
 /// when it was also copied into the data folder. <paramref name="Problems"/> are the build problems (nothing was written then).
-/// <paramref name="Message"/> is a ready UI text: the summary on success, otherwise what went wrong.
+/// <paramref name="Message"/> is a ready UI text: the summary on success, otherwise what went wrong. <paramref name="Warning"/> is set
+/// when the data folder was changed but the project list could not be saved (a ready UI text for a message box).
 /// </summary>
 public sealed record BuildReport(bool Built, bool Installed, string? PackPath, IReadOnlyList<BuildProblem> Problems,
-    IReadOnlyList<string> Ignored, string? Message);
+    IReadOnlyList<string> Ignored, string? Message, string? Warning = null);
 
 /// <summary>
 /// A project file that came back as a tab after a restart. <paramref name="Name"/> is the name of the project, already safe to show

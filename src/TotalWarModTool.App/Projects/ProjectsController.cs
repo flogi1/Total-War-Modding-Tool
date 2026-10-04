@@ -17,6 +17,9 @@ namespace TotalWarModTool.App;
 /// </summary>
 public sealed partial class ProjectsController
 {
+    // A project name in a title or a log line shows at most this many characters, as in the view model.
+    private const int MaxNameChars = 100;
+
     private readonly ProjectListStore? _store;
     private readonly WorkspaceController _workspace;
     private readonly IOperationRunner _runner;
@@ -91,7 +94,7 @@ public sealed partial class ProjectsController
             _states = [.. _list.Projects.Select(LoadState)];
             foreach (var state in _states.Where(s => !s.IsUsable))
             {
-                log.Warn($"The project \"{state.DisplayName}\" in \"{state.Folder}\" cannot be used ({state.Problem}): {state.Detail}");
+                log.Warn($"The project \"{DisplayText.Safe(state.DisplayName, MaxNameChars)}\" in \"{MessageText.EscapeControlCharacters(state.Folder)}\" cannot be used ({state.Problem}): {DisplayText.Safe(state.Detail ?? string.Empty)}");
             }
         }
 
@@ -188,12 +191,20 @@ public sealed partial class ProjectsController
         return IsOwnGame(project) ? AddToList(project, fullFolder) : Fail(_texts.ProjectOtherGame);
     }
 
-    /// <summary>Takes the project out of the list. The folder and its files stay untouched.</summary>
+    /// <summary>
+    /// Takes the project out of the list. The folder and its files stay untouched. A project with an install record is refused: its
+    /// pack would stay in the data folder without anything that says the tool installed it.
+    /// </summary>
     public ProjectActionResult Remove(Guid id)
     {
         if (!IsAvailable)
         {
             return Fail(_texts.ProjectUnknown);
+        }
+
+        if (_states.FirstOrDefault(state => state.Id == id) is { Installed: not null })
+        {
+            return Fail(_texts.ProjectRemoveInstalled);
         }
 
         var edit = ProjectListEdits.Remove(_list, id);
@@ -246,7 +257,7 @@ public sealed partial class ProjectsController
         // One warning per project that became unusable with this reload; a project that stays unusable was reported before.
         foreach (var (before, after) in _states.Zip(fresh).Where(pair => pair.First.IsUsable && !pair.Second.IsUsable))
         {
-            _log.Warn($"The project \"{before.DisplayName}\" in \"{after.Folder}\" can no longer be used ({after.Problem}): {after.Detail}");
+            _log.Warn($"The project \"{DisplayText.Safe(before.DisplayName, MaxNameChars)}\" in \"{MessageText.EscapeControlCharacters(after.Folder)}\" can no longer be used ({after.Problem}): {DisplayText.Safe(after.Detail ?? string.Empty)}");
         }
 
         _states = fresh;
@@ -279,7 +290,12 @@ public sealed partial class ProjectsController
     private static ProjectActionResult Fail(string message) => new(false, message);
 
     // The problem text and, when the library gave one, its technical detail on a second line.
-    private string ProblemMessage(ProjectResult result) => MessageText.WithDetail(_texts.ProjectProblemText(result.Problem), result.Detail);
+    private string ProblemMessage(ProjectResult result) => MessageText.WithDetail(_texts.ProjectProblemText(result.Problem), ShownDetail(result.Detail));
+
+    // Foreign or user text (a project name, a technical detail) as the UI shows it: escaped and cut with the marker of the current language.
+    private string Shown(string text, int maxChars = 300) => DisplayText.Safe(text, maxChars, " (" + _texts.TextShortened + ")");
+
+    private string? ShownDetail(string? detail) => detail is null ? null : Shown(detail);
 
     private ProjectActionResult AddToList(ModProject project, string folder)
     {
@@ -314,13 +330,15 @@ public sealed partial class ProjectsController
     // Saves the list in memory, then announces it. A list that cannot be saved stays valid in memory; the result carries the note.
     private ProjectActionResult Commit()
     {
-        var note = Persist();
+        var note = Persist(out _);
         Changed?.Invoke(this, EventArgs.Empty);
         return new ProjectActionResult(true, note);
     }
 
-    private string? Persist()
+    // The note for the status when the list is not saved; failure is the message of the file error when saving was tried and failed.
+    private string? Persist(out string? failure)
     {
+        failure = null;
         if (!_writable)
         {
             // The start-up warning said why; the user is told on every change.
@@ -335,6 +353,7 @@ public sealed partial class ProjectsController
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _log.Warn($"The project list could not be saved: {ex.Message}");
+            failure = ex.Message;
             return _texts.ProjectListNotSaved;
         }
     }

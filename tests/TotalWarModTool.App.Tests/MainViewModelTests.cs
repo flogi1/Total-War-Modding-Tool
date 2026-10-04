@@ -453,10 +453,13 @@ public class MainViewModelWorkspaceTests
         Assert.True(c.IsBusy);
         Assert.Equal(texts.ProjectBusy, m.Main.ProjectBuildToolTip);
         Assert.Equal(texts.ProjectBusy, m.Main.ProjectBuildAndInstallToolTip);
+        Assert.Equal(texts.ProjectBusy, m.Main.ProjectImportToolTip);
         Assert.Contains(nameof(MainViewModel.ProjectBuildToolTip), changed);
+        Assert.Contains(nameof(MainViewModel.ProjectImportToolTip), changed);
 
         await load;
         Assert.Equal(((string?)null, (string?)null), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
+        Assert.Null(m.Main.ProjectImportToolTip);
     }
 
     [Fact] public void Without_a_game_profile_the_menu_tool_tips_name_the_profile()
@@ -468,6 +471,27 @@ public class MainViewModelWorkspaceTests
         var main = new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => { }, noProfile, null, projects,
             new ProjectsViewModel(projects, new FakeProjectDialogs(), game.Texts));
         Assert.Equal((game.Texts.ProjectNoGameProfile, game.Texts.ProjectNoGameProfile), (main.ProjectBuildToolTip, main.ProjectBuildAndInstallToolTip));
+        Assert.Equal(game.Texts.ProjectNoGameProfile, main.ProjectImportToolTip);
+    }
+
+    [Fact] public async Task Removing_a_project_closes_its_tabs_and_leaves_the_others()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("x.txt", [1]));
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        var alpha = game.NewProject(m.Projects, "Alpha", ("a.txt", "a"), ("b.txt", "b"));
+        var beta = game.NewProject(m.Projects, "Beta", ("c.txt", "c"));
+        var main = m.Main;
+        await main.OpenProjectFileAsync(alpha.Id, "a.txt");
+        await main.OpenProjectFileAsync(beta.Id, "c.txt");
+        await main.OpenEntryAsync(c.Catalog!.Packs.Single(pack => pack.Name == "a.pack"), "x.txt");
+        await main.OpenProjectFileAsync(alpha.Id, "b.txt");
+        Assert.Equal(4, main.Tabs.Tabs.Count);
+
+        main.Projects!.Remove(alpha.Id);
+
+        Assert.Equal([TabSource.KeyOf(beta.Id), c.Catalog.Packs.Single(pack => pack.Name == "a.pack").Path], main.Tabs.Tabs.Select(tab => tab.PackPath));
     }
 
     // The status line and the explorer both follow a language switch (the explorer has its own test).

@@ -66,11 +66,13 @@ public sealed partial class ExplorerViewModel : ObservableObject
                 ReconcileProjects();
                 RefreshActions();
             };
-            projects.OperationStateChanged += (_, _) => RefreshActions();
         }
 
         Rebuild();
         RefreshActions();
+
+        // The one place that rebuilds the menus after a change of the workspace (the controller's OperationStateChanged comes from the same
+        // change): after the tree, so that new pack nodes get their entries too.
         workspace.Changed += (_, _) =>
         {
             Rebuild();
