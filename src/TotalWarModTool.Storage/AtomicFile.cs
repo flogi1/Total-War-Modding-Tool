@@ -35,6 +35,17 @@ public static class AtomicFile
     }
 
     /// <summary>
+    /// Moves <paramref name="tempPath"/> over <paramref name="targetPath"/> (replacing it) with the same retries as <see cref="WriteAllText"/>.
+    /// The error of the last try is rethrown; <paramref name="tempPath"/> is left in place then.
+    /// </summary>
+    public static void Replace(string tempPath, string targetPath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tempPath);
+        ArgumentException.ThrowIfNullOrEmpty(targetPath);
+        MoveWithRetry(tempPath, targetPath);
+    }
+
+    /// <summary>
     /// On Windows the replace fails briefly with <see cref="UnauthorizedAccessException"/> or <see cref="IOException"/> while another
     /// process (virus scanner, indexer) holds the target open without delete sharing. The state is over after a few milliseconds,
     /// so the move is retried with a growing pause before the error is passed on.

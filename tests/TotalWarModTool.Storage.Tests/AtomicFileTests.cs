@@ -39,4 +39,17 @@ public class AtomicFileTests
         Assert.Equal(["f.json"], Directory.GetFiles(dir.Path).Select(Path.GetFileName));
         Assert.Equal("old", File.ReadAllText(dir.File("f.json")));
     }
+
+    [Fact] public void Replace_moves_the_temp_file_over_the_target()
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("target.bin"), "old");
+        File.WriteAllText(dir.File("temp.bin"), "new");
+        AtomicFile.Replace(dir.File("temp.bin"), dir.File("target.bin"));
+        Assert.Equal("new", File.ReadAllText(dir.File("target.bin")));
+        Assert.False(File.Exists(dir.File("temp.bin")));
+        File.WriteAllText(dir.File("temp2.bin"), "first");
+        AtomicFile.Replace(dir.File("temp2.bin"), dir.File("fresh.bin"));
+        Assert.Equal("first", File.ReadAllText(dir.File("fresh.bin")));
+    }
 }
