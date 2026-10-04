@@ -13,37 +13,99 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
 
-        <!-- A table: the line above the grid, then the grid. The grid builds its columns from the names. -->
+        <!--
+            The switch between grid and text of a table or loc tab: two toggle-styled radio buttons of one group. The grid button follows
+            ShowGrid, a click on it makes the group uncheck the text button, which writes ShowText = false. DataContext is the tab.
+            The toggle style is looked up dynamically like the colours, so that it is the themed one of the window the view is in.
+        -->
+        <DataTemplate x:Key="ViewSwitch">
+            <StackPanel Orientation="Horizontal">
+                <RadioButton Style="{DynamicResource {x:Type ToggleButton}}" IsChecked="{Binding ShowGrid, Mode=OneWay}"
+                             Content="{Binding DataContext.Texts.TabViewGrid, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                <RadioButton Style="{DynamicResource {x:Type ToggleButton}}" IsChecked="{Binding ShowText}" Margin="-1,0,0,0"
+                             Content="{Binding DataContext.Texts.TabViewText, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- A table: the line above the grid with the switch beside it, the notice (only in the text view), then the grid or the text. The grid builds its columns from the names. -->
         <DataTemplate DataType="{x:Type local:TableTabViewModel}">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
-                <local:TableGrid ColumnNames="{Binding Columns}" ItemsSource="{Binding Rows}" />
+                <DockPanel DockPanel.Dock="Top">
+                    <ContentPresenter DockPanel.Dock="Right" Margin="6,2" Content="{Binding}" ContentTemplate="{StaticResource ViewSwitch}" />
+                    <TextBlock Text="{Binding Header}" Margin="6,4" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding TextNotice}" Margin="6,0,6,4" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Theme.Warning}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TextNotice}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding ShowText}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Grid>
+                    <local:TableGrid ColumnNames="{Binding Columns}" ItemsSource="{Binding Rows}"
+                                     Visibility="{Binding ShowGrid, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                             HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                             Visibility="{Binding ShowText, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
             </DockPanel>
         </DataTemplate>
 
-        <!-- A loc file: three fixed columns. The headers are elements so that they can read the texts of the view. -->
+        <!-- A loc file: three fixed columns, or the text. The headers are elements so that they can read the texts of the view. -->
         <DataTemplate DataType="{x:Type local:LocTabViewModel}">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
-                <local:TableGrid ItemsSource="{Binding Rows}">
-                    <local:TableGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding Key, Mode=OneWay}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="{Binding DataContext.Texts.TabLocKey, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding Text, Mode=OneWay}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="{Binding DataContext.Texts.TabLocText, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridCheckBoxColumn Binding="{Binding Tooltip, Mode=OneWay}" IsReadOnly="True">
-                            <DataGridCheckBoxColumn.Header>
-                                <TextBlock Text="{Binding DataContext.Texts.TabLocTooltip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
-                            </DataGridCheckBoxColumn.Header>
-                        </DataGridCheckBoxColumn>
-                    </local:TableGrid.Columns>
-                </local:TableGrid>
+                <DockPanel DockPanel.Dock="Top">
+                    <ContentPresenter DockPanel.Dock="Right" Margin="6,2" Content="{Binding}" ContentTemplate="{StaticResource ViewSwitch}" />
+                    <TextBlock Text="{Binding Header}" Margin="6,4" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding TextNotice}" Margin="6,0,6,4" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Theme.Warning}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TextNotice}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding ShowText}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Grid>
+                    <local:TableGrid ItemsSource="{Binding Rows}"
+                                     Visibility="{Binding ShowGrid, Converter={StaticResource BoolToVisibility}}">
+                        <local:TableGrid.Columns>
+                            <DataGridTextColumn Binding="{Binding Key, Mode=OneWay}">
+                                <DataGridTextColumn.Header>
+                                    <TextBlock Text="{Binding DataContext.Texts.TabLocKey, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                                </DataGridTextColumn.Header>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Binding="{Binding Text, Mode=OneWay}">
+                                <DataGridTextColumn.Header>
+                                    <TextBlock Text="{Binding DataContext.Texts.TabLocText, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                                </DataGridTextColumn.Header>
+                            </DataGridTextColumn>
+                            <DataGridCheckBoxColumn Binding="{Binding Tooltip, Mode=OneWay}" IsReadOnly="True">
+                                <DataGridCheckBoxColumn.Header>
+                                    <TextBlock Text="{Binding DataContext.Texts.TabLocTooltip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                                </DataGridCheckBoxColumn.Header>
+                            </DataGridCheckBoxColumn>
+                        </local:TableGrid.Columns>
+                    </local:TableGrid>
+                    <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                             HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                             Visibility="{Binding ShowText, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
             </DockPanel>
         </DataTemplate>
 

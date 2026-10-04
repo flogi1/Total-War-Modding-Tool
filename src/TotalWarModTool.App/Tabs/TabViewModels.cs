@@ -20,24 +20,24 @@ public abstract class TabViewModel : ObservableObject, IDisposable
 
     private enum StaleKind { None, Schema, Pack }
 
-    protected TabViewModel(PackSource pack, string entryPath, AppTexts texts, Action<TabViewModel> close)
+    protected TabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close)
     {
-        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(entryPath);
         ArgumentNullException.ThrowIfNull(texts);
         ArgumentNullException.ThrowIfNull(close);
         _texts = texts;
-        PackPath = pack.Path;
+        PackPath = source.Key;
         EntryPath = entryPath;
         Title = entryPath[(entryPath.LastIndexOf('/') + 1)..];
-        ToolTip = $"{pack.Name}: {entryPath}";
+        ToolTip = $"{source.Name}: {entryPath}";
         CloseCommand = new RelayCommand(() => close(this));
         _texts.PropertyChanged += OnTextsChanged;
     }
 
     protected AppTexts Texts => _texts;
 
-    /// <summary><see cref="PackSource.Path"/> of the pack the entry lives in.</summary>
+    /// <summary><see cref="TabSource.Key"/> of the source the entry lives in: the path of a pack, or the key of a project.</summary>
     public string PackPath { get; }
 
     public string EntryPath { get; }
@@ -45,7 +45,7 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     /// <summary>The last segment of <see cref="EntryPath"/>.</summary>
     public string Title { get; }
 
-    /// <summary>"&lt;pack name&gt;: &lt;entry path&gt;"; both are data, not UI texts.</summary>
+    /// <summary>"&lt;source name&gt;: &lt;entry path&gt;"; both are data, not UI texts.</summary>
     public string ToolTip { get; }
 
     /// <summary>True when the pack changed on disk or the schema changed after the tab was opened; the tab shows the old content.</summary>
@@ -117,14 +117,126 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     }
 }
 
+/// <summary>
+/// A tab with rows that can be shown as a grid or, read-only, as the TSV text of the table (see <see cref="TableTsv"/>). The text is built
+/// on the first switch to the text view and kept; it is cut at a line end when it is longer than <see cref="MaxTextChars"/>.
+/// </summary>
+public abstract class RowsTabViewModel : TabViewModel
+{
+    /// <summary>The longest text the text view shows, in characters.</summary>
+    public const int MaxTextChars = 5_000_000;
+
+    private bool _showText;
+    private bool _textBuilt;
+    private string? _text;
+    private string? _textNotice;
+    private Func<AppTexts, string>? _notice;
+
+    protected RowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close)
+        : base(source, entryPath, texts, close)
+    {
+    }
+
+    /// <summary>The limit of the text; settable so that tests need no five million characters.</summary>
+    internal int MaxChars { get; set; } = MaxTextChars;
+
+    /// <summary>False shows the grid, true the text. Switching to the text for the first time builds it.</summary>
+    public bool ShowText
+    {
+        get => _showText;
+        set
+        {
+            if (!SetProperty(ref _showText, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(ShowGrid));
+            if (value && !_textBuilt)
+            {
+                BuildText();
+            }
+        }
+    }
+
+    public bool ShowGrid => !_showText;
+
+    /// <summary>The TSV form of the table; null before the first switch to the text view and when the table cannot be written as text.</summary>
+    public string? Text => _text;
+
+    /// <summary>Why there is no text, or that the text is cut. Null when there is nothing to say.</summary>
+    public string? TextNotice => _textNotice;
+
+    /// <summary>The TSV form of the content; <c>Text</c> is null when the content cannot be written without loss. May throw <see cref="ArgumentException"/>.</summary>
+    protected abstract TsvWriteResult WriteText();
+
+    /// <summary>Computes the header again in the language that is active now.</summary>
+    protected abstract void RefreshHeader();
+
+    protected sealed override void RefreshTexts()
+    {
+        RefreshHeader();
+        if (_notice is not null)
+        {
+            SetProperty(ref _textNotice, _notice(Texts), nameof(TextNotice));
+        }
+    }
+
+    private void BuildText()
+    {
+        _textBuilt = true;
+        TsvWriteResult result;
+        try
+        {
+            result = WriteText();
+        }
+        catch (ArgumentException ex)
+        {
+            // A table name or a path the dialect cannot carry (a tab, a line break, ';'): the same case as a refusal.
+            result = new TsvWriteResult(null, ex.Message.ReplaceLineEndings(" "));
+        }
+
+        if (result.Text is null)
+        {
+            var detail = result.Detail ?? string.Empty;
+            _notice = t => t.TabTextViewUnavailable(detail);
+        }
+        else
+        {
+            _text = CutAtLineEnd(result.Text, MaxChars, out var cut);
+            if (cut)
+            {
+                _notice = t => t.TabTextViewTruncated;
+            }
+        }
+
+        _textNotice = _notice?.Invoke(Texts);
+        OnPropertyChanged(nameof(Text));
+        OnPropertyChanged(nameof(TextNotice));
+    }
+
+    // Keeps whole lines: the text ends at the last line end that fits into the limit.
+    private static string CutAtLineEnd(string text, int limit, out bool cut)
+    {
+        cut = text.Length > Math.Max(limit, 0);
+        if (!cut)
+        {
+            return text;
+        }
+
+        var end = limit <= 0 ? -1 : text.LastIndexOf('\n', limit - 1);
+        return end < 0 ? string.Empty : text[..(end + 1)];
+    }
+}
+
 /// <summary>A decoded DB table. <see cref="Rows"/> hold boxed cell values in the order of <see cref="Columns"/>.</summary>
-public sealed class TableTabViewModel : TabViewModel
+public sealed class TableTabViewModel : RowsTabViewModel
 {
     private readonly DecodedTable _table;
     private string _header;
 
-    public TableTabViewModel(PackSource pack, string entryPath, AppTexts texts, Action<TabViewModel> close, DecodedTable table)
-        : base(pack, entryPath, texts, close)
+    public TableTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, DecodedTable table)
+        : base(source, entryPath, texts, close)
     {
         _table = table;
         _header = HeaderText();
@@ -140,17 +252,22 @@ public sealed class TableTabViewModel : TabViewModel
 
     internal override bool IsTableEntry => true;
 
-    protected override void RefreshTexts() => SetProperty(ref _header, HeaderText(), nameof(Header));
+    protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
+
+    // The meta line of the TSV names the entry the table was read from.
+    protected override TsvWriteResult WriteText() => _table.Definition is { } definition
+        ? TableTsv.Write(_table.TableName, _table.Version, EntryPath, definition, _table.Rows)
+        : new TsvWriteResult(null, "the table has no definition");
 
     private string HeaderText() => Texts.TabTableHeader(_table.TableName, _table.Version, _table.Rows.Count);
 }
 
-public sealed class LocTabViewModel : TabViewModel
+public sealed class LocTabViewModel : RowsTabViewModel
 {
     private string _header;
 
-    public LocTabViewModel(PackSource pack, string entryPath, AppTexts texts, Action<TabViewModel> close, IReadOnlyList<LocRow> rows)
-        : base(pack, entryPath, texts, close)
+    public LocTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IReadOnlyList<LocRow> rows)
+        : base(source, entryPath, texts, close)
     {
         Rows = rows;
         _header = HeaderText();
@@ -160,7 +277,9 @@ public sealed class LocTabViewModel : TabViewModel
 
     public IReadOnlyList<LocRow> Rows { get; }
 
-    protected override void RefreshTexts() => SetProperty(ref _header, HeaderText(), nameof(Header));
+    protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
+
+    protected override TsvWriteResult WriteText() => TableTsv.WriteLoc(EntryPath, Rows);
 
     private string HeaderText() => Texts.TabLocHeader(Rows.Count);
 }
@@ -171,8 +290,8 @@ public sealed class TextTabViewModel : TabViewModel
     private string _header;
     private string? _notice;
 
-    public TextTabViewModel(PackSource pack, string entryPath, AppTexts texts, Action<TabViewModel> close, TextContent content)
-        : base(pack, entryPath, texts, close)
+    public TextTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, TextContent content)
+        : base(source, entryPath, texts, close)
     {
         _content = content;
         _header = HeaderText();
@@ -215,9 +334,9 @@ public sealed class InfoTabViewModel : TabViewModel
 
     /// <param name="heading">The heading in the language of the given texts.</param>
     /// <param name="reason">The reason in the language of the given texts; empty when there is nothing more to say than the heading.</param>
-    public InfoTabViewModel(PackSource pack, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close,
+    public InfoTabViewModel(TabSource source, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close,
         Func<AppTexts, string> heading, Func<AppTexts, string> reason)
-        : base(pack, entry.EntryPath, texts, close)
+        : base(source, entry.EntryPath, texts, close)
     {
         _entry = entry;
         _schema = schema;

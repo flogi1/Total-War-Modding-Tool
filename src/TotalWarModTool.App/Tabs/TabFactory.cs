@@ -11,9 +11,9 @@ public static class TabFactory
 {
     private static readonly string[] SizeUnits = ["KB", "MB", "GB"];
 
-    public static TabViewModel Create(PackSource pack, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close)
+    public static TabViewModel Create(TabSource source, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close)
     {
-        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(texts);
         ArgumentNullException.ThrowIfNull(close);
@@ -32,19 +32,19 @@ public static class TabFactory
                 var status = entry.Table?.Status ?? TableDecodeStatus.Failed;
                 return Info(t => t.TabInfoNotDecodable, t => t.TableStatusText(status));
             case EntryKind.Table:
-                return new TableTabViewModel(pack, entry.EntryPath, texts, close, entry.Table!);
+                return new TableTabViewModel(source, entry.EntryPath, texts, close, entry.Table!);
             case EntryKind.Loc when entry.Loc is not { Status: LocDecodeStatus.Ok }:
                 return Info(t => t.TabInfoLocNotDecodable, t => t.LocStatusFailed);
             case EntryKind.Loc:
-                return new LocTabViewModel(pack, entry.EntryPath, texts, close, entry.Loc!.Rows);
+                return new LocTabViewModel(source, entry.EntryPath, texts, close, entry.Loc!.Rows);
             case EntryKind.Text when entry.Text is { } text:
-                return new TextTabViewModel(pack, entry.EntryPath, texts, close, text);
+                return new TextTabViewModel(source, entry.EntryPath, texts, close, text);
             default:
                 return Info(t => t.TabInfoNotSupported, _ => string.Empty);
         }
 
         InfoTabViewModel Info(Func<AppTexts, string> heading, Func<AppTexts, string> reason) =>
-            new(pack, entry, schema, texts, close, heading, reason);
+            new(source, entry, schema, texts, close, heading, reason);
     }
 
     /// <summary>Binary units with one decimal from KB on, e.g. "512 B", "1.5 KB", "3.2 MB", "1.1 GB"; independent of the user's culture.</summary>

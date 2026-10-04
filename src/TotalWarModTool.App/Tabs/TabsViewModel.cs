@@ -5,7 +5,7 @@ using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
 
-/// <summary>The open tabs and the selected one. Pack and entry paths are compared ignoring case.</summary>
+/// <summary>The open tabs and the selected one. Source keys and entry paths are compared ignoring case.</summary>
 public sealed class TabsViewModel : ObservableObject
 {
     private readonly RelayCommand _closeSelectedCommand;
@@ -47,7 +47,7 @@ public sealed class TabsViewModel : ObservableObject
     /// <summary>Raised when tabs were added or removed and when the selection changed.</summary>
     public event EventHandler? Changed;
 
-    /// <summary>Selects the tab of this entry. False when no such tab is open.</summary>
+    /// <summary>Selects the tab of this entry. <paramref name="packPath"/> is a <see cref="TabSource.Key"/>. False when no such tab is open.</summary>
     public bool TryActivate(string packPath, string entryPath)
     {
         var tab = Tabs.FirstOrDefault(t => Matches(t, packPath, entryPath));
@@ -61,9 +61,9 @@ public sealed class TabsViewModel : ObservableObject
     }
 
     /// <summary>Appends the tab for an opened entry. It is selected when <paramref name="select"/> is set or nothing is selected yet.</summary>
-    public void Add(PackSource pack, OpenedEntry entry, ResolvedSchema? schema, bool select = true)
+    public void Add(TabSource source, OpenedEntry entry, ResolvedSchema? schema, bool select = true)
     {
-        var tab = TabFactory.Create(pack, entry, schema, Texts, Close);
+        var tab = TabFactory.Create(source, entry, schema, Texts, Close);
         Tabs.Add(tab);
         if (select || SelectedTab is null)
         {
@@ -90,7 +90,7 @@ public sealed class TabsViewModel : ObservableObject
         tab.Dispose();
     }
 
-    /// <summary>Marks every tab of the pack: the pack changed on disk, the tabs show old content.</summary>
+    /// <summary>Marks every tab of the pack: the pack changed on disk, the tabs show old content. <paramref name="packPath"/> is a <see cref="TabSource.Key"/>.</summary>
     public void MarkStale(string packPath)
     {
         foreach (var tab in Tabs.Where(t => string.Equals(t.PackPath, packPath, StringComparison.OrdinalIgnoreCase)))

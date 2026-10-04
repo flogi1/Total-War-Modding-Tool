@@ -191,6 +191,15 @@ public sealed partial class AppTexts
     /// <param name="total">Size of the whole text.</param>
     public string TabTextTruncated(string shown, string total) => F("tab.text.truncated", "Only the first {0} of {1} are shown.", shown, total);
 
+    public string TabViewGrid => T("tab.view.grid", "Grid");
+
+    public string TabViewText => T("tab.view.text", "Text");
+
+    /// <param name="detail">Why the table cannot be written as text; English text of the library. Data, not a UI text.</param>
+    public string TabTextViewUnavailable(string detail) => F("tab.view.unavailable", "This table cannot be shown as text: {0}", detail);
+
+    public string TabTextViewTruncated => T("tab.view.truncated", "Only the first part of the text is shown.");
+
     public string TabInfoNotDecodable => T("tab.info.notDecodable", "This table cannot be decoded");
 
     public string TabInfoLocNotDecodable => T("tab.info.locNotDecodable", "This loc file cannot be decoded");

@@ -1,5 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -118,6 +121,63 @@ public class TabsViewTests
         setup.ViewModel.SelectedTab = setup.ViewModel.Tabs[0];
         Pump(setup.Window);
         Assert.Equal(["unit_key", "cost"], HeaderNames(setup.Grid));
+    });
+
+    [Fact] public void The_table_template_switches_between_grid_and_text() => Sta.Run(() =>
+    {
+        var setup = Create();
+        setup.ViewModel.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"]]), null);
+        Pump(setup.Window);
+        var tab = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+        var box = Descendants<TextBox>(setup.View).Single();
+        var buttons = Descendants<RadioButton>(setup.View).ToList();
+        Assert.Equal((Visibility.Visible, Visibility.Collapsed), (setup.Grid.Visibility, box.Visibility));
+        Assert.Equal([true, false], buttons.Select(b => b.IsChecked == true));
+
+        tab.ShowText = true;
+        Pump(setup.Window);
+
+        Assert.Equal((Visibility.Collapsed, Visibility.Visible), (setup.Grid.Visibility, box.Visibility));
+        Assert.Equal(tab.Text, box.Text);
+        Assert.Equal(("unit_key\tcost\n#units_tables;0;db/units_tables/data__\t\na\t1\n", true, "Consolas"), (box.Text, box.IsReadOnly, box.FontFamily.Source));
+        Assert.Equal([false, true], buttons.Select(b => b.IsChecked == true));
+
+        // Selecting the grid switch (what a click does) brings the grid back.
+        ((ISelectionItemProvider)new RadioButtonAutomationPeer(buttons[0]).GetPattern(PatternInterface.SelectionItem)!).Select();
+        Pump(setup.Window);
+        Assert.False(tab.ShowText);
+        Assert.Equal((Visibility.Visible, Visibility.Collapsed), (setup.Grid.Visibility, box.Visibility));
+        Assert.Equal([true, false], buttons.Select(b => b.IsChecked == true));
+    });
+
+    [Fact] public void The_text_notice_of_a_table_is_visible_only_when_there_is_one() => Sta.Run(() =>
+    {
+        var setup = Create();
+        setup.ViewModel.Add(Pack, TableEntry(["unit_key"], [["a"]]), null);
+        var tab = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+        tab.MaxChars = 10;
+        tab.ShowText = true;
+        Pump(setup.Window);
+
+        var notice = Descendants<TextBlock>(setup.View).Single(t => t.Text == Texts.TabTextViewTruncated);
+        Assert.Equal(Visibility.Visible, notice.Visibility);
+    });
+
+    [Fact] public void The_loc_template_switches_between_grid_and_text() => Sta.Run(() =>
+    {
+        var setup = Create();
+        var loc = new DecodedLoc(LocDecodeStatus.Ok, [new("k1", "t1", true)], null);
+        setup.ViewModel.Add(Pack, new OpenedEntry("text/names.loc", EntryKind.Loc, 1, 1, CompressionFormat.None, EntryProblem.None, null, false, null, loc, null), null);
+        Pump(setup.Window);
+        var tab = Assert.IsType<LocTabViewModel>(setup.ViewModel.SelectedTab);
+        var box = Descendants<TextBox>(setup.View).Single();
+        Assert.Equal((Visibility.Visible, Visibility.Collapsed), (setup.Grid.Visibility, box.Visibility));
+
+        tab.ShowText = true;
+        Pump(setup.Window);
+
+        Assert.Equal((Visibility.Collapsed, Visibility.Visible), (setup.Grid.Visibility, box.Visibility));
+        Assert.StartsWith("key\ttext\ttooltip\n#Loc;1;", box.Text);
     });
 
     [Fact] public void Middle_click_on_a_tab_header_closes_the_tab() => Sta.Run(() =>

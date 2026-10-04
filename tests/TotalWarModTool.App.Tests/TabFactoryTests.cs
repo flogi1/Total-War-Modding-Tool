@@ -114,6 +114,21 @@ public class TabFactoryTests
         Assert.Equal("1 row(s)", loc.Header);
     }
 
+    [Fact] public void Every_kind_of_tab_takes_a_tab_source_and_shows_its_name_in_the_tool_tip()
+    {
+        var source = TabSource.ForProject(Guid.NewGuid(), "My Mod");
+        var table = new DecodedTable(TableDecodeStatus.Ok, "units_tables", 3, false, Def, [["a", 1]], null);
+        var tabs = new[]
+        {
+            TabFactory.Create(source, Entry("db/units_tables/x", EntryKind.Table, table: table), null, Texts, _ => { }),
+            TabFactory.Create(source, Entry("text/n.loc", EntryKind.Loc, loc: new DecodedLoc(LocDecodeStatus.Ok, [new("k", "t", false)], null)), null, Texts, _ => { }),
+            TabFactory.Create(source, Entry("a.txt", EntryKind.Text, text: new TextContent("hi", "UTF-8", false, 2)), null, Texts, _ => { }),
+            TabFactory.Create(source, Entry("misc/blob", EntryKind.Other), null, Texts, _ => { }),
+        };
+        Assert.Equal(source.Key, Assert.Single(tabs.Select(t => t.PackPath).Distinct()));
+        Assert.Equal(["My Mod: db/units_tables/x", "My Mod: text/n.loc", "My Mod: a.txt", "My Mod: misc/blob"], tabs.Select(t => t.ToolTip));
+    }
+
     [Fact] public void File_without_extension_says_so() =>
         Assert.Contains(new InfoLine("Type", "(no extension)"), Assert.IsType<InfoTabViewModel>(Create(Entry("misc/blob", EntryKind.Other))).Lines);
 }
