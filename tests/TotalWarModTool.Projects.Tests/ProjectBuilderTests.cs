@@ -140,7 +140,7 @@ public class ProjectBuilderTests
         Directory.CreateDirectory(outside);
         File.WriteAllBytes(Path.Combine(outside, "secret.bin"), [7]);
         var link = Path.Combine(folder, "pack", "linked");
-        if (!TryCreateJunction(link, outside))
+        if (!JunctionHelper.TryCreate(link, outside))
         {
             return;   // junctions cannot be created in this environment
         }
@@ -201,37 +201,23 @@ public class ProjectBuilderTests
         Assert.Equal(["my_mod.pack", "my_mod.pack.notes.tmp"], Directory.EnumerateFileSystemEntries(build).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
     }
 
-    private static bool TryCreateJunction(string link, string target)
+    [Fact] public void Ignored_files_are_not_packed_and_are_named_in_the_plan()
     {
-        var info = new System.Diagnostics.ProcessStartInfo("cmd.exe")
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        info.ArgumentList.Add("/c");
-        info.ArgumentList.Add("mklink");
-        info.ArgumentList.Add("/J");
-        info.ArgumentList.Add(link);
-        info.ArgumentList.Add(target);
-        try
-        {
-            using var process = System.Diagnostics.Process.Start(info)!;
-            process.StandardInput.Close();
-            if (!process.WaitForExit(10_000))
-            {
-                process.Kill(entireProcessTree: true);
-                return false;
-            }
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
+        Put(folder, @"db\units_tables\.~lock.my_mod.tsv#", TestData.Utf8("LibreOffice lock"));
 
-            return process.ExitCode == 0 && Directory.Exists(link);
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            return false;
-        }
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None);
+
+        Assert.Empty(plan.Problems);
+        Assert.Single(plan.Entries);
+        Assert.Equal([@"db\units_tables\.~lock.my_mod.tsv#"], plan.Ignored);
+
+        var result = ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None);
+        Assert.Equal(BuildOutcome.Built, result.Outcome);
+        var index = PackReader.ReadIndex(result.PackPath!).Index!;
+        Assert.Equal(["db/units_tables/my_mod"], index.Entries.Select(e => e.Path));
     }
 
     private sealed class SyncProgress(Action<OperationProgress> report) : IProgress<OperationProgress>

@@ -8,8 +8,12 @@ namespace TotalWarModTool.Projects;
 /// </summary>
 public sealed record BuildProblem(string RelativeFile, int Line, string Detail);
 
-/// <summary>Entries are ready for <see cref="PackWriter"/>. An empty <paramref name="Problems"/> list means the plan can be written.</summary>
-public sealed record BuildPlan(IReadOnlyList<PackWriteEntry> Entries, IReadOnlyList<string> Dependencies, IReadOnlyList<BuildProblem> Problems);
+/// <summary>
+/// Entries are ready for <see cref="PackWriter"/>. An empty <paramref name="Problems"/> list means the plan can be written.
+/// <paramref name="Ignored"/> names the files of the pack folder that were left out on purpose (relative to the pack folder, with '\').
+/// </summary>
+public sealed record BuildPlan(IReadOnlyList<PackWriteEntry> Entries, IReadOnlyList<string> Dependencies, IReadOnlyList<BuildProblem> Problems,
+    IReadOnlyList<string> Ignored);
 
 /// <summary>How a build ended: the pack was written, the plan had problems (nothing was written), or writing failed (the previous pack is untouched).</summary>
 public enum BuildOutcome

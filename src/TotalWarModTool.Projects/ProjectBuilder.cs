@@ -16,12 +16,13 @@ public static class ProjectBuilder
     private const int TempSuffixLength = 8;
 
     /// <summary>A file below the pack folder, or a folder that cannot be read (then <paramref name="FolderProblem"/> is set). Relative paths use '\'.</summary>
-    private sealed record WalkItem(string RelativePath, BuildProblem? FolderProblem);
+    private sealed record WalkItem(string RelativePath, ProjectFileItem? File, BuildProblem? FolderProblem);
 
     /// <summary>
     /// Reads the pack folder of the project and prepares every entry. Writes nothing. Table and loc files are read and converted into
     /// memory, other files are opened only when the pack is written. Every problem is collected, one per file or folder; a file with a
     /// problem contributes no entry. A folder that cannot be listed or that is a link is a problem and its files are not read.
+    /// Which files belong to the pack is decided by <see cref="ProjectFiles"/>; files it ignores are named in the plan, not packed.
     /// </summary>
     public static BuildPlan ComputeBuild(string projectFolder, ModProject project, GameSchema? schema, Func<string> newGuid,
         IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
@@ -35,13 +36,17 @@ public static class ProjectBuilder
         var problems = new List<BuildProblem>();
         var packRoot = Path.Combine(projectFolder, ProjectFile.PackFolder);
 
-        if (!Directory.Exists(packRoot))
+        var list = ProjectFiles.List(projectFolder, cancellationToken);
+        if (!list.PackFolderExists)
         {
             problems.Add(new BuildProblem(string.Empty, 0, PackFolderMissing));
-            return new BuildPlan(entries, project.Dependencies, problems);
+            return new BuildPlan(entries, project.Dependencies, problems, list.Ignored);
         }
 
-        var items = Walk(packRoot, cancellationToken).OrderBy(item => item.RelativePath, StringComparer.Ordinal).ToList();
+        var items = list.Files.Select(file => new WalkItem(file.RelativeFile, file, null))
+            .Concat(list.Problems.Select(p => new WalkItem(p.RelativePath, null, new BuildProblem(p.RelativePath, 0, p.Detail))))
+            .OrderBy(item => item.RelativePath, StringComparer.Ordinal)
+            .ToList();
         var total = items.Count(item => item.FolderProblem is null);
         var firstFileOfPackPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var done = 0;
@@ -55,7 +60,7 @@ public static class ProjectBuilder
                 continue;
             }
 
-            var (packPath, kind) = ProjectLayout.FromRelativeFile(item.RelativePath);
+            var (_, packPath, kind) = item.File!;
             if (firstFileOfPackPath.TryGetValue(packPath, out var earlier))
             {
                 problems.Add(new BuildProblem(item.RelativePath, 0, $"the pack path '{packPath}' is already used by the file '{earlier}'"));
@@ -79,7 +84,7 @@ public static class ProjectBuilder
             problems.Add(new BuildProblem(string.Empty, 0, validation.Detail ?? validation.Problem.ToString()));
         }
 
-        return new BuildPlan(entries, project.Dependencies, problems);
+        return new BuildPlan(entries, project.Dependencies, problems, list.Ignored);
     }
 
     /// <summary>
@@ -148,60 +153,6 @@ public static class ProjectBuilder
         {
             throw new ArgumentException("The pack name of the project is not valid: " + reason, nameof(project));
         }
-    }
-
-    /// <summary>Lists the pack folder folder by folder. A link to a folder is not followed; a folder that cannot be listed is a problem.</summary>
-    private static List<WalkItem> Walk(string packRoot, CancellationToken cancellationToken)
-    {
-        var items = new List<WalkItem>();
-        var pending = new Stack<string>();
-        pending.Push(string.Empty);
-
-        while (pending.Count > 0)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relativeFolder = pending.Pop();
-            var folder = relativeFolder.Length == 0 ? packRoot : Path.Combine(packRoot, relativeFolder);
-            var files = new List<WalkItem>();
-            var subfolders = new List<(string Relative, bool IsLink)>();
-
-            try
-            {
-                foreach (var entry in new DirectoryInfo(folder).EnumerateFileSystemInfos())
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var relative = relativeFolder.Length == 0 ? entry.Name : relativeFolder + "\\" + entry.Name;
-                    if (entry is DirectoryInfo)
-                    {
-                        subfolders.Add((relative, entry.Attributes.HasFlag(FileAttributes.ReparsePoint)));
-                    }
-                    else
-                    {
-                        files.Add(new WalkItem(relative, null));
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                items.Add(new WalkItem(relativeFolder, new BuildProblem(relativeFolder, 0, "the folder cannot be listed: " + ex.Message)));
-                continue;
-            }
-
-            items.AddRange(files);
-            foreach (var (relative, isLink) in subfolders)
-            {
-                if (isLink)
-                {
-                    items.Add(new WalkItem(relative, new BuildProblem(relative, 0, "links to folders are not supported")));
-                }
-                else
-                {
-                    pending.Push(relative);
-                }
-            }
-        }
-
-        return items;
     }
 
     private static PackWriteEntry? Prepare(string packRoot, string relativeFile, string packPath, ProjectFileKind kind, GameSchema? schema,
