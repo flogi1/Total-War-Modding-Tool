@@ -242,22 +242,81 @@ public class ProgressRunnerTests
         var showAttempted = false;
         runner.ShowDialogOverride = _ => { showAttempted = true; throw new InvalidOperationException("no window"); };
         var run = runner.RunAsync("op", (_, _) => { gate.Wait(); return 3; });
-        while (!showAttempted)
+        try
         {
-            await Task.Delay(5);
+            while (!showAttempted)
+            {
+                await Task.Delay(5);
+            }
+
+            await Task.Delay(50);   // gives the runner every chance to (wrongly) finish while the work blocks
+            Assert.False(run.IsCompleted);
+            Assert.True(runner.IsRunning);
+            Assert.False(main.IsHitTestVisible);
+        }
+        finally
+        {
+            gate.Set();   // a failing assertion must not leave the work blocked
         }
 
-        await Task.Delay(50);   // gives the runner every chance to (wrongly) finish while the work blocks
-        Assert.False(run.IsCompleted);
-        Assert.True(runner.IsRunning);
-        Assert.False(main.IsHitTestVisible);
-
-        gate.Set();
         var outcome = await run;
         Assert.Equal(OperationStatus.Failed, outcome.Status);
         Assert.Equal(3, outcome.Value);
         Assert.False(runner.IsRunning);
         Assert.True(main.IsHitTestVisible);
+    });
+
+    // A window that was created but never shown stays in Application.Windows and could keep the app from shutting down, also when the
+    // exception that kept it from showing is not one of the expected kinds.
+    [Fact] public void Window_that_was_never_shown_is_closed_when_a_foreign_exception_leaves_the_show() => Sta.RunAsync(async () =>
+    {
+        var (runner, _, _, _) = Create(Soon);
+        var closed = false;
+        runner.ShowDialogOverride = window => { window.Closed += (_, _) => closed = true; throw new NullReferenceException(); };
+        await Assert.ThrowsAsync<NullReferenceException>(() => runner.RunAsync("op", (_, ct) => { ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); return 1; }));
+        Assert.True(closed);
+    });
+
+    // A callback registered on the token that throws makes Cancel throw: the run must still wait for the work, release the lock and clear the flag.
+    [Fact] public void Throwing_cancel_callback_does_not_skip_the_release_when_a_foreign_exception_leaves_the_run() => Sta.RunAsync(async () =>
+    {
+        var main = new Window();
+        var (runner, log, _, _) = Create(Soon, main);
+        using var registered = new ManualResetEventSlim();
+        var workEnded = false;
+        runner.ShowDialogOverride = _ => { registered.Wait(); throw new NullReferenceException(); };
+        await Assert.ThrowsAsync<NullReferenceException>(() => runner.RunAsync("op", (_, ct) =>
+        {
+            ct.Register(() => throw new InvalidOperationException("callback failed"));
+            registered.Set();
+            ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); workEnded = true; return 1;
+        }));
+        Assert.True(workEnded);
+        Assert.True(main.IsHitTestVisible);
+        Assert.False(runner.IsRunning);
+        Assert.Contains(log.Warnings, warning => warning.Contains("callback failed"));
+    });
+
+    [Fact] public void Throwing_cancel_callback_does_not_change_the_outcome_when_the_window_failed() => Sta.RunAsync(async () =>
+    {
+        var main = new Window();
+        var (runner, log, reported, _) = Create(Soon, main);
+        using var registered = new ManualResetEventSlim();
+        var workEnded = false;
+        runner.ShowDialogOverride = _ => { registered.Wait(); throw new InvalidOperationException("no window"); };
+        var outcome = await runner.RunAsync("op", (_, ct) =>
+        {
+            ct.Register(() => throw new InvalidOperationException("callback failed"));
+            registered.Set();
+            ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)); workEnded = true; return 1;
+        });
+        Assert.Equal(OperationStatus.Failed, outcome.Status);
+        Assert.Equal("no window", outcome.Error!.Message);
+        Assert.True(workEnded);
+        Assert.True(main.IsHitTestVisible);
+        Assert.False(runner.IsRunning);
+        Assert.Single(reported); Assert.Single(log.Errors);
+        Assert.Contains(log.Warnings, warning => warning.Contains("callback failed"));
     });
 
     [Fact] public void Second_run_while_one_is_active_throws() => Sta.RunAsync(async () =>

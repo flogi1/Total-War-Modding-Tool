@@ -99,7 +99,7 @@ public sealed class ProgressRunner : IOperationRunner
             // that exception still propagates, but only after the work has ended. The cancellation source is disposed after this block.
             if (task is { IsCompleted: false })
             {
-                cts.Cancel();
+                RequestCancel(title, cts);
                 await WaitForEnd(title, task);
             }
 
@@ -123,6 +123,7 @@ public sealed class ProgressRunner : IOperationRunner
     private Exception? ShowModal(string title, LatestProgress progress, CancellationTokenSource cts, Task work, IReadOnlyList<Window> windows)
     {
         ProgressWindow? window = null;
+        var dialogReturned = false;
         try
         {
             // The active window; if the app lost activation during the delay, the first visible one, so the modal window is never left without
@@ -138,20 +139,25 @@ public sealed class ProgressRunner : IOperationRunner
                 WindowShown?.Invoke(this, created);
             };
             (ShowDialogOverride ?? (shown => shown.ShowDialog()))(created);
+            dialogReturned = true;
             return null;
         }
         // An exception thrown from inside the message loop of ShowDialog is treated as "cannot be shown" too. That relies on the dispatcher
         // exception handler of the application marking exceptions of UI handlers as handled, so such an exception never reaches this catch.
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or ArgumentException)
         {
-            // A window that was never loaded is still known to the application and could keep it alive when the last window closes. A loaded one
-            // has its close registered already and closes when the work has ended.
-            if (window is { IsLoaded: false })
+            return ex;
+        }
+        finally
+        {
+            // A window that was created but never shown is still known to the application and could keep it from shutting down. This runs for
+            // the caught kinds of exception and for any other that leaves this method. After a dialog that returned normally the window is closed
+            // already (IsLoaded is false again then, so the flag is what tells the cases apart). A loaded window has its close registered and
+            // closes when the work has ended.
+            if (!dialogReturned && window is { IsLoaded: false })
             {
                 CloseUnshown(window);
             }
-
-            return ex;
         }
     }
 
@@ -172,11 +178,26 @@ public sealed class ProgressRunner : IOperationRunner
     // normally, like for a cancelled run; a fault of the work is only logged as a warning, so the show error stays the one logged error.
     private async Task<OperationOutcome<T>> FailAfterCancel<T>(string title, Task<T> task, CancellationTokenSource cts, Exception showError)
     {
-        cts.Cancel();
+        RequestCancel(title, cts);
         await WaitForEnd(title, task);
         _log.Error($"Operation \"{title}\" failed: its progress window could not be shown.", showError);
         _reportError(title, showError);
         return new OperationOutcome<T>(OperationStatus.Failed, task.IsCompletedSuccessfully ? task.Result : default, showError);
+    }
+
+    // Cancel runs the callbacks registered on the token and throws their exceptions as one AggregateException, after the token is already
+    // cancelled. That must not skip waiting for the work, releasing the input lock or clearing the running flag, so it is only logged.
+    private void RequestCancel(string title, CancellationTokenSource cts)
+    {
+        try
+        {
+            cts.Cancel();
+        }
+        catch (AggregateException ex)
+        {
+            var messages = string.Join("; ", ex.InnerExceptions.Select(inner => $"{inner.GetType().Name}: {inner.Message}"));
+            _log.Warn($"Operation \"{title}\": a callback of the cancel request failed: {messages}");
+        }
     }
 
     // Waits for the end of work that was asked to cancel. The wait is unbounded if the work ignores the token, and that is deliberate: a timeout
