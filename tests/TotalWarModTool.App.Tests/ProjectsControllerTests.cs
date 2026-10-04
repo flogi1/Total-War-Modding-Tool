@@ -232,6 +232,72 @@ public class ProjectsControllerTests
         Assert.Single(game.Log.Warnings);
     }
 
+    [Fact] public void A_corrupt_list_without_a_bad_copy_is_the_only_copy_and_is_never_written()
+    {
+        using var game = new TestGame();
+        var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
+        Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        File.WriteAllText(store.FilePath, "{ not json");
+        var before = File.ReadAllBytes(store.FilePath);
+        var projects = new ProjectsController(store, new ProjectListLoadResult(ProjectList.Empty, LoadStatus.Corrupt, null),
+            game.NewController(), game.Runner, game.Log, game.Texts, TimeProvider.System);
+        Assert.Single(game.Log.Warnings);
+
+        var result = projects.Create(game.NewFolder("m"), "Mod", "mod.pack");
+
+        Assert.Equal((true, game.Texts.ProjectListNotSaved), (result.Ok, result.Message));
+        Assert.Equal(before, File.ReadAllBytes(store.FilePath));
+        Assert.Single(game.Log.Warnings);
+    }
+
+    [Fact] public void A_corrupt_list_with_a_bad_copy_is_replaced_and_leaves_a_trace_in_the_log()
+    {
+        using var game = new TestGame();
+        var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
+        Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        File.WriteAllText(store.FilePath, "{ not json");
+
+        var loaded = store.Load();
+        Assert.NotNull(loaded.BadCopyPath);
+        var projects = new ProjectsController(store, loaded, game.NewController(), game.Runner, game.Log, game.Texts, TimeProvider.System);
+
+        Assert.Contains(loaded.BadCopyPath, Assert.Single(game.Log.Warnings));
+        var result = projects.Create(game.NewFolder("m"), "Mod", "mod.pack");
+        Assert.Equal((true, (string?)null), (result.Ok, result.Message));
+        Assert.Single(game.NewProjects(game.NewController()).Projects);
+        Assert.Single(game.Log.Warnings);
+    }
+
+    [Fact] public void Reload_warns_once_when_a_usable_project_becomes_unusable()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(game.NewController());
+        var folder = game.NewFolder("m");
+        Assert.True(projects.Create(folder, "Mod", "mod.pack").Ok);
+        Assert.Empty(game.Log.Warnings);
+
+        File.Delete(ProjectFilePath(folder));
+        projects.Reload();
+        Assert.Contains("Mod", Assert.Single(game.Log.Warnings));
+        Assert.Equal(ProjectProblem.NotFound, projects.Projects[0].Problem);
+
+        projects.Reload();                                                  // nothing changed since: nothing new to say
+        Assert.Single(game.Log.Warnings);
+    }
+
+    [Fact] public void The_game_id_of_a_foreign_project_is_shown_with_control_characters_escaped()
+    {
+        using var game = new TestGame();
+        var folder = game.NewFolder("foreign");
+        var project = NewProjectIn(folder, "Foreign", gameId: "x" + (char)7 + "\u001Fy");
+        new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id).Save(
+            new ProjectList([new ProjectListEntry(project.Id, folder, null)], project.Id));
+
+        var state = game.NewProjects(game.NewController()).Projects.Single();
+
+        Assert.Equal(@"the project belongs to the game 'x\u0007\u001Fy'", state.Detail);
+    }
+
     [Fact] public void A_list_that_cannot_be_written_is_kept_in_memory_with_a_note_and_a_warning()
     {
         using var game = new TestGame();

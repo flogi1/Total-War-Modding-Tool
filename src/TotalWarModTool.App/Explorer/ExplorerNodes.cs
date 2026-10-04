@@ -135,7 +135,7 @@ public sealed class PackNode : ExplorerNode
         if (pack.Problem != PackProblem.None)
         {
             HasProblem = true;
-            ToolTip = Describe(texts.PackProblemText(pack.Problem, expectedFormat), pack.Detail);
+            ToolTip = MessageText.WithDetail(texts.PackProblemText(pack.Problem, expectedFormat), pack.Detail);
             CanExpand = false;
         }
         else if (pack.Header is { HasEncryptedIndex: true })
@@ -172,9 +172,6 @@ public sealed class PackNode : ExplorerNode
 
     /// <summary>The node belongs to a tree that was replaced; its results no longer count (set by the view model).</summary>
     internal bool IsDetached { get; set; }
-
-    internal static string Describe(string text, string? detail) =>
-        string.IsNullOrEmpty(detail) ? text : text + "\n\n" + detail;
 
     /// <summary>Shows the tree of the pack as the children and forgets an earlier mark that came from a failed read.</summary>
     internal void ShowContent(PackContent content)

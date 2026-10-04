@@ -16,6 +16,18 @@ public class ProjectListTests
     }
 
     [Fact]
+    public void NormalizePath_gives_the_full_path_without_a_trailing_separator_and_null_for_unusable_paths()
+    {
+        Assert.Equal(@"C:\mods\b", ProjectListEdits.NormalizePath(@"C:\mods\x\..\b\"));
+        Assert.Equal(@"\\server\share\mods", ProjectListEdits.NormalizePath(@"\\server\share\mods\"));
+        Assert.Null(ProjectListEdits.NormalizePath(null));
+        Assert.Null(ProjectListEdits.NormalizePath(""));
+        Assert.Null(ProjectListEdits.NormalizePath(@"mods\b"));
+        Assert.Null(ProjectListEdits.NormalizePath(@"C:mods"));
+        Assert.Null(ProjectListEdits.NormalizePath("C:\\mods\\a\0b"));
+    }
+
+    [Fact]
     public void Add_rejects_duplicates_and_relative_paths()
     {
         var list = ProjectListEdits.Add(ProjectList.Empty, A, @"C:\mods\a").List;

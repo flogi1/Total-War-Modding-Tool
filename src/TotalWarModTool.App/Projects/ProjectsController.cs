@@ -65,13 +65,23 @@ public sealed class ProjectsController
         else
         {
             _list = loaded.List;
-            _writable = loaded.Status is not (LoadStatus.NewerVersion or LoadStatus.Unreadable);
+            // A corrupt file is normally copied to .bad before the empty list replaces it; without that copy it is the only copy of the
+            // user's list and stays as it is.
+            var corruptWithoutCopy = loaded.Status == LoadStatus.Corrupt && loaded.BadCopyPath is null;
+            _writable = loaded.Status is not (LoadStatus.NewerVersion or LoadStatus.Unreadable) && !corruptWithoutCopy;
             if (!_writable)
             {
-                var reason = loaded.Status == LoadStatus.NewerVersion
-                    ? "was written by a newer version of the app and would lose what this version does not know"
-                    : "could not be read and would be overwritten with an empty list";
+                var reason = loaded.Status switch
+                {
+                    LoadStatus.NewerVersion => "was written by a newer version of the app and would lose what this version does not know",
+                    LoadStatus.Corrupt => "is damaged and could not be copied to a .bad file, so it is the only copy and is not overwritten",
+                    _ => "could not be read and would be overwritten with an empty list",
+                };
                 log.Warn($"The project list will not be saved in this session: {store!.FilePath} {reason}.");
+            }
+            else if (loaded.Status == LoadStatus.Corrupt)
+            {
+                log.Warn($"The project list {store!.FilePath} is damaged; the list starts empty. A copy of the damaged file was kept as {loaded.BadCopyPath}.");
             }
 
             _states = [.. _list.Projects.Select(LoadState)];
@@ -120,7 +130,7 @@ public sealed class ProjectsController
             return Fail(packNameText);
         }
 
-        if (NormalizeFolder(folder) is not { } fullFolder)
+        if (ProjectListEdits.NormalizePath(folder) is not { } fullFolder)
         {
             return Fail(_texts.ProjectFolderNotAbsolute);
         }
@@ -145,7 +155,7 @@ public sealed class ProjectsController
             return Fail(_texts.ProjectUnknown);
         }
 
-        if (NormalizeFolder(folder) is not { } fullFolder)
+        if (ProjectListEdits.NormalizePath(folder) is not { } fullFolder)
         {
             return Fail(_texts.ProjectFolderNotAbsolute);
         }
@@ -214,6 +224,12 @@ public sealed class ProjectsController
             return;
         }
 
+        // One warning per project that became unusable with this reload; a project that stays unusable was reported before.
+        foreach (var (before, after) in _states.Zip(fresh).Where(pair => pair.First.IsUsable && !pair.Second.IsUsable))
+        {
+            _log.Warn($"The project \"{before.DisplayName}\" in \"{after.Folder}\" can no longer be used ({after.Problem}): {after.Detail}");
+        }
+
         _states = fresh;
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -256,7 +272,7 @@ public sealed class ProjectsController
 
         return preview.Preview is not null
             ? new ImportPreviewResult(preview.Preview, null)
-            : new ImportPreviewResult(null, PackNode.Describe(_texts.PackProblemText(preview.Problem, _workspace.Profile?.PackFormat), preview.Detail));
+            : new ImportPreviewResult(null, MessageText.WithDetail(_texts.PackProblemText(preview.Problem, _workspace.Profile?.PackFormat), preview.Detail));
     }
 
     /// <summary>
@@ -283,10 +299,10 @@ public sealed class ProjectsController
 
         if (!Path.IsPathFullyQualified(sourcePack))
         {
-            return ImportFailed(PackNode.Describe(_texts.ImportProblemText(ImportProblem.SourceUnreadable), _texts.ProjectPackPathNotAbsolute));
+            return ImportFailed(MessageText.WithDetail(_texts.ImportProblemText(ImportProblem.SourceUnreadable), _texts.ProjectPackPathNotAbsolute));
         }
 
-        if (NormalizeFolder(targetFolder) is not { } fullTarget)
+        if (ProjectListEdits.NormalizePath(targetFolder) is not { } fullTarget)
         {
             return ImportFailed(_texts.ProjectFolderNotAbsolute);
         }
@@ -315,7 +331,7 @@ public sealed class ProjectsController
 
         if (report.Project is not { } project)
         {
-            return new ImportOutcome(false, PackNode.Describe(_texts.ImportProblemText(report.Problem), report.Detail), report, null);
+            return new ImportOutcome(false, MessageText.WithDetail(_texts.ImportProblemText(report.Problem), report.Detail), report, null);
         }
 
         var added = AddToList(project, fullTarget);
@@ -344,7 +360,7 @@ public sealed class ProjectsController
 
         if (state.Project is not { } project)
         {
-            return BuildFailed(PackNode.Describe(_texts.ProjectProblemText(state.Problem), state.Detail));
+            return BuildFailed(MessageText.WithDetail(_texts.ProjectProblemText(state.Problem), state.Detail));
         }
 
         if (install && InstallDisabledReason is { } reason)
@@ -433,7 +449,7 @@ public sealed class ProjectsController
 
         if (result.Problem != InstallProblem.None)
         {
-            return Fail(PackNode.Describe(_texts.InstallProblemText(result.Problem), result.Detail));
+            return Fail(MessageText.WithDetail(_texts.InstallProblemText(result.Problem), result.Detail));
         }
 
         SetInstalled(id, null);
@@ -562,7 +578,7 @@ public sealed class ProjectsController
 
         if (written.Outcome != BuildOutcome.Built)
         {
-            return new BuildReport(false, false, null, [], ignored, PackNode.Describe(_texts.BuildWriteFailed, written.Detail));
+            return new BuildReport(false, false, null, [], ignored, MessageText.WithDetail(_texts.BuildWriteFailed, written.Detail));
         }
 
         var listChanged = false;
@@ -578,7 +594,7 @@ public sealed class ProjectsController
         if (run.Uninstalled is { Problem: not InstallProblem.None } stuck)
         {
             message = Join(_texts.BuildOldPackNotRemoved(state.Installed?.FileName ?? project.PackName),
-                PackNode.Describe(_texts.InstallProblemText(stuck.Problem), stuck.Detail));
+                MessageText.WithDetail(_texts.InstallProblemText(stuck.Problem), stuck.Detail));
         }
         else if (run.Installed is not { } result)
         {
@@ -599,7 +615,7 @@ public sealed class ProjectsController
                 listChanged = true;
             }
 
-            message = PackNode.Describe(_texts.InstallProblemText(result.Problem), result.Detail);
+            message = MessageText.WithDetail(_texts.InstallProblemText(result.Problem), result.Detail);
         }
 
         if (listChanged)
@@ -632,7 +648,7 @@ public sealed class ProjectsController
     private static ProjectActionResult Fail(string message) => new(false, message);
 
     // The problem text and, when the library gave one, its technical detail on a second line.
-    private string ProblemMessage(ProjectResult result) => PackNode.Describe(_texts.ProjectProblemText(result.Problem), result.Detail);
+    private string ProblemMessage(ProjectResult result) => MessageText.WithDetail(_texts.ProjectProblemText(result.Problem), result.Detail);
 
     private ProjectActionResult AddToList(ModProject project, string folder)
     {
@@ -702,7 +718,7 @@ public sealed class ProjectsController
 
         if (!IsOwnGame(project))
         {
-            return new ProjectState(entry.Id, entry.Path, null, ProjectProblem.Invalid, $"the project belongs to the game '{project.GameId}'", entry.Installed);
+            return new ProjectState(entry.Id, entry.Path, null, ProjectProblem.Invalid, $"the project belongs to the game '{MessageText.EscapeControlCharacters(project.GameId)}'", entry.Installed);
         }
 
         // The list identifies the project by its id; a file with another id is not the project the list entry stands for.
@@ -727,24 +743,6 @@ public sealed class ProjectsController
     private static HashSet<string> ComputeVanillaNames(WorkspaceController workspace) =>
         new((workspace.Catalog?.Packs ?? []).Where(pack => pack.Origin == PackOrigin.Vanilla).Select(pack => pack.Name),
             StringComparer.OrdinalIgnoreCase);
-
-    // The full path without a trailing separator, or null when the folder is not an absolute path.
-    private static string? NormalizeFolder(string folder)
-    {
-        if (!Path.IsPathFullyQualified(folder))
-        {
-            return null;
-        }
-
-        try
-        {
-            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return null;
-        }
-    }
 
     // Compared by content: the record equality of ModProject compares its dependency list by reference.
     private static bool SameState(ProjectState a, ProjectState b) =>

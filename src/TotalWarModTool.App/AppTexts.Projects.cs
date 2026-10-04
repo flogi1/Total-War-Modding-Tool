@@ -38,10 +38,10 @@ public sealed partial class AppTexts
     /// <param name="reason">Why the name cannot be used; English text of the library. Data, not a UI text.</param>
     public string ProjectPackNameInvalid(string reason) => F("project.packNameInvalid", "The pack name cannot be used: {0}", reason);
 
-    public string ProjectFolderNotAbsolute => T("project.folderNotAbsolute", "Enter the full path of the folder, including the drive letter.");
+    public string ProjectFolderNotAbsolute => T("project.folderNotAbsolute", "Enter a full, valid folder path.");
 
     public string ProjectListNotSaved => T("project.listNotSaved",
-        "The project list could not be saved. The change stays in effect until the app is closed.");
+        "The project list could not be saved. Check that the app can write its settings folder, or update the app if the list comes from a newer version.");
 
     public string ProjectUnknown => T("project.unknown", "This project is not in the list. Refresh the list and try again.");
 

@@ -104,8 +104,11 @@ public static class ProjectListEdits
         return new ProjectListEdit(list with { Projects = projects }, ProjectListProblem.None);
     }
 
-    /// <summary>The full path without a trailing separator, or null if <paramref name="path"/> is not an absolute path.</summary>
-    internal static string? NormalizePath(string? path)
+    /// <summary>
+    /// The full path without a trailing separator (with ".." and "." resolved), or null if <paramref name="path"/> is null, empty, not an
+    /// absolute path or not a valid path. UNC paths are absolute. This is the one rule by which the list compares and stores folders.
+    /// </summary>
+    public static string? NormalizePath(string? path)
     {
         if (string.IsNullOrEmpty(path) || !Path.IsPathFullyQualified(path))
         {

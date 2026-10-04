@@ -264,7 +264,7 @@ public sealed class ExplorerViewModel : ObservableObject
                 node.SetExpandedQuietly(false);
                 if (_workspace.LastIndexProblem(node.Pack) is { } problem)
                 {
-                    node.MarkIndexProblem(PackNode.Describe(Texts.PackProblemText(problem.Problem, _workspace.Profile?.PackFormat), problem.Detail));
+                    node.MarkIndexProblem(MessageText.WithDetail(Texts.PackProblemText(problem.Problem, _workspace.Profile?.PackFormat), problem.Detail));
                 }
 
                 return;
