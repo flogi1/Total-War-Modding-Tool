@@ -341,7 +341,7 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     Groß-/Kleinschreibung liest.
 20. Ein Pack-Name, der die Regeln nicht erfüllt, ist für `ComputeBuild` und `WriteBuild` ein
     Argumentfehler. `Install` meldet ein gebautes Pack, das sich nicht lesen lässt, als fehlend, und
-    lehnt ein gebautes Pack ab, das selbst die Zieldatei ist. Wurde das Pack installiert, sein Zustand
+    behandelt ein gebautes Pack, das selbst die Zieldatei ist, als Argumentfehler. Wurde das Pack installiert, sein Zustand
     danach aber nicht lesbar, meldet `Install` das eigens (`InstalledStateUnknown`); die Datei gilt
     dann beim nächsten Mal als fremd.
 21. `twmt-project.json` darf mit BOM beginnen. Der Vanilla-Vergleich ignoriert Groß-/Kleinschreibung
@@ -351,7 +351,9 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     Dateifehler durch; eine Liste mit Status `Unreadable` oder `NewerVersion` darf nicht überschrieben
     werden. Wird der Pack-Name eines installierten Projekts geändert, deinstalliert die App zuerst
     unter dem alten Namen. Nach einem abgebrochenen Import sucht die App nach
-    `<Zielordner>.import-*`. `Install` meldet keinen Fortschritt.
+    `<Zielordner>.import-*`. `Install` meldet keinen Fortschritt. Pfade ausgelassener Einträge
+    stammen roh aus dem fremden Pack und können Steuerzeichen enthalten; die App maskiert sie vor
+    der Anzeige.
 
 ### 5.5 Import
 

@@ -84,6 +84,8 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Doppelte Hilfsfunktionen zusammenführen: Wiederholschleifen für Löschen und Verschieben (`AtomicFile`, `PackInstaller`, `PackImporter`, `PackWriter`), Surrogat-Prüfung, `Shorten`, Win32-Fehlercodes 80/183
 - Tests, die still bestehen, wenn die Umgebung etwas nicht kann (Junction anlegen, Workshop-Ordner fehlt), als übersprungen ausweisen
 
+- Import: Speicherbedarf der Kollisionsprüfung an die Indexgröße binden (viele Pfade knapp unter 259 Zeichen mit vielen Segmenten kosten rund das 150-fache der Indexgröße; ein 10-MB-Index eines feindlichen Packs rund 1,5 GB)
+
 == Aus dem Fundament zurückgestellt ==
 
 - LZMA-Dekompression (11 relevante Einträge in 397 Workshop-Packs, 0 in Vanilla)
