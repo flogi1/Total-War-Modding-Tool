@@ -90,6 +90,7 @@
   "tab.view.grid": "Raster",
   "tab.view.text": "Text",
   "tab.view.unavailable": "Diese Tabelle lässt sich nicht als Text zeigen: {0}",
+  "tab.view.noDefinition": "Die Tabelle hat keine Definition.",
   "tab.view.truncated": "Nur der Anfang des Textes wird gezeigt.",
   "tab.info.notDecodable": "Diese Tabelle ist nicht dekodierbar",
   "tab.info.locNotDecodable": "Diese Loc-Datei ist nicht dekodierbar",

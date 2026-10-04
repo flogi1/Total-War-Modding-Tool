@@ -198,6 +198,8 @@ public sealed partial class AppTexts
     /// <param name="detail">Why the table cannot be written as text; English text of the library. Data, not a UI text.</param>
     public string TabTextViewUnavailable(string detail) => F("tab.view.unavailable", "This table cannot be shown as text: {0}", detail);
 
+    public string TabTextViewNoDefinition => T("tab.view.noDefinition", "The table has no definition.");
+
     public string TabTextViewTruncated => T("tab.view.truncated", "Only the first part of the text is shown.");
 
     public string TabInfoNotDecodable => T("tab.info.notDecodable", "This table cannot be decoded");

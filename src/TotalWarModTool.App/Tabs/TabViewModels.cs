@@ -167,8 +167,11 @@ public abstract class RowsTabViewModel : TabViewModel
     /// <summary>Why there is no text, or that the text is cut. Null when there is nothing to say.</summary>
     public string? TextNotice => _textNotice;
 
-    /// <summary>The TSV form of the content; <c>Text</c> is null when the content cannot be written without loss. May throw <see cref="ArgumentException"/>.</summary>
-    protected abstract TsvWriteResult WriteText();
+    /// <summary>
+    /// The TSV form of the content; <c>Text</c> is null when the content cannot be written without loss. Null when there is no definition
+    /// to write the content with. May throw <see cref="ArgumentException"/>.
+    /// </summary>
+    protected abstract TsvWriteResult? WriteText();
 
     /// <summary>Computes the header again in the language that is active now.</summary>
     protected abstract void RefreshHeader();
@@ -185,7 +188,7 @@ public abstract class RowsTabViewModel : TabViewModel
     private void BuildText()
     {
         _textBuilt = true;
-        TsvWriteResult result;
+        TsvWriteResult? result;
         try
         {
             result = WriteText();
@@ -193,10 +196,14 @@ public abstract class RowsTabViewModel : TabViewModel
         catch (ArgumentException ex)
         {
             // A table name or a path the dialect cannot carry (a tab, a line break, ';'): the same case as a refusal.
-            result = new TsvWriteResult(null, ex.Message.ReplaceLineEndings(" "));
+            result = new TsvWriteResult(null, MessageWithoutParameter(ex));
         }
 
-        if (result.Text is null)
+        if (result is null)
+        {
+            _notice = t => t.TabTextViewUnavailable(t.TabTextViewNoDefinition);
+        }
+        else if (result.Text is null)
         {
             var detail = result.Detail ?? string.Empty;
             _notice = t => t.TabTextViewUnavailable(detail);
@@ -213,6 +220,23 @@ public abstract class RowsTabViewModel : TabViewModel
         _textNotice = _notice?.Invoke(Texts);
         OnPropertyChanged(nameof(Text));
         OnPropertyChanged(nameof(TextNotice));
+    }
+
+    // .NET appends " (Parameter 'name')" in the language of the system. The suffix is found by the parameter name, not by its words:
+    // the message is cut at the last " (" when what follows ends in 'name'). Without that pattern the whole message is kept.
+    private static string MessageWithoutParameter(ArgumentException ex)
+    {
+        var message = ex.Message;
+        if (ex.ParamName is { } name && message.EndsWith($"'{name}')", StringComparison.Ordinal))
+        {
+            var start = message.LastIndexOf(" (", StringComparison.Ordinal);
+            if (start > 0)
+            {
+                message = message[..start];
+            }
+        }
+
+        return message.ReplaceLineEndings(" ");
     }
 
     // Keeps whole lines: the text ends at the last line end that fits into the limit.
@@ -255,9 +279,9 @@ public sealed class TableTabViewModel : RowsTabViewModel
     protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
 
     // The meta line of the TSV names the entry the table was read from.
-    protected override TsvWriteResult WriteText() => _table.Definition is { } definition
+    protected override TsvWriteResult? WriteText() => _table.Definition is { } definition
         ? TableTsv.Write(_table.TableName, _table.Version, EntryPath, definition, _table.Rows)
-        : new TsvWriteResult(null, "the table has no definition");
+        : null;
 
     private string HeaderText() => Texts.TabTableHeader(_table.TableName, _table.Version, _table.Rows.Count);
 }
@@ -279,7 +303,7 @@ public sealed class LocTabViewModel : RowsTabViewModel
 
     protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
 
-    protected override TsvWriteResult WriteText() => TableTsv.WriteLoc(EntryPath, Rows);
+    protected override TsvWriteResult? WriteText() => TableTsv.WriteLoc(EntryPath, Rows);
 
     private string HeaderText() => Texts.TabLocHeader(Rows.Count);
 }

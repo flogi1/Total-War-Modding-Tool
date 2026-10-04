@@ -161,7 +161,25 @@ public class TabsViewTests
 
         var notice = Descendants<TextBlock>(setup.View).Single(t => t.Text == Texts.TabTextViewTruncated);
         Assert.Equal(Visibility.Visible, notice.Visibility);
+
+        // It describes the text view: collapsed again while the grid is shown, although the notice is still set.
+        tab.ShowText = false;
+        Pump(setup.Window);
+        Assert.NotNull(tab.TextNotice);
+        Assert.Equal(Visibility.Collapsed, notice.Visibility);
+
+        // In the text view of a text that fits there is no notice and nothing is shown for it.
+        setup.ViewModel.Add(Pack, TableEntry(["unit_key"], [["a"]]), null);
+        var fitting = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+        fitting.ShowText = true;
+        Pump(setup.Window);
+        Assert.Null(fitting.TextNotice);
+        Assert.Equal(Visibility.Collapsed, NoticeBlock(setup.View).Visibility);
     });
+
+    // The notice line of a table or loc tab is the only wrapping text block with this margin.
+    private static TextBlock NoticeBlock(DependencyObject root) =>
+        Descendants<TextBlock>(root).Single(t => t.Margin == new Thickness(6, 0, 6, 4) && t.TextWrapping == TextWrapping.Wrap);
 
     [Fact] public void The_loc_template_switches_between_grid_and_text() => Sta.Run(() =>
     {

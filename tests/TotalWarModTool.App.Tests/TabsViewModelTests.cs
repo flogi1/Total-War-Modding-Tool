@@ -181,7 +181,9 @@ public class TabsViewModelTests
         tab.ShowText = true;
 
         Assert.Null(tab.Text);
-        Assert.NotNull(tab.TextNotice);
+        Assert.StartsWith("This table cannot be shown as text: The table name must not contain", tab.TextNotice);
+        Assert.DoesNotContain("'tableName'", tab.TextNotice);          // the suffix " (Parameter 'tableName')" of .NET is not shown
+        Assert.DoesNotContain("Parameter", tab.TextNotice);
     }
 
     [Fact] public void A_table_without_a_definition_has_a_notice_and_no_text()
@@ -194,8 +196,24 @@ public class TabsViewModelTests
         tab.ShowText = true;
 
         Assert.Null(tab.Text);
-        Assert.NotNull(tab.TextNotice);
+        Assert.Equal("This table cannot be shown as text: The table has no definition.", tab.TextNotice);
+        Assert.Equal(Texts.TabTextViewUnavailable(Texts.TabTextViewNoDefinition), tab.TextNotice);
         tabs.Close(tab);
+    }
+
+    [Fact] public void The_no_definition_notice_follows_a_language_switch()
+    {
+        var ui = new UiText(System.IO.Path.Combine(RepoRoot.Find(), "locales")); var texts = new AppTexts(ui);
+        var table = new DecodedTable(TableDecodeStatus.Ok, "units_tables", 2, false, null, [], null);
+        var tab = new TableTabViewModel(A, "db/units_tables/x", texts, _ => { }, table);
+        tab.ShowText = true;
+        var raised = new List<string?>(); tab.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        ui.Load("de");
+
+        Assert.Equal("Diese Tabelle lässt sich nicht als Text zeigen: Die Tabelle hat keine Definition.", tab.TextNotice);
+        Assert.Contains(nameof(TableTabViewModel.TextNotice), raised);
+        tab.Dispose();
     }
 
     [Fact] public void A_long_text_is_cut_at_a_line_end()
