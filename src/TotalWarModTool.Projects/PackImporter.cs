@@ -16,9 +16,14 @@ public static class PackImporter
 
     private const int MaxPathLength = 259;
     private const int CleanupAttempts = 3;
+    private const int MoveAttempts = 5;
+    private const int MoveRetryDelayMs = 100;
     private const string LocExtension = ".loc";
 
-    /// <summary>Counts what an import would write, by path only. Nothing is read from the data section of the pack.</summary>
+    /// <summary>
+    /// Counts what an import would write, by path only. Nothing is read from the data section of the pack. The file name on disk of a
+    /// table or loc file is only known after the conversion, so the import can skip a few more entries than the preview lists.
+    /// </summary>
     public static ImportPreview Preview(PackIndex index)
     {
         ArgumentNullException.ThrowIfNull(index);
@@ -158,6 +163,10 @@ public static class PackImporter
         var targetPackRoot = Path.Combine(target, ProjectFile.PackFolder);
         var skipped = new List<SkippedEntry>();
         var stayedBinary = new List<BinaryTable>();
+
+        // The files written so far and their folders (relative to the pack folder, '/'), to find clashes of the names on disk.
+        var writtenFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var writtenFolders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         int tables = 0, locFiles = 0, otherFiles = 0;
 
         Directory.CreateDirectory(packRoot);
@@ -196,10 +205,15 @@ public static class PackImporter
                     {
                         skipped.Add(new SkippedEntry(entry.Path, "The file would be outside the project folder."));
                     }
+                    else if (ClashReason(relativeFile.Replace('\\', '/'), writtenFiles, writtenFolders) is { } clash)
+                    {
+                        skipped.Add(new SkippedEntry(entry.Path, clash));
+                    }
                     else
                     {
                         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
                         File.WriteAllBytes(file, converted.Bytes);
+                        Register(relativeFile.Replace('\\', '/'), writtenFiles, writtenFolders);
                         switch (converted.Kind)
                         {
                             case ProjectFileKind.Table:
@@ -246,12 +260,12 @@ public static class PackImporter
     {
         if (targetExisted)
         {
-            Directory.Delete(target, recursive: false);
+            Retry(() => Directory.Delete(target, recursive: false));
         }
 
         try
         {
-            Directory.Move(staging, target);
+            Retry(() => Directory.Move(staging, target));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -268,6 +282,23 @@ public static class PackImporter
             }
 
             throw;
+        }
+    }
+
+    /// <summary>Runs <paramref name="action"/> up to 5 times, 100 ms apart, against short locks (virus scanner). The last failure is thrown.</summary>
+    private static void Retry(Action action)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                action();
+                return;
+            }
+            catch (Exception ex) when (attempt < MoveAttempts && ex is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(MoveRetryDelayMs);
+            }
         }
     }
 
@@ -294,15 +325,20 @@ public static class PackImporter
             reasons[i] = reason;
             if (reason is null)
             {
-                files[path] = path;
-                for (var slash = path.IndexOf('/'); slash >= 0; slash = path.IndexOf('/', slash + 1))
-                {
-                    folders.TryAdd(path[..slash], path);
-                }
+                Register(path, files, folders);
             }
         }
 
         return reasons;
+    }
+
+    private static void Register(string path, Dictionary<string, string> files, Dictionary<string, string> folders)
+    {
+        files[path] = path;
+        for (var slash = path.IndexOf('/'); slash >= 0; slash = path.IndexOf('/', slash + 1))
+        {
+            folders.TryAdd(path[..slash], path);
+        }
     }
 
     private static string? ClashReason(string path, Dictionary<string, string> files, Dictionary<string, string> folders)

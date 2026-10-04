@@ -144,6 +144,36 @@ public class PackImporterTests
         Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
     }
 
+    [Fact] public void A_table_whose_text_file_name_is_a_folder_of_a_later_entry_skips_that_entry()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p
+            .AddEntry(@"db\units_tables\x", TestData.Units(("unit_a", 100, 0.1f))).AddEntry(@"db\units_tables\x.tsv\y", [1]));
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.None, report.Problem);
+        var skipped = Assert.Single(report.Skipped);
+        Assert.Equal("db/units_tables/x.tsv/y", skipped.PackPath);
+        Assert.Contains("db/units_tables/x.tsv", skipped.Reason);
+        Assert.True(File.Exists(Path.Combine(dir.Path, "project", "pack", "db", "units_tables", "x.tsv")));
+        Assert.Equal((1, 0, 0), (report.Tables, report.LocFiles, report.OtherFiles));
+    }
+
+    [Fact] public void A_table_whose_text_file_name_is_a_folder_of_an_earlier_entry_is_skipped()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p
+            .AddEntry(@"db\units_tables\x.tsv\y", [1]).AddEntry(@"db\units_tables\x", TestData.Units(("unit_a", 100, 0.1f))));
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.None, report.Problem);
+        var skipped = Assert.Single(report.Skipped);
+        Assert.Equal("db/units_tables/x", skipped.PackPath);
+        Assert.Contains("db/units_tables/x.tsv/y", skipped.Reason);
+        Assert.True(File.Exists(Path.Combine(dir.Path, "project", "pack", "db", "units_tables", "x.tsv", "y")));
+        Assert.Equal((0, 0, 1), (report.Tables, report.LocFiles, report.OtherFiles));
+    }
+
     private sealed class SyncProgress(Action<OperationProgress> report) : IProgress<OperationProgress>
     {
         public void Report(OperationProgress value) => report(value);
