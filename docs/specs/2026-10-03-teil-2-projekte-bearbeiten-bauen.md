@@ -158,7 +158,10 @@ Das Tool schreibt in Teil 2 zusätzlich zu `%APPDATA%\TotalWarModTool` und
 `%LocalAppData%\TotalWarModTool`:
 
 1. **In den Projektordner** eines bekannten Projekts: die Projektdatei, Dateien unter `pack\` und das
-   Pack unter `build\`. Nichts sonst.
+   Pack unter `build\`. Nichts sonst, außer den eigenen temp-Dateien während eines Schreibvorgangs
+   (`twmt-project.json.<8 Hex>.tmp`, `build\<Pack-Name>.<8 Hex>.tmp`). Ein Import schreibt zuerst in
+   einen Staging-Ordner `<Zielordner>.import-<8 Hex>` direkt neben dem Zielordner, also im
+   Elternordner, den der Nutzer gewählt hat, und benennt ihn am Ende um.
 2. **In den `data`-Ordner des Spiels:** genau eine Datei pro Projekt, das installierte Pack, und nur
    unter den Bedingungen aus Abschnitt 5.7. Dazu gehört während des Installierens die temp-Datei
    `<Pack-Name>.twmt-tmp` im selben Ordner.
@@ -329,6 +332,26 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     `pack\`, der eine Verknüpfung ist (Junction, symbolischer Link), wird nicht verfolgt und als Problem
     gemeldet. Ein nicht lesbarer Ordner wird mit seinem Namen gemeldet. Alte temp-Dateien eines
     abgebrochenen Baus räumt der nächste Bau weg.
+18. Ein Pack-Pfad über 259 Zeichen gilt als unsicher und wird beim Import ausgelassen. Er passt unter
+    keinen Zielordner, und sehr tiefe Pfade eines fremden Packs könnten sonst den Speicher füllen
+    (gemessen: 1,7 GB für einen Pfad mit 30.000 Segmenten).
+19. Der Import legt Ordner in der Schreibweise des ersten Eintrags an. Liegen in einem Pack `Keep/a`
+    und `keep/b`, stehen beide im Projekt unter `Keep\`, und das gebaute Pack trägt `Keep/a` und
+    `Keep/b`. Inhalt und Zuordnung bleiben gleich, weil das Spiel Pfade ohne Rücksicht auf
+    Groß-/Kleinschreibung liest.
+20. Ein Pack-Name, der die Regeln nicht erfüllt, ist für `ComputeBuild` und `WriteBuild` ein
+    Argumentfehler. `Install` meldet ein gebautes Pack, das sich nicht lesen lässt, als fehlend, und
+    lehnt ein gebautes Pack ab, das selbst die Zieldatei ist. Wurde das Pack installiert, sein Zustand
+    danach aber nicht lesbar, meldet `Install` das eigens (`InstalledStateUnknown`); die Datei gilt
+    dann beim nächsten Mal als fremd.
+21. `twmt-project.json` darf mit BOM beginnen. Der Vanilla-Vergleich ignoriert Groß-/Kleinschreibung
+    immer selbst, gleich welches Set der Aufrufer übergibt.
+22. Für Plan 3: Meldungen zu Bau-Problemen, ausgelassenen Einträgen und binär gebliebenen Tabellen
+    sind englischer Klartext ohne Art-Kennung (die App zeigt sie so an). `ProjectListStore.Save` lässt
+    Dateifehler durch; eine Liste mit Status `Unreadable` oder `NewerVersion` darf nicht überschrieben
+    werden. Wird der Pack-Name eines installierten Projekts geändert, deinstalliert die App zuerst
+    unter dem alten Namen. Nach einem abgebrochenen Import sucht die App nach
+    `<Zielordner>.import-*`. `Install` meldet keinen Fortschritt.
 
 ### 5.5 Import
 
@@ -379,7 +402,7 @@ Eintrag wie beim Import.
 - Jedes Problem stoppt den Bau vor dem Schreiben. Die Meldung nennt Datei und, wo möglich, Zeile:
   TSV nicht lesbar (Diagnosen aus 5.3), zwei Dateien mit demselben Pack-Pfad, Pfad über 65.535 Bytes,
   Datei oder Index über der 32-Bit-Grenze des Formats, Datei nicht lesbar.
-- Geschrieben wird `build\<packName>.tmp`, dann Umbenennen. Das alte Pack bleibt bis zum
+- Geschrieben wird `build\<packName>.<8 Hex>.tmp`, dann Umbenennen. Das alte Pack bleibt bis zum
   erfolgreichen Ende erhalten.
 - Format: PFH5, Bitmaske `0x3`, Abhängigkeiten aus der Projektdatei, Einträge ordinal nach Pfad
   sortiert, unkomprimiert, Pfade mit `\`.
@@ -394,7 +417,9 @@ Eintrag wie beim Import.
   für dieses Projekt installiert wurde (Fingerprint aus der Projektliste stimmt).
 - Sonst Abbruch mit Meldung, die den Grund nennt. In Teil 2 gibt es kein „trotzdem überschreiben“.
 - Ein `packName`, der im Vanilla-Manifest steht oder einem Vanilla-Pack in `data` gleicht, ist immer
-  gesperrt. Das prüft schon das Anlegen und Umbenennen des Projekts.
+  gesperrt. Das prüft schon das Anlegen und Umbenennen des Projekts. Die Library prüft es beim
+  Import und beim Installieren; beim Anlegen und Umbenennen prüft die App mit
+  `PackNameRules.Check(name, vanillaNames)` (Plan 3).
 - „Deinstallieren“ löscht die Datei aus `data`, unter derselben Bedingung.
 - Das Spiel sperrt die Datei: Meldung mit Hinweis, kein Teilzustand.
 - Kein Spielordner bekannt: Der Befehl ist deaktiviert, der Tooltip nennt den Grund.

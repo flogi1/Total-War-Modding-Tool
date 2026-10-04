@@ -75,6 +75,15 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Ein falscher JSON-Typ in `projects.json` verwirft die ganze Liste (wie bei der Session)
 - Echtdaten-Test für Import und Neubau deckt bisher nur ein kleines Workshop-Pack ohne binär gebliebene Tabellen ab
 
+- Bauen: versteckte Dateien, Systemdateien und Sperrdateien von Editoren unter `pack\` (`.~lock.x.tsv#`, `x.tsv.bak`) auslassen oder warnen; eine Rohdatei unter `db\<tabelle>\`, die sich nicht als Tabelle dekodieren lässt, als Warnung melden (mit Plan 3 einplanen: dort beginnt „außen bearbeiten, bauen, installieren“)
+- Weitere reservierte Gerätenamen (`CLOCK$`, `COM0`, `LPT0`)
+- Dateien unter `pack\`, die symbolische Links sind: Länge der Verknüpfung statt des Ziels führt zu „Quelle geändert“ beim Bauen
+- Import: kollidiert ein Ordner erst über 8.3-Kurznamen oder Unterschiede der Groß-/Kleinschreibung, scheitert der ganze Import statt eines Eintrags
+- Bau-Probleme, ausgelassene Einträge und binär gebliebene Tabellen mit Art-Kennung (Enum), damit die App sie lokalisieren kann
+- Fortschritt für `Install`; `Preview` und `Import` lesen den Index zweimal
+- Doppelte Hilfsfunktionen zusammenführen: Wiederholschleifen für Löschen und Verschieben (`AtomicFile`, `PackInstaller`, `PackImporter`, `PackWriter`), Surrogat-Prüfung, `Shorten`, Win32-Fehlercodes 80/183
+- Tests, die still bestehen, wenn die Umgebung etwas nicht kann (Junction anlegen, Workshop-Ordner fehlt), als übersprungen ausweisen
+
 == Aus dem Fundament zurückgestellt ==
 
 - LZMA-Dekompression (11 relevante Einträge in 397 Workshop-Packs, 0 in Vanilla)
