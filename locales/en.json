@@ -120,5 +120,19 @@
   "status.schema": "Schema: {0}",
   "status.hint.noSchema": "No schema could be loaded ({0}). Tables cannot be decoded. Check the schema folder in the settings.",
   "status.hint.schemaOverrideFailed": "The schema folder has no usable {0} ({1}). The shipped schema is used.",
-  "status.hint.folderProblem": "A pack folder could not be read: {0}"
+  "status.hint.folderProblem": "A pack folder could not be read: {0}",
+  "project.problem.notFound": "The project file was not found in the folder. Check that the folder still exists, or remove the project from the list.",
+  "project.problem.unreadable": "The project file cannot be read. It may be locked by another program. Close that program and try again.",
+  "project.problem.corrupt": "The project file is damaged and cannot be read. Repair it by hand or restore it from a backup.",
+  "project.problem.newerVersion": "The project file was written by a newer version of this app. Update the app to use this project.",
+  "project.problem.invalid": "The project data is not valid. The technical detail says what to correct.",
+  "project.problem.folderNotEmpty": "The folder is not empty. Choose an empty or a new folder for a new project.",
+  "project.problem.invalidPackName": "The pack name cannot be used. Choose a name that ends in .pack and has no special characters.",
+  "project.problem.unwritable": "The project folder cannot be written. Check the folder and your permissions, then try again.",
+  "project.otherGame": "This project belongs to another game and cannot be added here.",
+  "project.alreadyInList": "This project is already in the list: {0}",
+  "project.packNameInvalid": "The pack name cannot be used: {0}",
+  "project.folderNotAbsolute": "Enter the full path of the folder, including the drive letter.",
+  "project.listNotSaved": "The project list could not be saved. The change stays in effect until the app is closed.",
+  "project.unknown": "This project is not in the list. Refresh the list and try again."
 }

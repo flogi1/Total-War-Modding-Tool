@@ -1,5 +1,7 @@
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Localization;
+using TotalWarModTool.Operations;
+using TotalWarModTool.Projects;
 using TotalWarModTool.Settings;
 
 namespace TotalWarModTool.App.Tests;
@@ -103,6 +105,25 @@ internal sealed class TestGame : IDisposable
         }
 
         return builder.WriteTo(Path.Combine(folder, name));
+    }
+
+    /// <summary>Writes a PFH5 pack of type release into the data folder. The test profile counts that type as vanilla.</summary>
+    public string AddVanillaPack(string name) =>
+        new PackBuilder(packType: 1).AddEntry("db/x_tables/data__", TableBytes).WriteTo(Path.Combine(DataPath, name));
+
+    /// <summary>A project controller over the project list store of the test profile below the roaming root; loads the list as the app does at start.</summary>
+    public ProjectsController NewProjects(WorkspaceController workspace, IOperationRunner? runner = null)
+    {
+        var store = new ProjectListStore(Paths.RoamingRoot, Profile.Id);
+        return new ProjectsController(store, store.Load(), workspace, runner ?? Runner, Log, Texts, TimeProvider.System);
+    }
+
+    /// <summary>Creates an empty folder below the temp folder and returns its path.</summary>
+    public string NewFolder(string name)
+    {
+        var folder = Root.File(Path.Combine("projects", name));
+        Directory.CreateDirectory(folder);
+        return folder;
     }
 
     public WorkspaceController NewController(ISteamLocationSource? steam = null, IOperationRunner? runner = null) =>

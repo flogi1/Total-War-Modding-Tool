@@ -120,5 +120,19 @@
   "status.schema": "Schema: {0}",
   "status.hint.noSchema": "Es konnte kein Schema geladen werden ({0}). Tabellen sind nicht dekodierbar. Prüfe den Schema-Ordner in den Einstellungen.",
   "status.hint.schemaOverrideFailed": "Der Schema-Ordner enthält keine brauchbare {0} ({1}). Das mitgelieferte Schema wird benutzt.",
-  "status.hint.folderProblem": "Ein Pack-Ordner konnte nicht gelesen werden: {0}"
+  "status.hint.folderProblem": "Ein Pack-Ordner konnte nicht gelesen werden: {0}",
+  "project.problem.notFound": "Die Projektdatei wurde im Ordner nicht gefunden. Prüfe, ob der Ordner noch existiert, oder entferne das Projekt aus der Liste.",
+  "project.problem.unreadable": "Die Projektdatei kann nicht gelesen werden. Möglicherweise sperrt ein anderes Programm sie. Schließe dieses Programm und versuche es erneut.",
+  "project.problem.corrupt": "Die Projektdatei ist beschädigt und kann nicht gelesen werden. Repariere sie von Hand oder stelle sie aus einer Sicherung wieder her.",
+  "project.problem.newerVersion": "Die Projektdatei wurde von einer neueren Version dieser App geschrieben. Aktualisiere die App, um dieses Projekt zu nutzen.",
+  "project.problem.invalid": "Die Projektdaten sind ungültig. Die technische Angabe nennt, was zu korrigieren ist.",
+  "project.problem.folderNotEmpty": "Der Ordner ist nicht leer. Wähle für ein neues Projekt einen leeren oder neuen Ordner.",
+  "project.problem.invalidPackName": "Der Pack-Name kann nicht verwendet werden. Wähle einen Namen, der auf .pack endet und keine Sonderzeichen enthält.",
+  "project.problem.unwritable": "In den Projektordner kann nicht geschrieben werden. Prüfe den Ordner und deine Berechtigungen und versuche es erneut.",
+  "project.otherGame": "Dieses Projekt gehört zu einem anderen Spiel und kann hier nicht hinzugefügt werden.",
+  "project.alreadyInList": "Dieses Projekt ist bereits in der Liste: {0}",
+  "project.packNameInvalid": "Der Pack-Name kann nicht verwendet werden: {0}",
+  "project.folderNotAbsolute": "Gib den vollständigen Pfad des Ordners an, einschließlich des Laufwerksbuchstabens.",
+  "project.listNotSaved": "Die Projektliste konnte nicht gespeichert werden. Die Änderung gilt, bis die App geschlossen wird.",
+  "project.unknown": "Dieses Projekt ist nicht in der Liste. Aktualisiere die Liste und versuche es erneut."
 }

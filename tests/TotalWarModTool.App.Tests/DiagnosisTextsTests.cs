@@ -1,5 +1,6 @@
 using TotalWarModTool.Localization;
 using TotalWarModTool.PackFiles;
+using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
@@ -17,6 +18,8 @@ public class DiagnosisTextsTests
         Assert.All(Enum.GetValues<EntryProblem>().Where(p => p != EntryProblem.None), p => Assert.NotEqual("", t.EntryProblemText(p)));
         Assert.All(Enum.GetValues<TableDecodeStatus>().Where(s => s != TableDecodeStatus.Ok), s => Assert.NotEqual("", t.TableStatusText(s)));
         Assert.All(Enum.GetValues<SchemaProblem>().Where(p => p != SchemaProblem.None), p => Assert.NotEqual("", t.SchemaProblemText(p)));
+        Assert.All(Enum.GetValues<ProjectProblem>().Where(p => p != ProjectProblem.None), p => Assert.NotEqual("", t.ProjectProblemText(p)));
+        Assert.Equal("", t.ProjectProblemText(ProjectProblem.None));
         Assert.All(Enum.GetValues<PackOrigin>(), o => Assert.NotEqual("", t.OriginName(o)));
         Assert.Equal(("", "", ""), (t.PackProblemText(PackProblem.None, null), t.EntryProblemText(EntryProblem.None), t.TableStatusText(TableDecodeStatus.Ok)));
     }
