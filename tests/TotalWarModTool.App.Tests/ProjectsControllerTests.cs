@@ -159,6 +159,21 @@ public class ProjectsControllerTests
         Assert.Equal("the project belongs to the game 'Other'", state.Detail);
     }
 
+    [Fact] public void A_project_file_with_another_id_than_its_list_entry_is_not_usable()
+    {
+        using var game = new TestGame();
+        var folder = game.NewFolder("swapped");
+        var project = NewProjectIn(folder, "Swapped");
+        var listId = Guid.NewGuid();
+        new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id).Save(
+            new ProjectList([new ProjectListEntry(listId, folder, null)], listId));
+
+        var state = game.NewProjects(game.NewController()).Projects.Single();
+
+        Assert.Equal((ProjectProblem.Invalid, false, "swapped"), (state.Problem, state.IsUsable, state.DisplayName));
+        Assert.Equal($"the project file has the id '{project.Id}', the list expects '{listId}'", state.Detail);
+    }
+
     [Fact] public void A_game_id_that_differs_only_in_case_is_the_same_game()
     {
         using var game = new TestGame();

@@ -24,3 +24,20 @@ public sealed record ProjectState(Guid Id, string Folder, ModProject? Project, P
 
 /// <summary>Outcome of a change to the project list. With <paramref name="Ok"/> false, <paramref name="Message"/> is a ready UI text; with true it is null or a note.</summary>
 public sealed record ProjectActionResult(bool Ok, string? Message);
+
+/// <summary>What importing a pack would do. <paramref name="Message"/> is set (and <paramref name="Preview"/> null) when the pack cannot be read.</summary>
+public sealed record ImportPreviewResult(ImportPreview? Preview, string? Message);
+
+/// <summary>
+/// Outcome of an import. With <paramref name="Ok"/> false, <paramref name="Message"/> says why (a problem, a cancel); the list is unchanged.
+/// With true it summarises the import. <paramref name="Report"/> is the report of the library when the import ran to its end.
+/// </summary>
+public sealed record ImportOutcome(bool Ok, string? Message, ImportReport? Report, Guid? ProjectId);
+
+/// <summary>
+/// Outcome of a build, optionally with the install. <paramref name="Built"/> is true when the pack was written; <paramref name="Installed"/>
+/// when it was also copied into the data folder. <paramref name="Problems"/> are the build problems (nothing was written then).
+/// <paramref name="Message"/> is a ready UI text: the summary on success, otherwise what went wrong.
+/// </summary>
+public sealed record BuildReport(bool Built, bool Installed, string? PackPath, IReadOnlyList<BuildProblem> Problems,
+    IReadOnlyList<string> Ignored, string? Message);
