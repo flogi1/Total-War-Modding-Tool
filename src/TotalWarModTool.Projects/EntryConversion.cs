@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
@@ -21,6 +22,7 @@ public static class EntryConversion
     private const string NotUtf8 = "the file is not valid UTF-8";
     private const string LocExtension = ".loc";
     private const int MaxNameLength = 50;
+    private const int MaxFileNameLength = 255;
 
     /// <summary>Pack entry -> project file. Never throws for the data. <paramref name="packPath"/> must have passed <see cref="ProjectLayout.UnsafePathReason"/>.</summary>
     public static ProjectFileContent ToProjectFile(string packPath, byte[] entryBytes, GameSchema? schema)
@@ -28,6 +30,29 @@ public static class EntryConversion
         ArgumentNullException.ThrowIfNull(packPath);
         ArgumentNullException.ThrowIfNull(entryBytes);
 
+        var converted = Convert(packPath, entryBytes, schema);
+        if (converted.Kind == ProjectFileKind.Raw)
+        {
+            return converted;
+        }
+
+        // The file must map back to this very entry, or the next build would rename it or take it for another kind.
+        var file = ProjectLayout.ToRelativeFile(packPath, converted.Kind);
+        if (ProjectLayout.FromRelativeFile(file) != (packPath, converted.Kind))
+        {
+            return Raw(entryBytes, "the text file would not map back to this pack path");
+        }
+
+        if (file[(file.LastIndexOf('\\') + 1)..].Length > MaxFileNameLength)
+        {
+            return Raw(entryBytes, "the text file name would be longer than " + MaxFileNameLength.ToString(CultureInfo.InvariantCulture) + " characters");
+        }
+
+        return converted;
+    }
+
+    private static ProjectFileContent Convert(string packPath, byte[] entryBytes, GameSchema? schema)
+    {
         if (DbTablePath.TryGetTableName(packPath, out var tableName))
         {
             return TableToProjectFile(packPath, tableName, entryBytes, schema);
@@ -55,12 +80,7 @@ public static class EntryConversion
             throw new ArgumentOutOfRangeException(nameof(kind), kind, "Only a table or loc file has a text form.");
         }
 
-        string text;
-        try
-        {
-            text = new UTF8Encoding(false, true).GetString(fileBytes);
-        }
-        catch (DecoderFallbackException)
+        if (!TryDecodeStrict(fileBytes, out var text))
         {
             return Problem(0, NotUtf8);
         }
@@ -104,7 +124,14 @@ public static class EntryConversion
             return Raw(entryBytes, Describe("not written", ex.Message));
         }
 
-        var read = TableTsv.Read(text, schema);
+        // The check reads the text as it will be stored: encoded to UTF-8, then decoded strictly.
+        var stored = Utf8(text);
+        if (!TryDecodeStrict(stored, out var storedText))
+        {
+            return Raw(entryBytes, RoundTripDiffers);
+        }
+
+        var read = TableTsv.Read(storedText, schema);
         if (read.Table is null)
         {
             return Raw(entryBytes, RoundTripDiffers);
@@ -121,7 +148,7 @@ public static class EntryConversion
         }
 
         return rebuilt.AsSpan().SequenceEqual(entryBytes)
-            ? new ProjectFileContent(ProjectFileKind.Table, Utf8(text), null)
+            ? new ProjectFileContent(ProjectFileKind.Table, stored, null)
             : Raw(entryBytes, RoundTripDiffers);
     }
 
@@ -149,7 +176,13 @@ public static class EntryConversion
             return Raw(entryBytes, Describe("not written", ex.Message));
         }
 
-        var read = TableTsv.ReadLoc(text);
+        var stored = Utf8(text);
+        if (!TryDecodeStrict(stored, out var storedText))
+        {
+            return Raw(entryBytes, RoundTripDiffers);
+        }
+
+        var read = TableTsv.ReadLoc(storedText);
         if (read.Loc is null)
         {
             return Raw(entryBytes, RoundTripDiffers);
@@ -166,7 +199,7 @@ public static class EntryConversion
         }
 
         return rebuilt.AsSpan().SequenceEqual(entryBytes)
-            ? new ProjectFileContent(ProjectFileKind.Loc, Utf8(text), null)
+            ? new ProjectFileContent(ProjectFileKind.Loc, stored, null)
             : Raw(entryBytes, RoundTripDiffers);
     }
 
@@ -195,11 +228,13 @@ public static class EntryConversion
             return Problem(2, $"the meta line names the table '{Shorten(table.TableName)}' but the file belongs to '{Shorten(tableName)}'");
         }
 
+        // Called outside the try: an exception of the caller's delegate is not a problem of the file.
+        var guid = newGuid();
         try
         {
-            return new PackEntryContent(DbTableEncoder.Encode(table.Definition, table.Version, newGuid(), table.Rows), 0, null);
+            return new PackEntryContent(DbTableEncoder.Encode(table.Definition, table.Version, guid, table.Rows), 0, null);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException ex) when (ex.ParamName != "guid")
         {
             return Problem(0, ex.Message);
         }
@@ -232,5 +267,48 @@ public static class EntryConversion
 
     private static string Describe(string status, string? detail) => string.IsNullOrWhiteSpace(detail) ? status : status + ": " + detail;
 
-    private static string Shorten(string name) => name.Length <= MaxNameLength ? name : name[..MaxNameLength] + "...";
+    // A small private copy of TableTsv.Shorten, which is private: cuts at MaxNameLength without splitting a surrogate pair and shows
+    // control characters and unpaired surrogates as a backslash, a u and four hex digits.
+    private static string Shorten(string value)
+    {
+        var length = Math.Min(value.Length, MaxNameLength);
+        if (length < value.Length && char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
+        {
+            length--;
+        }
+
+        var sb = new StringBuilder(length + 3);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            if (char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(value[i + 1]))
+            {
+                sb.Append(c).Append(value[++i]);
+            }
+            else if (char.IsControl(c) || char.IsSurrogate(c))
+            {
+                sb.Append('\\').Append('u').Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return length < value.Length ? sb.Append("...").ToString() : sb.ToString();
+    }
+
+    private static bool TryDecodeStrict(byte[] bytes, out string text)
+    {
+        try
+        {
+            text = new UTF8Encoding(false, true).GetString(bytes);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            text = string.Empty;
+            return false;
+        }
+    }
 }

@@ -57,6 +57,43 @@ public class EntryConversionTests
         static (ProjectFileKind, byte[], string?) Parts(ProjectFileContent c) => (c.Kind, c.Bytes, c.Note);
     }
 
+    [Fact] public void A_loc_file_that_would_not_map_back_stays_binary()
+    {
+        var bytes = TestData.Loc(("k1", "text"));
+        var file = EntryConversion.ToProjectFile("text/.loc", bytes, null);
+        Assert.Equal((ProjectFileKind.Raw, bytes), (file.Kind, file.Bytes));
+        Assert.False(string.IsNullOrWhiteSpace(file.Note));
+    }
+
+    [Fact] public void A_table_whose_text_file_name_would_be_too_long_stays_binary()
+    {
+        var units = TestData.Units(("a", 1, 1f));
+        var tooLong = EntryConversion.ToProjectFile("db/units_tables/" + new string('x', 252), units, TestData.Schema);
+        Assert.Equal((ProjectFileKind.Raw, units), (tooLong.Kind, tooLong.Bytes));
+        Assert.False(string.IsNullOrWhiteSpace(tooLong.Note));
+        Assert.Equal(ProjectFileKind.Table, EntryConversion.ToProjectFile("db/units_tables/" + new string('x', 251), units, TestData.Schema).Kind);
+    }
+
+    [Fact] public void A_long_table_name_in_a_problem_is_cut_between_the_characters_of_a_surrogate_pair()
+    {
+        var ok = "key\tcost\tspeed\n#units_tables;2;p\t\t\na\t1\t1\n";
+        var folder = new string('x', 49) + char.ConvertFromUtf32(0x1F600) + "_tables";
+        var result = EntryConversion.ToPackEntry(ProjectFileKind.Table, "db/" + folder + "/x", TestData.Utf8(ok), TestData.Schema, NewGuid);
+        Assert.Null(result.Bytes);
+        Assert.Equal(2, result.Line);
+        Assert.True(PackNameRules.IsWellFormed(result.Detail!));
+        Assert.Contains(new string('x', 49) + "...", result.Detail);
+    }
+
+    [Fact] public void A_failing_GUID_function_is_not_a_problem_of_the_file()
+    {
+        var ok = TestData.Utf8("key\tcost\tspeed\n#units_tables;2;p\t\t\na\t1\t1\n");
+        Assert.Throws<InvalidOperationException>(() =>
+            EntryConversion.ToPackEntry(ProjectFileKind.Table, "db/units_tables/x", ok, TestData.Schema, () => throw new InvalidOperationException()));
+        Assert.Throws<ArgumentException>(() =>
+            EntryConversion.ToPackEntry(ProjectFileKind.Table, "db/units_tables/x", ok, TestData.Schema, () => "a" + (char)0xD800));
+    }
+
     [Fact] public void ToPackEntry_reports_problems_with_their_line()
     {
         var ok = "key\tcost\tspeed\n#units_tables;2;whatever/the/meta/says\t\t\na\t1\t1\n";

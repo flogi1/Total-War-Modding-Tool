@@ -1,3 +1,5 @@
+using TotalWarModTool.Tables;
+
 namespace TotalWarModTool.Projects;
 
 /// <summary>How a pack entry is stored as a file of a project.</summary>
@@ -19,7 +21,6 @@ public static class ProjectLayout
     private const int MaxSegmentLength = 255;
     private const string TextExtension = ".tsv";
     private const string LocTextExtension = ".loc.tsv";
-    private const string DbFolder = "db";
     private const string InvalidSegmentChars = "<>:\"|?*\\";
 
     /// <summary>Null when the pack path can be a file below a project folder on Windows; otherwise a short English reason.</summary>
@@ -67,10 +68,7 @@ public static class ProjectLayout
         var parts = path.Split('/');
         var name = parts[^1];
 
-        if (parts.Length == 3
-            && string.Equals(parts[0], DbFolder, StringComparison.OrdinalIgnoreCase)
-            && name.Length > TextExtension.Length
-            && name.EndsWith(TextExtension, StringComparison.OrdinalIgnoreCase))
+        if (name.EndsWith(TextExtension, StringComparison.OrdinalIgnoreCase) && DbTablePath.TryGetTableName(path[..^TextExtension.Length], out _))
         {
             return (path[..^TextExtension.Length], ProjectFileKind.Table);
         }

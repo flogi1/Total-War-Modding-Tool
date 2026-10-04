@@ -13,6 +13,13 @@ public class PackNameRulesTests
     [InlineData("a:b.pack")] [InlineData("a*b.pack")] [InlineData(" mod.pack")] [InlineData("con.pack")] [InlineData("COM1.x.pack")] [InlineData("a\tb.pack")]
     public void Rejects_an_unusable_name(string name) => Assert.False(string.IsNullOrWhiteSpace(PackNameRules.Check(name)));
 
+    [Fact] public void Rejects_the_superscript_and_console_device_names()
+    {
+        Assert.False(string.IsNullOrWhiteSpace(PackNameRules.Check("COM" + (char)0xB2 + ".pack")));
+        Assert.False(string.IsNullOrWhiteSpace(PackNameRules.Check("lpt" + (char)0xB3 + ".x.pack")));
+        Assert.False(string.IsNullOrWhiteSpace(PackNameRules.Check("CONIN$.pack")));
+    }
+
     [Fact]
     public void Rejects_a_too_long_name_and_a_lone_surrogate()
     {

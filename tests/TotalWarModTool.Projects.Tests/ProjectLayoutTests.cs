@@ -24,6 +24,20 @@ public class ProjectLayoutTests
     public void FromRelativeFile_recognises_text_forms_only_where_the_rule_says(string file, string packPath, ProjectFileKind kind) =>
         Assert.Equal((packPath, kind), ProjectLayout.FromRelativeFile(file));
 
+    [Fact] public void UnsafePathReason_rejects_the_superscript_device_names()
+    {
+        foreach (var name in new[] { "COM" + (char)0xB9, "COM" + (char)0xB2, "COM" + (char)0xB3, "lpt" + (char)0xB9 + ".txt", "LPT" + (char)0xB2, "lpt" + (char)0xB3 + ".txt" })
+        {
+            Assert.False(string.IsNullOrWhiteSpace(ProjectLayout.UnsafePathReason("a/" + name)), name);
+        }
+    }
+
+    [Fact] public void FromRelativeFile_takes_a_table_only_where_DbTablePath_sees_one()
+    {
+        Assert.Equal(("db//x.tsv", ProjectFileKind.Raw), ProjectLayout.FromRelativeFile("db//x.tsv"));
+        Assert.Equal(("db/units_tables/x", ProjectFileKind.Table), ProjectLayout.FromRelativeFile(@"db\units_tables\x.tsv"));
+    }
+
     [Fact] public void LooksLikeTextForm_follows_FromRelativeFile()
     {
         Assert.True(ProjectLayout.LooksLikeTextForm("db/units_tables/x.tsv"));
@@ -35,6 +49,7 @@ public class ProjectLayoutTests
     [InlineData("")] [InlineData("../x")] [InlineData("a/../../x")] [InlineData("a//b")] [InlineData("/a")] [InlineData("a/")] [InlineData("./a")]
     [InlineData(@"a\b")] [InlineData("C:/x")] [InlineData("a/b:c")] [InlineData("a/b?")] [InlineData("a/b\tc")] [InlineData("a/con")] [InlineData("a/NUL.txt")]
     [InlineData("a/lpt9.x.y")] [InlineData("a/b.")] [InlineData("a/b ")] [InlineData("a /b")]
+    [InlineData("a/CONIN$")] [InlineData("a/conout$.x")]
     public void UnsafePathReason_rejects(string packPath) => Assert.False(string.IsNullOrWhiteSpace(ProjectLayout.UnsafePathReason(packPath)));
 
     [Fact] public void UnsafePathReason_accepts_ordinary_paths_and_limits_segment_length()
