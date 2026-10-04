@@ -18,13 +18,26 @@ public static class ProjectFile
     // The text is decoded strictly: an invalid byte is a problem, not a replacement character.
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
-    /// <summary>Reads the project file of <paramref name="projectFolder"/>. Changes nothing on disk.</summary>
+    /// <summary>The largest project file that is read (1 MB). A real project file is a few hundred bytes.</summary>
+    private const int MaxFileBytes = 1_048_576;
+
+    /// <summary>Reads the project file of <paramref name="projectFolder"/>. Changes nothing on disk. A file over 1 MB is Corrupt and is not read.</summary>
     public static ProjectResult Load(string projectFolder)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
+
         string text;
         try
         {
-            text = StrictUtf8.GetString(File.ReadAllBytes(Path.Combine(projectFolder, FileName)));
+            using var stream = new FileStream(Path.Combine(projectFolder, FileName), FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (stream.Length > MaxFileBytes)
+            {
+                return Fail(ProjectProblem.Corrupt, $"{FileName} is larger than the limit of {MaxFileBytes} bytes (1 MB).");
+            }
+
+            var bytes = new byte[stream.Length];
+            stream.ReadExactly(bytes);
+            text = StrictUtf8.GetString(bytes);
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
@@ -42,7 +55,7 @@ public static class ProjectFile
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(text.TrimStart('﻿'));
+            document = JsonDocument.Parse(text.TrimStart('\uFEFF'));
         }
         catch (JsonException)
         {
@@ -58,6 +71,8 @@ public static class ProjectFile
     /// <summary>Writes the project file atomically. Problems: Invalid, InvalidPackName, Unwritable.</summary>
     public static ProjectResult Save(string projectFolder, ModProject project)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
+
         if (Validate(project) is { } problem)
         {
             return Fail(problem.Problem, problem.Detail);
@@ -86,10 +101,14 @@ public static class ProjectFile
 
     /// <summary>
     /// Creates the folder (if missing), the pack folder and the project file with a new id. The folder may be missing or empty.
-    /// Problems: FolderNotEmpty, InvalidPackName, Invalid (empty name or game id), Unwritable. A failure leaves nothing behind.
+    /// Problems: FolderNotEmpty, InvalidPackName, Invalid (empty name or game id), Unwritable.
+    /// A failure removes what this call created (the project folder if it was new, else only the pack folder), except parent folders that
+    /// had to be created above the project folder: those stay.
     /// </summary>
     public static ProjectResult CreateNew(string projectFolder, string name, string gameId, string packName, IReadOnlyList<string> dependencies)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
+
         var project = new ModProject(Guid.NewGuid(), name, gameId, packName, dependencies);
         if (Validate(project) is { } problem)
         {

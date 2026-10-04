@@ -46,6 +46,10 @@ public class ProjectFileTests
     [InlineData("""{"schemaVersion":1,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","packName":"a.pack"}""", ProjectProblem.Invalid)]
     [InlineData("""{"schemaVersion":1,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.txt"}""", ProjectProblem.Invalid)]
     [InlineData("""{"schemaVersion":1,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.pack","dependencies":["ok.pack",5]}""", ProjectProblem.Invalid)]
+    [InlineData("""{"schemaVersion":1.0,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.pack"}""", ProjectProblem.Corrupt)]
+    [InlineData("""{"schemaVersion":"1","id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.pack"}""", ProjectProblem.Corrupt)]
+    [InlineData("""{"schemaVersion":0,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.pack"}""", ProjectProblem.Corrupt)]
+    [InlineData("""{"schemaVersion":1,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.pack","dependencies":null}""", ProjectProblem.Invalid)]
     public void Load_reports_problems_and_never_touches_the_file(string? content, ProjectProblem expected)
     {
         using var dir = new TempDir();
@@ -73,6 +77,53 @@ public class ProjectFileTests
 
         File.WriteAllText(dir.File("twmt-project.json"), json.Replace("\"name\":\"A\"", "\"name\":\"\\uD800\""));
         Assert.Equal(ProjectProblem.Invalid, ProjectFile.Load(dir.Path).Problem);
+    }
+
+    [Fact]
+    public void Every_entry_point_rejects_a_blank_project_folder_and_creates_nothing()
+    {
+        var project = new ModProject(Guid.NewGuid(), "A", "g", "a.pack", []);
+        var before = Directory.EnumerateFileSystemEntries(Directory.GetCurrentDirectory()).Order().ToList();
+        foreach (var blank in new[] { "", " " })
+        {
+            Assert.Throws<ArgumentException>(() => ProjectFile.Load(blank));
+            Assert.Throws<ArgumentException>(() => ProjectFile.Save(blank, project));
+            Assert.Throws<ArgumentException>(() => ProjectFile.CreateNew(blank, "A", "g", "a.pack", []));
+        }
+
+        Assert.Equal(before, Directory.EnumerateFileSystemEntries(Directory.GetCurrentDirectory()).Order().ToList());
+    }
+
+    [Fact]
+    public void Load_refuses_a_file_over_one_megabyte_but_reads_one_of_exactly_that_size()
+    {
+        const string json = """{"schemaVersion":1,"id":"46e87609-af6e-4857-bea4-f29b4fbd55fd","name":"A","game":"g","packName":"a.pack"}""";
+        using var dir = new TempDir();
+
+        File.WriteAllText(dir.File("twmt-project.json"), json + new string(' ', 1_048_576 - json.Length));
+        Assert.Equal(1_048_576, new FileInfo(dir.File("twmt-project.json")).Length);
+        Assert.Equal(ProjectProblem.None, ProjectFile.Load(dir.Path).Problem);
+
+        File.WriteAllText(dir.File("twmt-project.json"), json + new string(' ', 1_048_577 - json.Length));
+        var result = ProjectFile.Load(dir.Path);
+        Assert.Equal(ProjectProblem.Corrupt, result.Problem);
+        Assert.Contains("1048576", result.Detail);
+        Assert.Equal(1_048_577, new FileInfo(dir.File("twmt-project.json")).Length);
+        Assert.False(File.Exists(dir.File("twmt-project.json.bad")));
+    }
+
+    [Fact]
+    public void CreateNew_onto_an_existing_file_is_Unwritable_and_leaves_the_file_alone()
+    {
+        // The target is not an existing folder, so the empty-folder check does not apply; creating the pack folder below a file fails.
+        using var dir = new TempDir();
+        var target = dir.File("occupied");
+        File.WriteAllText(target, "keep");
+        var result = ProjectFile.CreateNew(target, "A", "g", "a.pack", []);
+        Assert.Equal(ProjectProblem.Unwritable, result.Problem);
+        Assert.Null(result.Project);
+        Assert.Equal("keep", File.ReadAllText(target));
+        Assert.Equal([target], Directory.EnumerateFileSystemEntries(dir.Path));
     }
 
     [Fact]
