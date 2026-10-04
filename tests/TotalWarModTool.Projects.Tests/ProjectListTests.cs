@@ -40,4 +40,43 @@ public class ProjectListTests
         Assert.All(new[] { ProjectListEdits.Remove(list, unknown), ProjectListEdits.SetActive(list, unknown), ProjectListEdits.SetInstalled(list, unknown, null) },
             e => Assert.Equal((ProjectListProblem.UnknownId, list), (e.Problem, e.List)));
     }
+
+    [Fact]
+    public void Add_keeps_a_root_path_and_treats_a_unc_share_with_and_without_a_trailing_separator_as_one_path()
+    {
+        var root = ProjectListEdits.Add(ProjectList.Empty, A, @"C:\");
+        Assert.Equal((ProjectListProblem.None, @"C:\"), (root.Problem, root.List.Projects[0].Path));
+
+        var share = ProjectListEdits.Add(ProjectList.Empty, A, @"\\server\share");
+        Assert.Equal(ProjectListProblem.None, share.Problem);
+        Assert.Equal(ProjectListProblem.DuplicatePath, ProjectListEdits.Add(share.List, B, @"\\server\share\").Problem);
+
+        var shareWithSeparator = ProjectListEdits.Add(ProjectList.Empty, A, @"\\server\share\");
+        Assert.Equal(share.List.Projects[0].Path, shareWithSeparator.List.Projects[0].Path);
+    }
+
+    [Fact]
+    public void Remove_of_a_project_that_is_not_active_keeps_the_active_mark()
+    {
+        var list = ProjectListEdits.Add(ProjectListEdits.Add(ProjectList.Empty, A, @"C:\a").List, B, @"C:\b").List;
+        var removed = ProjectListEdits.Remove(list, B);
+        Assert.Equal((ProjectListProblem.None, A, 1), (removed.Problem, removed.List.ActiveId!.Value, removed.List.Projects.Count));
+    }
+
+    [Fact]
+    public void SetInstalled_stores_a_valid_record_and_rejects_one_that_could_not_survive_save_and_load()
+    {
+        var list = ProjectListEdits.Add(ProjectList.Empty, A, @"C:\a").List;
+        var utc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+        var valid = new InstalledPack("a.pack", 0, utc);
+        Assert.Equal((ProjectListProblem.None, valid), (ProjectListEdits.SetInstalled(list, A, valid).Problem, ProjectListEdits.SetInstalled(list, A, valid).List.Projects[0].Installed));
+
+        Assert.Throws<ArgumentException>(() => ProjectListEdits.SetInstalled(list, A, new InstalledPack("a.txt", 1, utc)));
+        Assert.Throws<ArgumentException>(() => ProjectListEdits.SetInstalled(list, A, new InstalledPack(@"..\x.pack", 1, utc)));
+        Assert.Throws<ArgumentException>(() => ProjectListEdits.SetInstalled(list, A, new InstalledPack("", 1, utc)));
+        Assert.Throws<ArgumentException>(() => ProjectListEdits.SetInstalled(list, A, new InstalledPack("a.pack", -1, utc)));
+        Assert.Throws<ArgumentException>(() => ProjectListEdits.SetInstalled(list, A, new InstalledPack("a.pack", 1, DateTime.SpecifyKind(utc, DateTimeKind.Local))));
+        Assert.Throws<ArgumentException>(() => ProjectListEdits.SetInstalled(list, A, new InstalledPack("a.pack", 1, DateTime.SpecifyKind(utc, DateTimeKind.Unspecified))));
+    }
 }

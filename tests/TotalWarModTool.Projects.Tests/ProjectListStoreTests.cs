@@ -59,6 +59,55 @@ public class ProjectListStoreTests
     }
 
     [Fact]
+    public void Load_drops_an_installed_record_whose_file_name_is_not_a_pack_name()
+    {
+        using var dir = new TempDir();
+        var store = new ProjectListStore(dir.Path, "g");
+        Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        File.WriteAllText(store.FilePath, """
+            {"schemaVersion":1,"projects":[
+              {"id":"11111111-1111-1111-1111-111111111111","path":"C:\\a","installed":{"fileName":"..\\..\\x.pack","length":7,"lastWriteTimeUtc":"2026-01-02T03:04:05Z"}},
+              {"id":"22222222-2222-2222-2222-222222222222","path":"C:\\b","installed":{"fileName":"notes.txt","length":7,"lastWriteTimeUtc":"2026-01-02T03:04:05Z"}},
+              {"id":"33333333-3333-3333-3333-333333333333","path":"C:\\c","installed":{"fileName":"c.pack","length":7,"lastWriteTimeUtc":"2026-01-02T03:04:05Z"}}
+            ]}
+            """);
+        var list = store.Load().List;
+        Assert.Equal([false, false, true], list.Projects.Select(p => p.Installed is not null));
+    }
+
+    [Fact]
+    public void Load_turns_an_offset_time_into_the_same_instant_in_utc()
+    {
+        using var dir = new TempDir();
+        var store = new ProjectListStore(dir.Path, "g");
+        Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        File.WriteAllText(store.FilePath, """
+            {"schemaVersion":1,"projects":[
+              {"id":"11111111-1111-1111-1111-111111111111","path":"C:\\a","installed":{"fileName":"a.pack","length":7,"lastWriteTimeUtc":"2026-01-02T05:04:05+02:00"}}
+            ]}
+            """);
+        var installed = store.Load().List.Projects[0].Installed!;
+        Assert.Equal((new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc), DateTimeKind.Utc), (installed.LastWriteTimeUtc, installed.LastWriteTimeUtc.Kind));
+    }
+
+    [Fact]
+    public void The_smallest_and_the_largest_time_survive_save_and_load()
+    {
+        using var dir = new TempDir();
+        var store = new ProjectListStore(dir.Path, "g");
+        // DateTime.MinValue and MaxValue are of kind Unspecified, so they are marked as UTC first.
+        var min = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
+        var max = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
+        var list = new ProjectList(
+            [new(A, @"C:\a", new InstalledPack("a.pack", 0, min)), new(B, @"C:\b", new InstalledPack("b.pack", long.MaxValue, max))],
+            A);
+        store.Save(list);
+        var loaded = store.Load().List;
+        Assert.Equal(list.Projects, loaded.Projects);
+        Assert.All(loaded.Projects, p => Assert.Equal(DateTimeKind.Utc, p.Installed!.LastWriteTimeUtc.Kind));
+    }
+
+    [Fact]
     public void Load_reads_an_installed_pack_given_as_iso_text()
     {
         using var dir = new TempDir();

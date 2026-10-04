@@ -6,7 +6,10 @@ public sealed record InstalledPack(string FileName, long Length, DateTime LastWr
 /// <summary>One project of the list: its stable id, the normalised absolute path of its folder and the last install, if any.</summary>
 public sealed record ProjectListEntry(Guid Id, string Path, InstalledPack? Installed);
 
-/// <summary>The projects of one game. <paramref name="ActiveId"/> is null only when the list is empty.</summary>
+/// <summary>
+/// The projects of one game. <paramref name="ActiveId"/> is null only when the list is empty. Record equality compares
+/// <paramref name="Projects"/> by reference, not by content.
+/// </summary>
 public sealed record ProjectList(IReadOnlyList<ProjectListEntry> Projects, Guid? ActiveId)
 {
     public static ProjectList Empty { get; } = new([], null);
@@ -68,9 +71,30 @@ public static class ProjectListEdits
             : new ProjectListEdit(list, ProjectListProblem.UnknownId);
     }
 
-    /// <summary>Records (or, with null, clears) what was installed for a project.</summary>
+    /// <summary>
+    /// Records (or, with null, clears) what was installed for a project. Throws <see cref="ArgumentException"/> for a record that could not
+    /// survive save and load: a file name that is not a valid pack name, a negative length or a time that is not of kind UTC.
+    /// </summary>
     public static ProjectListEdit SetInstalled(ProjectList list, Guid id, InstalledPack? installed)
     {
+        if (installed is not null)
+        {
+            if (PackNameRules.Check(installed.FileName) is { } reason)
+            {
+                throw new ArgumentException("The installed file name is not a valid pack name: " + reason, nameof(installed));
+            }
+
+            if (installed.Length < 0)
+            {
+                throw new ArgumentException("The installed length must not be negative.", nameof(installed));
+            }
+
+            if (installed.LastWriteTimeUtc.Kind != DateTimeKind.Utc)
+            {
+                throw new ArgumentException("The installed time must be of kind UTC.", nameof(installed));
+            }
+        }
+
         if (list.Projects.All(p => p.Id != id))
         {
             return new ProjectListEdit(list, ProjectListProblem.UnknownId);

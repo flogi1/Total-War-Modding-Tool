@@ -99,7 +99,9 @@ public sealed class ProjectListStore
 
     private static InstalledPack? RepairInstalled(InstalledFile? raw)
     {
-        if (raw is { FileName: { Length: > 0 } fileName, Length: >= 0 }
+        // The file name later decides which file in the game folder the tool may replace or delete, so a hand-edited path never passes.
+        if (raw is { FileName: { } fileName, Length: >= 0 }
+            && PackNameRules.Check(fileName) is null
             && TryParseTime(raw.LastWriteTimeUtc, out var time))
         {
             return new InstalledPack(fileName, raw.Length.Value, time);
