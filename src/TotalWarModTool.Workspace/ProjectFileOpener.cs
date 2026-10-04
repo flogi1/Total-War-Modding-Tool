@@ -38,7 +38,9 @@ public static class ProjectFileOpener
             _ => EntryOpener.KindOf(packPath),
         };
         var isTable = DbTablePath.TryGetTableName(packPath, out var tableName) && kind == EntryKind.Table;
-        var fullPath = Path.Combine(projectFolder, ProjectFile.PackFolder, relativeFile);
+        var packFolder = Path.Combine(projectFolder, ProjectFile.PackFolder);
+        var fullPath = Path.Combine(packFolder, relativeFile);
+        CheckResolvedInsidePackFolder(packFolder, fullPath, relativeFile);
 
         long length;
         try
@@ -102,6 +104,12 @@ public static class ProjectFileOpener
         var read = TableTsv.Read(text, schema);
         if (read.Table is { } table)
         {
+            // The same rule as the build: a file whose meta line names another table than its folder would not be packed.
+            if (EntryConversion.TableNameMismatch(table.TableName, tableName) is { } mismatch)
+            {
+                return FailedTable(tableName, $"line {EntryConversion.MetaLine.ToString(CultureInfo.InvariantCulture)}: {mismatch}");
+            }
+
             return new DecodedTable(TableDecodeStatus.Ok, table.TableName, table.Version, HasGuid: false, table.Definition, table.Rows, null);
         }
 
@@ -131,6 +139,21 @@ public static class ProjectFileOpener
         if (Path.IsPathRooted(relativeFile) || relativeFile.Split('\\', '/').Contains(".."))
         {
             throw new ArgumentException("The file must be a relative path below the pack folder.", nameof(relativeFile));
+        }
+    }
+
+    // Second line of defence behind the segment check: whatever the path resolves to, it must lie inside the pack folder.
+    private static void CheckResolvedInsidePackFolder(string packFolder, string fullPath, string relativeFile)
+    {
+        var root = Path.GetFullPath(packFolder);
+        if (!root.EndsWith(Path.DirectorySeparatorChar))
+        {
+            root += Path.DirectorySeparatorChar;
+        }
+
+        if (!Path.GetFullPath(fullPath).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("The file must be a relative path below the pack folder: " + relativeFile, nameof(relativeFile));
         }
     }
 

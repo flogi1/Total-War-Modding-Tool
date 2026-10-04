@@ -16,7 +16,11 @@ public class ProjectFileOpenerTests
         new FieldDefinition("cost", FieldType.I32, "I32", false, null),
     ]);
 
-    private static readonly GameSchema Schema = new(new Dictionary<string, IReadOnlyList<TableDefinition>> { ["units_tables"] = [Units] });
+    private static readonly GameSchema Schema = new(new Dictionary<string, IReadOnlyList<TableDefinition>>
+    {
+        ["units_tables"] = [Units],
+        ["other_tables"] = [Units],   // same columns, so that a file can name it in its meta line
+    });
 
     private static readonly IReadOnlyList<object?[]> Rows = [new object?[] { "unit_a", 100 }, new object?[] { "unit_b", 250 }];
 
@@ -78,6 +82,56 @@ public class ProjectFileOpenerTests
         var opened = ProjectFileOpener.Open(dir.Path, @"db\units_tables\a.tsv", Schema, CancellationToken.None);
 
         Assert.Equal((TableDecodeStatus.Failed, "the file is not valid UTF-8"), (opened.Table!.Status, opened.Table.Detail));
+    }
+
+    [Fact] public void A_meta_line_that_names_another_table_gives_a_failed_table_like_the_build()
+    {
+        using var dir = new TempDir();
+        Put(dir, @"db\units_tables\a.tsv", Utf8(TableTsv.Write("other_tables", 2, "db/other_tables/a", Units, Rows).Text!));
+
+        var opened = ProjectFileOpener.Open(dir.Path, @"db\units_tables\a.tsv", Schema, CancellationToken.None);
+
+        Assert.Equal(EntryProblem.None, opened.ReadProblem);
+        var table = opened.Table!;
+        Assert.Equal(TableDecodeStatus.Failed, table.Status);
+        Assert.StartsWith("line 2:", table.Detail);
+        Assert.Contains("other_tables", table.Detail);
+        Assert.Contains("units_tables", table.Detail);
+        Assert.Empty(table.Rows);
+    }
+
+    [Fact] public void The_table_name_check_ignores_case()
+    {
+        using var dir = new TempDir();
+        Put(dir, @"db\Units_Tables\a.tsv", Utf8(UnitsTsv()));
+
+        var opened = ProjectFileOpener.Open(dir.Path, @"db\Units_Tables\a.tsv", Schema, CancellationToken.None);
+
+        Assert.Equal(TableDecodeStatus.Ok, opened.Table!.Status);
+    }
+
+    [Fact] public void A_tsv_with_a_utf8_byte_order_mark_opens_as_ok()
+    {
+        using var dir = new TempDir();
+        byte[] bom = [0xEF, 0xBB, 0xBF];
+        Put(dir, @"db\units_tables\a.tsv", [.. bom, .. Utf8(UnitsTsv())]);
+
+        var opened = ProjectFileOpener.Open(dir.Path, @"db\units_tables\a.tsv", Schema, CancellationToken.None);
+
+        Assert.Equal(TableDecodeStatus.Ok, opened.Table!.Status);
+        Assert.Equal(2, opened.Table.Rows.Count);
+    }
+
+    [Fact] public void A_binary_table_without_schema_is_not_read()
+    {
+        using var dir = new TempDir();
+        Put(dir, @"db\units_tables\bin", DbTableEncoder.Encode(Units, 2, Guid, Rows));
+
+        var opened = ProjectFileOpener.Open(dir.Path, @"db\units_tables\bin", null, CancellationToken.None);
+
+        Assert.Equal(EntryKind.Table, opened.Kind);
+        Assert.True(opened.SchemaMissing);
+        Assert.Null(opened.Table);
     }
 
     [Fact] public void A_table_without_schema_is_not_read()

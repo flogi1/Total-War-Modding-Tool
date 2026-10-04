@@ -22,6 +22,9 @@ public static class EntryConversion
     private const string NotUtf8 = "the file is not valid UTF-8";
     private const string LocExtension = ".loc";
     private const int MaxNameLength = 50;
+
+    /// <summary>The line of a table file that holds the table name (1-based).</summary>
+    public const int MetaLine = 2;
     private const int MaxFileNameLength = 255;
 
     /// <summary>Pack entry -> project file. Never throws for the data. <paramref name="packPath"/> must have passed <see cref="ProjectLayout.UnsafePathReason"/>.</summary>
@@ -88,6 +91,21 @@ public static class EntryConversion
         return kind == ProjectFileKind.Table
             ? TableToPackEntry(packPath, text, schema, newGuid)
             : LocToPackEntry(text);
+    }
+
+    /// <summary>
+    /// The rule that a table file must keep: its meta line names the table of the folder it lies in (compared ignoring case). Null when it
+    /// does; otherwise the short English message that names both tables. The problem belongs to line <see cref="MetaLine"/>.
+    /// Shared by the build and by whoever shows a table file, so that both judge it the same way.
+    /// </summary>
+    public static string? TableNameMismatch(string metaLineTableName, string folderTableName)
+    {
+        ArgumentNullException.ThrowIfNull(metaLineTableName);
+        ArgumentNullException.ThrowIfNull(folderTableName);
+
+        return string.Equals(metaLineTableName, folderTableName, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : $"the meta line names the table '{Shorten(metaLineTableName)}' but the file belongs to '{Shorten(folderTableName)}'";
     }
 
     private static ProjectFileContent TableToProjectFile(string packPath, string tableName, byte[] entryBytes, GameSchema? schema)
@@ -223,9 +241,9 @@ public static class EntryConversion
         }
 
         var table = read.Table;
-        if (!string.Equals(table.TableName, tableName, StringComparison.OrdinalIgnoreCase))
+        if (TableNameMismatch(table.TableName, tableName) is { } mismatch)
         {
-            return Problem(2, $"the meta line names the table '{Shorten(table.TableName)}' but the file belongs to '{Shorten(tableName)}'");
+            return Problem(MetaLine, mismatch);
         }
 
         // Called outside the try: an exception of the caller's delegate is not a problem of the file.
