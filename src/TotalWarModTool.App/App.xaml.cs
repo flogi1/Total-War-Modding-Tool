@@ -169,19 +169,27 @@ public partial class App : Application
         var projectCommands = new ProjectsViewModel(projects, new ProjectDialogs(texts, () => mainWindow), texts);
 
         // The editable tabs of the project files and the global undo history. The controller owns the list of tabs the main view model shows.
-        var documents = new DocumentsController(new TabsViewModel(texts) { Clipboard = new WpfClipboard() }, projects, new ActionHistory(), progressRunner,
+        // The file operations record their steps in this very history, so that Undo takes them back.
+        var history = new ActionHistory();
+        var documents = new DocumentsController(new TabsViewModel(texts) { Clipboard = new WpfClipboard() }, projects, history, progressRunner,
             new EditDialogs(texts, () => mainWindow), log, texts);
 
         // A project with unsaved changes cannot leave the list, and a build asks to save them first.
         projectCommands.UnsavedReason = documents.UnsavedReason;
         projectCommands.BeforeBuild = documents.ConfirmSaveBeforeBuildAsync;
 
+        // The file operations of the projects: new table, new loc file, add a pack entry, rename, delete (to the trash of the app). The explorer and
+        // the menu use the view model; the explorer follows the changes of the files through the controller.
+        var projectFilesController = new ProjectFilesController(projects, workspace, documents, history, progressRunner, paths.TrashDirectory, log, texts,
+            TimeProvider.System);
+        var projectFiles = new ProjectFilesViewModel(projectFilesController, projects, new FileDialogs(texts, () => mainWindow), texts);
+
         // The button of the explorer ("game not found") leads to the page "Game"; the menu entry keeps the page that was shown last.
         var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace, () =>
         {
             settingsViewModel.SelectedCategory = SettingsViewModel.GameCategory;
             settingsWindows.ShowOrActivate();
-        }, projects, projectCommands, documents);
+        }, projects, projectCommands, documents, projectFiles, projectFilesController);
 
         SessionCoordinator? session = null;
         if (sessionStore is not null)

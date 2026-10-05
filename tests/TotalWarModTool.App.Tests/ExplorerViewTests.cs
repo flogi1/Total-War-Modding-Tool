@@ -303,6 +303,135 @@ public class ExplorerViewTests
         Assert.Null(RowOf(ContainerOf(setup.Window, setup.Tree, setup.ViewModel.Groups[1]), setup.ViewModel.Groups[1]).ContextMenu);
     });
 
+    // ---- file operations -------------------------------------------------------------------------------------------------------
+
+    private sealed record FilesSetup(Setup Setup, ProjectsController Projects) : IDisposable
+    {
+        public void Dispose() => Setup.Dispose();
+    }
+
+    // Like CreateWithProjects, with the file operations wired as the app wires them (one undo history, the trash below the temp folder).
+    private static async Task<FilesSetup> CreateWithFiles(Action<TestGame> arrange, Action<TestGame, ProjectsController>? projects = null)
+    {
+        var game = new TestGame(); arrange(game);
+        var controller = game.NewController();
+        var p = game.NewProjects(controller);
+        projects?.Invoke(game, p);
+        var history = new TotalWarModTool.UndoRedo.ActionHistory();
+        var documents = new DocumentsController(new TabsViewModel(game.Texts), p, history, game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
+        var filesController = new ProjectFilesController(p, controller, documents, history, game.Runner, game.Root.File("trash"), game.Log, game.Texts, TimeProvider.System);
+        var files = new ProjectFilesViewModel(filesController, p, new FakeFileDialogs(), game.Texts);
+        var viewModel = new ExplorerViewModel(controller, game.Texts, (_, _) => Task.CompletedTask, () => { }, p,
+            new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts), (_, _) => Task.CompletedTask, files, filesController);
+        await controller.LoadAsync();
+        var view = new ExplorerView(viewModel);
+        view.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
+            File.ReadAllText(Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml"))));
+        view.ApplyThemedItemStyle();
+        var window = new Window { Width = 400, Height = 400, Content = view };
+        window.Show();
+        Pump(window);
+        return new FilesSetup(new Setup(game, controller, viewModel, view, window, [], []), p);
+    }
+
+    // Opens the context menu of a row the way the view does (the row is the placement target) and returns its realized items.
+    private static List<MenuItem> OpenMenu(Window window, StackPanel row)
+    {
+        var menu = row.ContextMenu;
+        Assert.NotNull(menu);
+        menu.PlacementTarget = row;
+        menu.IsOpen = true;
+        Pump(window);
+        return Enumerable.Range(0, menu.Items.Count).Select(i => Assert.IsType<MenuItem>(menu.ItemContainerGenerator.ContainerFromIndex(i))).ToList();
+    }
+
+    [Fact] public void The_menu_of_an_entry_reads_its_actions_each_time_it_opens() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithFiles(g => g.AddPack("a.pack", ("readme.txt", "hello"u8.ToArray())));
+        var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var pack = vm.Groups.OfType<GroupNode>().Single().Children.OfType<PackNode>().Single();
+        pack.IsExpanded = true;
+        var groupContainer = ContainerOf(window, setup.Setup.Tree, vm.Groups[1]);
+        var packContainer = ContainerOf(window, groupContainer, pack);
+        var entry = pack.Children.OfType<EntryNode>().Single();
+        var row = RowOf(ContainerOf(window, packContainer, entry), entry);
+        Assert.NotNull(row.ContextMenu);                                             // an entry has a menu without a list having been built
+
+        // No project is active yet: the entry is there, disabled, and says why.
+        var items = OpenMenu(window, row);
+        try
+        {
+            var item = Assert.Single(items);
+            Assert.Equal(texts.FileAddTitle, item.Header);
+            Assert.Equal(texts.ProjectNoneActive, item.ToolTip);
+            Assert.False(item.IsEnabled);
+            Assert.True(ToolTipService.GetShowOnDisabled(item));
+        }
+        finally
+        {
+            row.ContextMenu!.IsOpen = false;
+        }
+
+        // A project became the active one meanwhile: the same menu of the same row shows the state of now.
+        setup.Setup.Game.NewProject(setup.Projects, "Alpha");
+        items = OpenMenu(window, row);
+        try
+        {
+            var item = Assert.Single(items);
+            Assert.Equal(texts.FileAddTitle, item.Header);
+            Assert.Null(item.ToolTip);
+            Assert.True(item.IsEnabled);
+        }
+        finally
+        {
+            row.ContextMenu!.IsOpen = false;
+        }
+    });
+
+    [Fact] public void The_menu_of_a_project_has_a_separator_and_the_menu_of_a_file_has_rename_and_delete() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithFiles(_ => { }, (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")));
+        var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var group = (ProjectsGroupNode)vm.Groups[0];
+        var alpha = group.Children.OfType<ProjectNode>().Single();
+        var groupContainer = ContainerOf(window, setup.Setup.Tree, group);
+        var alphaContainer = ContainerOf(window, groupContainer, alpha);
+
+        var alphaRow = RowOf(alphaContainer, alpha);
+        var items = OpenMenu(window, alphaRow);
+        try
+        {
+            Assert.Equal(8, items.Count);
+            Assert.Equal([texts.FileNewTableTitle, texts.FileNewLocTitle], items.Take(2).Select(i => i.Header));
+            Assert.Equal(texts.ProjectActionSetActive, items[3].Header);
+
+            // The separator is a line, not an entry: nothing to read, nothing to click, no focus.
+            var separator = items[2];
+            Assert.Single(Descendants<Separator>(separator));
+            Assert.DoesNotContain(Descendants<TextBlock>(separator), block => block.Text.Length > 0);
+            Assert.Equal((false, false, false), (separator.IsEnabled, separator.IsHitTestVisible, separator.Focusable));
+            Assert.All(items.Where(i => !ReferenceEquals(i, separator)), i => Assert.Empty(Descendants<Separator>(i)));
+        }
+        finally
+        {
+            alphaRow.ContextMenu!.IsOpen = false;
+        }
+
+        alpha.IsExpanded = true;
+        var file = Assert.IsType<ProjectFileNode>(Assert.Single(alpha.Children));
+        var fileRow = RowOf(ContainerOf(window, alphaContainer, file), file);
+        items = OpenMenu(window, fileRow);
+        try
+        {
+            Assert.Equal([texts.FileRenameTitle, texts.FileActionDelete], items.Select(i => i.Header));
+            Assert.All(items, i => Assert.Equal((true, true), (i.IsEnabled, ToolTipService.GetShowOnDisabled(i))));
+        }
+        finally
+        {
+            fileRow.ContextMenu!.IsOpen = false;
+        }
+    });
+
     private static ScrollViewer? FindScrollViewer(DependencyObject root)
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)

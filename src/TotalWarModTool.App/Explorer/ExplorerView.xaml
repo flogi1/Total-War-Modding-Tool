@@ -9,6 +9,7 @@
     -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <local:NodeActionsConverter x:Key="NodeActions" />
 
         <Style x:Key="NodeContainerStyle" TargetType="TreeViewItem">
             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
@@ -18,18 +19,35 @@
             <EventSetter Event="MouseDoubleClick" Handler="OnItemMouseDoubleClick" />
         </Style>
 
-        <!-- An entry of a context menu: the item of the menu is a NodeAction. A disabled item says why in its tool tip. -->
+        <!--
+            An entry of a context menu: the item of the menu is a NodeAction. A disabled item says why in its tool tip.
+            The separator is a NodeAction too; its item is drawn as a Separator, cannot be hit and cannot take the focus (its command is never enabled).
+        -->
         <Style x:Key="ActionItemStyle" TargetType="MenuItem">
             <Setter Property="Header" Value="{Binding Header}" />
             <Setter Property="Command" Value="{Binding Command}" />
             <Setter Property="ToolTip" Value="{Binding DisabledReason}" />
             <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                    <Setter Property="IsHitTestVisible" Value="False" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="MenuItem">
+                                <Separator />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!--
             One template for every node: the mark of a problem (the colour of a warning) and the name, in bold for the active project.
             The context menu exists only for a node with actions. A context menu is not in the visual tree of its owner: it gets the node as its
-            DataContext from the element it opens on.
+            DataContext from the element it opens on. Its entries are read from the node every time the menu opens (NodeActionsConverter): a plain
+            binding is evaluated once per node, and the menu of a pack entry or project file builds its list at that moment, with the reasons of now.
         -->
         <HierarchicalDataTemplate DataType="{x:Type local:ExplorerNode}" ItemsSource="{Binding Children}">
             <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding ToolTip}">
@@ -39,7 +57,15 @@
                             <DataTrigger Binding="{Binding HasActions}" Value="True">
                                 <Setter Property="ContextMenu">
                                     <Setter.Value>
-                                        <ContextMenu ItemsSource="{Binding Actions}" ItemContainerStyle="{StaticResource ActionItemStyle}" />
+                                        <ContextMenu ItemContainerStyle="{StaticResource ActionItemStyle}">
+                                            <ContextMenu.ItemsSource>
+                                                <MultiBinding Converter="{StaticResource NodeActions}">
+                                                    <Binding />
+                                                    <Binding Path="IsOpen" RelativeSource="{RelativeSource Self}" />
+                                                    <Binding Path="Actions" />
+                                                </MultiBinding>
+                                            </ContextMenu.ItemsSource>
+                                        </ContextMenu>
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>

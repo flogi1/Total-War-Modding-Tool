@@ -97,6 +97,8 @@ public sealed partial class AppTexts
 
     public string FileRenameTitle => T("file.rename.title", "Rename");
 
+    public string FileActionDelete => T("file.action.delete", "Delete");
+
     public string FileTableFilterLabel => T("file.table.filterLabel", "Filter tables");
 
     public string FileTableListLabel => T("file.table.listLabel", "Table");

@@ -38,11 +38,12 @@ public class MainWindowTests
     }
 
     // Like Create, over a main view model with projects (the fake dialogs are in Main) and, by default, with the editable documents.
-    private static async Task<ProjectSetup> CreateWithProjects(bool withDocuments = true)
+    // withFiles adds the file operations (and with them the documents).
+    private static async Task<ProjectSetup> CreateWithProjects(bool withDocuments = true, bool withFiles = false)
     {
         var game = new TestGame();
         var controller = game.NewController();
-        var main = game.NewMain(controller, withDocuments: withDocuments);
+        var main = game.NewMain(controller, withDocuments: withDocuments, withFiles: withFiles);
         await controller.LoadAsync();
         var window = new MainWindow(main.Main);
         window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
@@ -141,26 +142,28 @@ public class MainWindowTests
         var project = menus[2];
         Assert.Equal(Visibility.Visible, project.Visibility);
 
-        // The two save entries sit above the separator in front of Build (see The_project_menu_has_save_and_save_all_with_their_gestures).
+        // The two entries for new files sit under "Import pack", the two save entries above the separator in front of Build (see
+        // The_project_menu_has_new_table_and_new_loc_file and The_project_menu_has_save_and_save_all_with_their_gestures).
         var entries = project.Items.Cast<object>().ToList();
-        Assert.Equal(8, entries.Count);
-        Assert.IsType<Separator>(entries[5]);
+        Assert.Equal(10, entries.Count);
+        Assert.IsType<Separator>(entries[7]);
         var items = entries.OfType<MenuItem>().ToList();
-        Assert.Equal([texts.ProjectNewTitle, texts.MenuProjectOpen, texts.MenuProjectImport, texts.MenuProjectSave, texts.MenuProjectSaveAll,
-            texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall], items.Select(i => i.Header));
-        Assert.Equal([projects.NewProjectCommand, projects.OpenProjectCommand, projects.ImportPackCommand, setup.Setup.ViewModel.Documents!.SaveCommand,
-            setup.Setup.ViewModel.Documents!.SaveAllCommand, projects.BuildActiveCommand, projects.BuildAndInstallActiveCommand], items.Select(i => i.Command));
-        Assert.Equal(["", "", "", texts.MenuProjectSaveGesture, texts.MenuProjectSaveAllGesture, texts.MenuProjectBuildGesture, texts.MenuProjectBuildAndInstallGesture],
+        var main = setup.Setup.ViewModel;
+        Assert.Equal([texts.ProjectNewTitle, texts.MenuProjectOpen, texts.MenuProjectImport, texts.FileNewTableTitle, texts.FileNewLocTitle, texts.MenuProjectSave,
+            texts.MenuProjectSaveAll, texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall], items.Select(i => i.Header));
+        Assert.Equal([projects.NewProjectCommand, projects.OpenProjectCommand, projects.ImportPackCommand, main.NewTableCommand, main.NewLocCommand,
+            main.Documents!.SaveCommand, main.Documents!.SaveAllCommand, projects.BuildActiveCommand, projects.BuildAndInstallActiveCommand], items.Select(i => i.Command));
+        Assert.Equal(["", "", "", "", "", texts.MenuProjectSaveGesture, texts.MenuProjectSaveAllGesture, texts.MenuProjectBuildGesture, texts.MenuProjectBuildAndInstallGesture],
             items.Select(i => i.InputGestureText ?? ""));
 
         // A menu item asks its command when the menu opens.
         project.IsSubmenuOpen = true;
         Pump(window);
-        Assert.False(items[5].Command.CanExecute(null));
-        Assert.False(items[5].IsEnabled);
+        Assert.False(items[7].Command.CanExecute(null));
+        Assert.False(items[7].IsEnabled);
         project.IsSubmenuOpen = false;
-        Assert.Equal(texts.ProjectNoneActive, items[5].ToolTip);
-        Assert.True(ToolTipService.GetShowOnDisabled(items[5]));
+        Assert.Equal(texts.ProjectNoneActive, items[7].ToolTip);
+        Assert.True(ToolTipService.GetShowOnDisabled(items[7]));
 
         var bindings = window.InputBindings.OfType<KeyBinding>().ToList();
         Assert.Same(projects.BuildActiveCommand, Assert.Single(bindings, b => b.Key == Key.B && b.Modifiers == ModifierKeys.Control).Command);
@@ -177,9 +180,9 @@ public class MainWindowTests
         var save = items.Single(item => Equals(item.Header, texts.MenuProjectSave));
         var saveAll = items.Single(item => Equals(item.Header, texts.MenuProjectSaveAll));
 
-        // Above the separator that stands in front of Build, behind the entries that open or create a project.
+        // Above the separator that stands in front of Build, behind the entries that open or create a project or a file.
         var entries = project.Items.Cast<object>().ToList();
-        Assert.Equal((3, 4, 5), (entries.IndexOf(save), entries.IndexOf(saveAll), entries.FindIndex(entry => entry is Separator)));
+        Assert.Equal((5, 6, 7), (entries.IndexOf(save), entries.IndexOf(saveAll), entries.FindIndex(entry => entry is Separator)));
         Assert.Same(documents.SaveCommand, save.Command);
         Assert.Same(documents.SaveAllCommand, saveAll.Command);
         Assert.Equal(("Ctrl+S", "Ctrl+Shift+S"), (texts.MenuProjectSaveGesture, texts.MenuProjectSaveAllGesture));
@@ -354,5 +357,69 @@ public class MainWindowTests
         var text = Assert.Single(Descendants<TextBlock>(item));
         Assert.Equal(texts.ProjectCreated("Alpha"), text.Text);
         Assert.Equal(texts.ProjectCreated("Alpha"), text.ToolTip);
+    });
+
+    [Fact] public void The_project_menu_has_new_table_and_new_loc_file() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects(withFiles: true);
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var main = setup.Setup.ViewModel;
+        var project = Descendants<MenuItem>(window).ToList()[2];
+        var entries = project.Items.Cast<object>().ToList();
+        var newTable = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.FileNewTableTitle));
+        var newLoc = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.FileNewLocTitle));
+        var import = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.MenuProjectImport));
+
+        // Directly under "Import pack", in this order, on the commands of the main view model.
+        Assert.Equal((entries.IndexOf(import) + 1, entries.IndexOf(import) + 2), (entries.IndexOf(newTable), entries.IndexOf(newLoc)));
+        Assert.Same(main.NewTableCommand, newTable.Command);
+        Assert.Same(main.NewLocCommand, newLoc.Command);
+        Assert.Equal((Visibility.Visible, Visibility.Visible), (newTable.Visibility, newLoc.Visibility));
+
+        // No active project: both are off and say why; a disabled entry shows its tool tip.
+        project.IsSubmenuOpen = true;
+        Pump(window);
+        Assert.Equal((false, false), (newTable.IsEnabled, newLoc.IsEnabled));
+        project.IsSubmenuOpen = false;
+        Assert.Equal((texts.ProjectNoneActive, texts.ProjectNoneActive), (newTable.ToolTip, newLoc.ToolTip));
+        Assert.True(ToolTipService.GetShowOnDisabled(newTable));
+        Assert.True(ToolTipService.GetShowOnDisabled(newLoc));
+
+        // With an active project they can run, and the tool tip follows.
+        setup.Setup.Game.NewProject(setup.Main.Projects, "Alpha");
+        project.IsSubmenuOpen = true;
+        Pump(window);
+        Assert.Equal((true, true), (newTable.IsEnabled, newLoc.IsEnabled));
+        project.IsSubmenuOpen = false;
+        Assert.Null(newTable.ToolTip);
+        Assert.Null(newLoc.ToolTip);
+    });
+
+    [Fact] public void The_new_file_entries_are_collapsed_without_the_file_operations() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var project = Descendants<MenuItem>(setup.Setup.Window).ToList()[2];
+        var texts = setup.Setup.Game.Texts;
+
+        var newTable = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.FileNewTableTitle));
+        var newLoc = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.FileNewLocTitle));
+        Assert.Equal((Visibility.Collapsed, Visibility.Collapsed), (newTable.Visibility, newLoc.Visibility));
+    });
+
+    [Fact] public void The_status_bar_shows_the_last_file_message() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects(withFiles: true);
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var item = (FrameworkElement)window.FindName("ProjectStatusItem");
+        setup.Setup.Game.NewProject(setup.Main.Projects, "Alpha");
+        Assert.Equal(Visibility.Collapsed, item.Visibility);
+
+        setup.Main.FileDialogs!.NameAnswers.Enqueue("mine");
+        setup.Setup.ViewModel.NewLocCommand.Execute(null);
+        Pump(window);
+
+        var created = texts.FileCreatedStatus(@"text\db\mine.loc.tsv");
+        Assert.Equal(Visibility.Visible, item.Visibility);
+        var text = Assert.Single(Descendants<TextBlock>(item));
+        Assert.Equal((created, created), (text.Text, text.ToolTip));
     });
 }

@@ -11,8 +11,13 @@ public sealed class ProjectsGroupNode : ExplorerNode
     }
 }
 
-/// <summary>What the nodes below one project share: its id, the open action and the texts. Also the one place that makes file names safe to show.</summary>
-internal sealed class ProjectTreeContext(Guid projectId, Func<Guid, string, Task> openFile, AppTexts texts)
+/// <summary>
+/// What the nodes below one project share: its id, the open action, the texts and the builder of the context menu of a file. Also the one place
+/// that makes file names safe to show.
+/// </summary>
+/// <param name="fileActions">Builds the context menu of a file of the project when a menu asks for it. Null: the files have no menu.</param>
+internal sealed class ProjectTreeContext(Guid projectId, Func<Guid, string, Task> openFile, AppTexts texts,
+    Func<ProjectFileNode, IReadOnlyList<NodeAction>>? fileActions = null)
 {
     private const int MaxNameChars = 260;
 
@@ -24,6 +29,8 @@ internal sealed class ProjectTreeContext(Guid projectId, Func<Guid, string, Task
     public Func<Guid, string, Task> OpenFile { get; } = openFile;
 
     public AppTexts Texts { get; } = texts;
+
+    public Func<ProjectFileNode, IReadOnlyList<NodeAction>>? FileActions { get; } = fileActions;
 
     /// <summary>Foreign text (a file name, a path, a project name) as display text: control characters escaped, a long text cut.</summary>
     public string Display(string text, int maxChars = MaxNameChars) =>
@@ -299,10 +306,14 @@ public sealed class ProjectFolderNode : ExplorerNode
 /// <summary>A file of a project. <see cref="RelativeFile"/> is the path below the pack folder as the listing delivers it, with '\'.</summary>
 public sealed class ProjectFileNode : ExplorerNode
 {
+    // The builder is shared by all files of the project; a file holds no list of its own (a project can hold thousands of files).
+    private readonly Func<ProjectFileNode, IReadOnlyList<NodeAction>>? _actionsFactory;
+
     internal ProjectFileNode(ProjectTreeEntry file, ProjectTreeContext context) : base(context.Display(file.Name))
     {
         ProjectId = context.ProjectId;
         RelativeFile = file.File!.RelativeFile;
+        _actionsFactory = context.FileActions;
         ToolTip = context.Display(RelativeFile);
 
         // async void on purpose: a failure of the open action surfaces on the dispatcher, where the global handler shows the crash dialog.
@@ -314,4 +325,8 @@ public sealed class ProjectFileNode : ExplorerNode
     public string RelativeFile { get; }
 
     public System.Windows.Input.ICommand OpenCommand { get; }
+
+    public override bool HasActions => _actionsFactory is not null || base.HasActions;
+
+    protected override IReadOnlyList<NodeAction> ReadActions() => _actionsFactory is null ? base.ReadActions() : _actionsFactory(this);
 }

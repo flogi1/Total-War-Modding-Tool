@@ -9,6 +9,9 @@ public sealed partial class ExplorerViewModel
     /// <summary>The silent listing of a project. Null: the one of the controller. Tests set it to hold or reorder listings.</summary>
     internal Func<Guid, Task<ProjectFileList?>>? SilentListing { get; set; }
 
+    /// <summary>How often the entries of a pack entry node were built. For tests: they must be built only when a menu asks.</summary>
+    internal int EntryActionBuilds { get; private set; }
+
     /// <summary>The projects whose files are shown, in list order.</summary>
     public IReadOnlyList<Guid> ExpandedProjectIds => ProjectNodes().Where(node => node.IsOpen).Select(node => node.ProjectId).ToList();
 
@@ -97,7 +100,7 @@ public sealed partial class ExplorerViewModel
             }
             else
             {
-                node = new ProjectNode(state, state.Id == activeId, new ProjectTreeContext(state.Id, _openProjectFile, Texts), OnProjectExpandedChanged);
+                node = new ProjectNode(state, state.Id == activeId, new ProjectTreeContext(state.Id, _openProjectFile, Texts, _fileActions), OnProjectExpandedChanged);
             }
 
             wanted.Add(node);
@@ -148,7 +151,10 @@ public sealed partial class ExplorerViewModel
     }
 
     // async void on purpose, for the same reasons as ExpandPack.
-    private async void ExpandProject(ProjectNode node)
+    private async void ExpandProject(ProjectNode node) => await ExpandProjectAsync(node);
+
+    // The expand of a user and the expand that a new file asks for: one path, which can be waited for.
+    private async Task ExpandProjectAsync(ProjectNode node)
     {
         if (node.IsOpen || node.IsLoading)
         {
@@ -256,8 +262,12 @@ public sealed partial class ExplorerViewModel
     private IReadOnlyList<NodeAction> ProjectActions(Guid id)
     {
         var commands = _projectCommands!;
+        var files = _files;
         return
         [
+            // The new files first, apart from the commands of the project itself.
+            .. (files is null ? Array.Empty<NodeAction>() : FileActionsOfProject(files, id)),
+
             // Plain edits of the list: they need no free runner and are never gated on one.
             MakeAction(Texts.ProjectActionSetActive, null, () =>
             {
@@ -281,6 +291,59 @@ public sealed partial class ExplorerViewModel
                 return Task.CompletedTask;
             }, needsRunner: false),
         ];
+    }
+
+    // The entries of the project node for new files: "New table", "New loc file" and the line that keeps them apart from the rest. Not followed by
+    // a listing here: the controller announces every change of the files, and the explorer follows that in one place (OnProjectFilesChanged).
+    private NodeAction[] FileActionsOfProject(ProjectFilesViewModel files, Guid id)
+    {
+        var reason = files.NewFileDisabledReason(id);
+        return
+        [
+            MakeAction(Texts.FileNewTableTitle, reason, () => files.NewTableAsync(id)),
+            MakeAction(Texts.FileNewLocTitle, reason, () => files.NewLocAsync(id)),
+            NodeAction.Separator,
+        ];
+    }
+
+    // The menu of a pack entry, built when a menu asks (see EntryNode): one entry, "Add to the project".
+    private IReadOnlyList<NodeAction> EntryActions(EntryNode node)
+    {
+        EntryActionBuilds++;
+        var files = _files!;
+        return [MakeAction(Texts.FileAddTitle, files.AdoptDisabledReason, () => files.AdoptAsync(node.Pack, node.EntryPath))];
+    }
+
+    // The menu of a file of a project, built when a menu asks (see ProjectFileNode): "Rename" and "Delete".
+    private IReadOnlyList<NodeAction> FileActions(ProjectFileNode node)
+    {
+        var files = _files!;
+        var id = node.ProjectId;
+        var file = node.RelativeFile;
+        var reason = files.FileActionDisabledReason(id, file);
+        return
+        [
+            MakeAction(Texts.FileRenameTitle, reason, () => files.RenameAsync(id, file)),
+            MakeAction(Texts.FileActionDelete, reason, () => files.DeleteAsync(id, file)),
+        ];
+    }
+
+    // The files of the projects changed (a file action, or the undo or redo of one): the open projects list again, silently; a closed one stays
+    // closed. async void on purpose, as for the other event handlers that start work.
+    private async void OnProjectFilesChanged() => await RefreshProjectFilesAsync();
+
+    // A file that was created, added or renamed while it was open should be shown and opened. Its project is expanded first, through the path of a
+    // user expand, and waited for: the real runner runs one operation at a time, so the open would be refused while the listing runs. A project
+    // that cannot be listed right now stays closed, and the file is opened anyway. async void on purpose, as for ExpandPack.
+    private async void OnOpenRequested(Guid projectId, string relativeFile)
+    {
+        if (ProjectNodes().FirstOrDefault(candidate => candidate.ProjectId == projectId) is { IsUsable: true, IsOpen: false, IsLoading: false, IsDetached: false } node)
+        {
+            node.SetExpandedQuietly(true);
+            await ExpandProjectAsync(node);
+        }
+
+        await _openProjectFile(projectId, relativeFile);
     }
 
     // async void on purpose, as for every command that starts an operation: the controllers handle their failures, a surprise reaches the global handler.

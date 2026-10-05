@@ -642,4 +642,104 @@ public class MainViewModelWorkspaceTests
         Assert.StartsWith("Schema: mit der App geliefert", vm.StatusSchema);
         Assert.Contains(nameof(MainViewModel.StatusGame), changed); Assert.Contains(nameof(MainViewModel.StatusHint), changed);
     }
+
+    // ---- file operations -------------------------------------------------------------------------------------------------------
+
+    [Fact] public async Task The_project_menu_has_new_table_and_new_loc_file()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c, withFiles: true);
+        await c.LoadAsync();
+        var main = m.Main; var texts = game.Texts;
+        Assert.True(main.HasProjectFiles);
+
+        // No active project: both entries say so and cannot run.
+        Assert.Equal((texts.ProjectNoneActive, false, false), (main.ProjectNewFileToolTip, main.NewTableCommand.CanExecute(null), main.NewLocCommand.CanExecute(null)));
+        var changed = new List<string?>(); main.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        var project = game.NewProject(m.Projects, "Alpha");
+        Assert.Equal(((string?)null, true, true), (main.ProjectNewFileToolTip, main.NewTableCommand.CanExecute(null), main.NewLocCommand.CanExecute(null)));
+        Assert.Contains(nameof(MainViewModel.ProjectNewFileToolTip), changed);
+
+        // Another operation runs: the busy text.
+        game.Runner.IsRunning = true;
+        Assert.Equal((texts.ProjectBusy, false, false), (main.ProjectNewFileToolTip, main.NewTableCommand.CanExecute(null), main.NewLocCommand.CanExecute(null)));
+        game.Runner.IsRunning = false;
+
+        // The commands act on the active project.
+        m.FileDialogs!.NameAnswers.Enqueue("mine");
+        main.NewLocCommand.Execute(null);
+        var ask = Assert.Single(m.FileDialogs.NameAsks);
+        Assert.Equal(texts.FileNewLocTitle, ask.Title);
+        Assert.True(File.Exists(Path.Combine(project.Folder, "pack", "text", "db", "mine.loc.tsv")));
+        await WaitUntil(() => main.Tabs.Tabs.Count == 1);
+
+        m.FileDialogs.TableAnswers.Enqueue(new NewTableInput("x_tables", "mine"));
+        main.NewTableCommand.Execute(null);
+        Assert.Equal(["x_tables"], Assert.Single(m.FileDialogs.TableAsks).Tables);
+        Assert.True(File.Exists(Path.Combine(project.Folder, "pack", "db", "x_tables", "mine.tsv")));
+    }
+
+    [Fact] public async Task Without_the_file_operations_the_new_file_entries_are_off()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c);
+        await c.LoadAsync();
+        game.NewProject(m.Projects, "Alpha");
+        Assert.Equal((false, false, false), (m.Main.HasProjectFiles, m.Main.NewTableCommand.CanExecute(null), m.Main.NewLocCommand.CanExecute(null)));
+    }
+
+    [Fact] public async Task The_status_line_shows_the_result_of_the_last_file_action()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c, withFiles: true);
+        await c.LoadAsync();
+        var project = game.NewProject(m.Projects, "Alpha");
+        var main = m.Main; var texts = game.Texts;
+        var changed = new List<string?>(); main.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        Assert.Equal((false, (string?)null, (string?)null), (main.HasProjectStatus, main.ProjectStatusLine, main.ProjectStatusToolTip));
+
+        // A file action: its result is in the status line, at the place of the project commands.
+        m.FileDialogs!.NameAnswers.Enqueue("mine");
+        main.NewLocCommand.Execute(null);
+        await WaitUntil(() => main.Tabs.Tabs.Count == 1);                            // the new file was opened; the next steps start from a quiet state
+        var created = texts.FileCreatedStatus(@"text\db\mine.loc.tsv");
+        Assert.Equal((true, created, created), (main.HasProjectStatus, main.ProjectStatusLine, main.ProjectStatusToolTip));
+        Assert.Contains(nameof(MainViewModel.ProjectStatusLine), changed);
+        Assert.Contains(nameof(MainViewModel.ProjectStatusToolTip), changed);
+        Assert.Contains(nameof(MainViewModel.HasProjectStatus), changed);
+
+        // A project command after it: the newer message wins.
+        m.Dialogs.ProjectAnswer = new ProjectInput("Beta", game.NewFolder("beta"), "beta.pack");
+        main.Projects!.NewProjectCommand.Execute(null);
+        Assert.Equal(texts.ProjectCreated("Beta"), main.ProjectStatusLine);
+
+        // And a file action after that wins again, with its whole text as the tool tip.
+        await m.Files!.DeleteAsync(project.Id, @"text\db\mine.loc.tsv");
+        var deleted = texts.FileDeletedStatus(@"text\db\mine.loc.tsv");
+        Assert.Equal((deleted, deleted), (main.ProjectStatusLine, main.ProjectStatusToolTip));
+
+        // A file command that has nothing to say clears the line: the older message of the project commands does not come back.
+        await m.Files.DeleteAsync(Guid.NewGuid(), "x.lua");
+        Assert.Equal((false, (string?)null, (string?)null), (main.HasProjectStatus, main.ProjectStatusLine, main.ProjectStatusToolTip));
+    }
+
+    [Fact] public async Task A_new_file_opens_in_a_tab_and_its_project_is_expanded()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c, withFiles: true);
+        await c.LoadAsync();
+        var project = game.NewProject(m.Projects, "Alpha", ("a.lua", "x"));
+        var main = m.Main;
+        var node = main.Explorer.Groups[0].Children.OfType<ProjectNode>().Single();
+        Assert.False(node.IsExpanded);
+
+        m.FileDialogs!.NameAnswers.Enqueue("mine");
+        main.NewLocCommand.Execute(null);
+        await WaitUntil(() => main.Tabs.Tabs.Count == 1);
+
+        var tab = main.Tabs.SelectedTab!;
+        Assert.Equal((TabSource.KeyOf(project.Id), "text/db/mine.loc.tsv"), (tab.PackPath, tab.EntryPath));
+        Assert.True(node.IsExpanded);
+        Assert.Equal(["text", "a.lua"], node.Children.Select(n => n.Name));
+    }
 }

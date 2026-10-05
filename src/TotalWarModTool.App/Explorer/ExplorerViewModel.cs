@@ -19,6 +19,11 @@ public sealed partial class ExplorerViewModel : ObservableObject
     private readonly ProjectsViewModel? _projectCommands;
     private readonly Func<Guid, string, Task> _openProjectFile;
 
+    // The file operations; null without them. The builders are one delegate each, shared by all entry nodes and all project file nodes.
+    private readonly ProjectFilesViewModel? _files;
+    private readonly Func<EntryNode, IReadOnlyList<NodeAction>>? _entryActions;
+    private readonly Func<ProjectFileNode, IReadOnlyList<NodeAction>>? _fileActions;
+
     // The group of the projects is created once and survives every rebuild of the pack groups, with its expanded project nodes.
     private readonly ProjectsGroupNode? _projectsGroup;
 
@@ -37,8 +42,14 @@ public sealed partial class ExplorerViewModel : ObservableObject
     /// <param name="projects">The mod projects; null, or one that is not available (no game profile), gives an explorer without the group of projects.</param>
     /// <param name="projectCommands">The commands behind the context menus of the project and pack nodes; without it those nodes have no menu.</param>
     /// <param name="openProjectFile">Opens a file of a project (id, path below the pack folder with '\'). Passed in so the explorer knows no tabs.</param>
+    /// <param name="projectFiles">
+    /// The file commands (new table, new loc file, add to the project, rename, delete); without them the nodes of files and entries have no menu
+    /// and the project nodes have no entries for new files. A file that it asks to open is opened through <paramref name="openProjectFile"/>, after its project was expanded.
+    /// </param>
+    /// <param name="projectFilesController">Tells when the files of a project changed (also by undo and redo), so that the open project nodes list again. Needed with <paramref name="projectFiles"/>.</param>
     public ExplorerViewModel(WorkspaceController workspace, AppTexts texts, Func<PackSource, string, Task> openEntry, Action openSettings,
-        ProjectsController? projects = null, ProjectsViewModel? projectCommands = null, Func<Guid, string, Task>? openProjectFile = null)
+        ProjectsController? projects = null, ProjectsViewModel? projectCommands = null, Func<Guid, string, Task>? openProjectFile = null,
+        ProjectFilesViewModel? projectFiles = null, ProjectFilesController? projectFilesController = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(texts);
@@ -58,6 +69,22 @@ public sealed partial class ExplorerViewModel : ObservableObject
         {
             _projects = projects;
             _projectCommands = projectCommands;
+            if (projectFiles is not null)
+            {
+                _files = projectFiles;
+                _entryActions = EntryActions;
+                _fileActions = FileActions;
+
+                // A file that was created, added or renamed while it was open: show it and open it.
+                projectFiles.OpenRequested += (_, request) => OnOpenRequested(request.ProjectId, request.RelativeFile);
+            }
+
+            if (projectFilesController is not null)
+            {
+                // The one place that follows file actions and the undo and redo of them: what is open lists again, silently.
+                projectFilesController.FilesChanged += (_, _) => OnProjectFilesChanged();
+            }
+
             _projectsGroup = new ProjectsGroupNode(texts.ExplorerProjectsGroup(0), isExpanded: true);
             Groups.Add(_projectsGroup);
             ReconcileProjects();
@@ -255,7 +282,7 @@ public sealed partial class ExplorerViewModel : ObservableObject
     }
 
     private PackNode CreatePackNode(PackSource pack) =>
-        new(pack, Texts, _workspace.Profile?.PackFormat, _openEntry, OnPackExpandedChanged);
+        new(pack, Texts, _workspace.Profile?.PackFormat, _openEntry, OnPackExpandedChanged, _entryActions);
 
     // ---- expand and collapse ---------------------------------------------------------------------------------------------------
 

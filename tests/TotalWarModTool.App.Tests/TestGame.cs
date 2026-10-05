@@ -121,14 +121,16 @@ internal sealed class TestGame : IDisposable
     /// <summary>
     /// The main view model of the app with projects: the controller of <see cref="NewProjects"/>, the commands over a fake dialog.
     /// <paramref name="withDocuments"/> adds the <see cref="DocumentsController"/> (editable tabs) the way the app wires it.
+    /// <paramref name="withFiles"/> adds the file operations over a fake dialog (they need the documents, so it implies them); the trash is below the temp folder.
     /// </summary>
-    public MainSetup NewMain(WorkspaceController workspace, IOperationRunner? runner = null, bool withDocuments = false)
+    public MainSetup NewMain(WorkspaceController workspace, IOperationRunner? runner = null, bool withDocuments = false, bool withFiles = false)
     {
         var projects = NewProjects(workspace, runner);
         var dialogs = new FakeProjectDialogs();
         var commands = new ProjectsViewModel(projects, dialogs, Texts);
-        DocumentsController? documents = withDocuments
-            ? new DocumentsController(new TabsViewModel(Texts), projects, new TotalWarModTool.UndoRedo.ActionHistory(), runner ?? Runner, new FakeEditDialogs(), Log, Texts)
+        var history = new TotalWarModTool.UndoRedo.ActionHistory();
+        DocumentsController? documents = withDocuments || withFiles
+            ? new DocumentsController(new TabsViewModel(Texts), projects, history, runner ?? Runner, new FakeEditDialogs(), Log, Texts)
             : null;
         if (documents is not null)
         {
@@ -137,8 +139,18 @@ internal sealed class TestGame : IDisposable
             commands.BeforeBuild = documents.ConfirmSaveBeforeBuildAsync;
         }
 
-        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents);
-        return new MainSetup(main, projects, dialogs, documents);
+        ProjectFilesController? filesController = null;
+        ProjectFilesViewModel? files = null;
+        FakeFileDialogs? fileDialogs = null;
+        if (withFiles)
+        {
+            filesController = new ProjectFilesController(projects, workspace, documents!, history, runner ?? Runner, Root.File("trash"), Log, Texts, TimeProvider.System);
+            fileDialogs = new FakeFileDialogs();
+            files = new ProjectFilesViewModel(filesController, projects, fileDialogs, Texts);
+        }
+
+        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents, files, filesController);
+        return new MainSetup(main, projects, dialogs, documents, files, fileDialogs);
     }
 
     /// <summary>Creates a project (it becomes the active one when it is the first) and writes the given files below its pack folder.</summary>
@@ -177,7 +189,8 @@ internal sealed class TestGame : IDisposable
 }
 
 /// <summary>What <see cref="TestGame.NewMain"/> built.</summary>
-internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs, DocumentsController? Documents = null);
+internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs, DocumentsController? Documents = null,
+    ProjectFilesViewModel? Files = null, FakeFileDialogs? FileDialogs = null);
 
 /// <summary>A Steam source that finds no Steam installation.</summary>
 internal sealed class NoSteam : ISteamLocationSource

@@ -335,6 +335,7 @@
   "file.newLoc.title": "New loc file",
   "file.add.title": "Add to the project",
   "file.rename.title": "Rename",
+  "file.action.delete": "Delete",
   "file.table.filterLabel": "Filter tables",
   "file.table.listLabel": "Table",
   "file.table.noMatch": "No table matches the filter. Change the filter text.",

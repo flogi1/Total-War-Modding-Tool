@@ -16,8 +16,14 @@ public sealed class MainViewModel : ObservableObject
 
     private readonly WorkspaceController _workspace;
     private readonly ProjectsController? _projects;
+    private readonly ProjectFilesViewModel? _projectFiles;
     private readonly RelayCommand _refreshCommand;
+    private readonly RelayCommand _newTableCommand;
+    private readonly RelayCommand _newLocCommand;
     private ResolvedSchema? _seenSchema;
+
+    // Which of the two view models that report to the project status item said something last (the one of the file commands, else the one of the project commands).
+    private bool _fileStatusIsNewer;
 
     /// <param name="openFolder">Opens a folder in the file explorer. Passed in so the view model stays free of processes and tests need no explorer.</param>
     /// <param name="progress">The runner every user-started operation goes through. The workspace and the debug commands use it.</param>
@@ -27,22 +33,42 @@ public sealed class MainViewModel : ObservableObject
     /// <param name="projects">The mod projects of the game; null: the app has no projects (no menu, no group in the explorer).</param>
     /// <param name="projectCommands">The project commands the menu, the hotkeys and the context menus use; null without projects.</param>
     /// <param name="documents">The editable documents, undo and redo; null: no menu "Edit". The window shows its tab list (<see cref="DocumentsController.Tabs"/>).</param>
+    /// <param name="projectFiles">The file commands of the projects; null: no menu entries for new files, no context menu entries for files. Their results go to the project status item.</param>
+    /// <param name="projectFilesController">Passed on to the explorer, which follows the changes of the files with it.</param>
     public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings,
         WorkspaceController workspace, Action? openGameSettings = null, ProjectsController? projects = null, ProjectsViewModel? projectCommands = null,
-        DocumentsController? documents = null)
+        DocumentsController? documents = null, ProjectFilesViewModel? projectFiles = null, ProjectFilesController? projectFilesController = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         Texts = texts;
         _workspace = workspace;
         _projects = projects;
+        _projectFiles = projectFiles;
         Projects = projectCommands;
         Documents = documents;
         OpenSettingsCommand = new RelayCommand(openSettings);
         OpenLogFolderCommand = new RelayCommand(() => openFolder(paths.LogDirectory));
 
+        // async void on purpose, as for every command that starts an operation: the view model of the files handles its failures.
+        _newTableCommand = new RelayCommand(async () =>
+        {
+            if (_projects?.ActiveId is { } id)
+            {
+                await _projectFiles!.NewTableAsync(id);
+            }
+        }, () => _projectFiles is not null && ProjectNewFileToolTip is null);
+        _newLocCommand = new RelayCommand(async () =>
+        {
+            if (_projects?.ActiveId is { } id)
+            {
+                await _projectFiles!.NewLocAsync(id);
+            }
+        }, () => _projectFiles is not null && ProjectNewFileToolTip is null);
+
         // The controller works on the tab list, so the window must show that very list.
         Tabs = documents?.Tabs ?? new TabsViewModel(texts);
-        Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync);
+        Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync,
+            projectFiles, projectFilesController);
         RowCommands = new RowCommandsViewModel(Tabs, texts);
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.
@@ -106,13 +132,26 @@ public sealed class MainViewModel : ObservableObject
             {
                 if (e.PropertyName is nameof(ProjectsViewModel.StatusMessage) or null)
                 {
-                    OnPropertyChanged(nameof(ProjectStatusLine));
-                    OnPropertyChanged(nameof(ProjectStatusToolTip));
-                    OnPropertyChanged(nameof(HasProjectStatus));
+                    _fileStatusIsNewer = false;
+                    RaiseProjectStatusChanged();
                 }
             };
             projects.Changed += (_, _) => RaiseProjectReasonsChanged();
             projects.OperationStateChanged += (_, _) => RaiseProjectReasonsChanged();
+
+            // The result of a file command is shown in the same place. The one that changed last wins, also when it changed to nothing: a command that
+            // starts clears its message, and an older message of the other kind must not come back in its place.
+            if (projectFiles is not null)
+            {
+                projectFiles.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName is nameof(ProjectFilesViewModel.StatusMessage) or null)
+                    {
+                        _fileStatusIsNewer = true;
+                        RaiseProjectStatusChanged();
+                    }
+                };
+            }
         }
 
         // The debug commands exist in every build; only the menu that offers them is limited to the debug build (IsDebugBuild).
@@ -147,7 +186,7 @@ public sealed class MainViewModel : ObservableObject
     {
         get
         {
-            var message = Projects?.StatusMessage;
+            var message = ProjectStatusMessage;
             if (string.IsNullOrEmpty(message))
             {
                 return null;
@@ -159,7 +198,10 @@ public sealed class MainViewModel : ObservableObject
     }
 
     /// <summary>The whole result of the last project command: it can have several lines. Null when there is none.</summary>
-    public string? ProjectStatusToolTip => string.IsNullOrEmpty(Projects?.StatusMessage) ? null : Projects.StatusMessage;
+    public string? ProjectStatusToolTip => string.IsNullOrEmpty(ProjectStatusMessage) ? null : ProjectStatusMessage;
+
+    // The message of the project commands or of the file commands, whichever spoke last.
+    private string? ProjectStatusMessage => _fileStatusIsNewer ? _projectFiles?.StatusMessage : Projects?.StatusMessage;
 
     public bool HasProjectStatus => ProjectStatusLine is not null;
 
@@ -177,6 +219,21 @@ public sealed class MainViewModel : ObservableObject
     /// explanation, and the busy test is the one the commands use, so the tool tip and the state of the entry agree.
     /// </summary>
     public string? ProjectSaveToolTip => Documents is null || _projects is null || _projects.CanStartOperation ? null : Texts.ProjectBusy;
+
+    /// <summary>The menu entries "New table" and "New loc file" are shown.</summary>
+    public bool HasProjectFiles => _projectFiles is not null;
+
+    /// <summary>Asks for a table and a name and creates the table in the active project. Disabled with <see cref="ProjectNewFileToolTip"/>.</summary>
+    public ICommand NewTableCommand => _newTableCommand;
+
+    /// <summary>Asks for a name and creates a loc file in the active project. Disabled with <see cref="ProjectNewFileToolTip"/>.</summary>
+    public ICommand NewLocCommand => _newLocCommand;
+
+    /// <summary>
+    /// Why "New table" and "New loc file" of the menu are disabled (no game profile, no active project, an unusable project, or another operation
+    /// runs); null when they can run.
+    /// </summary>
+    public string? ProjectNewFileToolTip => ProjectReason(_projects?.ActiveId is { } id ? _projectFiles?.NewFileDisabledReason(id) : Texts.ProjectNoneActive);
 
     /// <summary>Scans the packs and loads the schema again. Enabled when a game profile exists and no operation runs.</summary>
     public ICommand RefreshCommand => _refreshCommand;
@@ -292,6 +349,16 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ProjectBuildAndInstallToolTip));
         OnPropertyChanged(nameof(ProjectImportToolTip));
         OnPropertyChanged(nameof(ProjectSaveToolTip));
+        OnPropertyChanged(nameof(ProjectNewFileToolTip));
+        _newTableCommand.RaiseCanExecuteChanged();
+        _newLocCommand.RaiseCanExecuteChanged();
+    }
+
+    private void RaiseProjectStatusChanged()
+    {
+        OnPropertyChanged(nameof(ProjectStatusLine));
+        OnPropertyChanged(nameof(ProjectStatusToolTip));
+        OnPropertyChanged(nameof(HasProjectStatus));
     }
 
     // A project that left the list takes its tabs with it: they would show files of a project the app no longer knows.
