@@ -239,6 +239,9 @@ public partial class App : Application
 
         // Not awaited: the window is there and shows "loading" while the packs are scanned. A surprise from the chain goes to the crash handler.
         _ = LoadGameAsync(workspace, session, crashHandler);
+
+        // Silent housekeeping after the window is shown: old entries of the trash go. It runs on a pool thread and does not block the start.
+        _ = CleanupTrashAsync(projectFilesController, crashHandler);
     }
 
     // The profile of the stored id (ignoring case), else the first one; null without profiles.
@@ -275,6 +278,20 @@ public partial class App : Application
         catch (Exception ex)
         {
             // Not fatal: the app runs on without what could not be loaded.
+            crashHandler.Handle(ex, CrashHandler.SourceTask);
+        }
+    }
+
+    // The controller logs what it can meet (a problem with the trash is only a log line); a surprise from here goes to the crash handler.
+    private static async Task CleanupTrashAsync(ProjectFilesController files, CrashHandler crashHandler)
+    {
+        try
+        {
+            await files.CleanupTrashAsync();
+        }
+        catch (Exception ex)
+        {
+            // Not fatal: the trash is housekeeping, the app runs on.
             crashHandler.Handle(ex, CrashHandler.SourceTask);
         }
     }

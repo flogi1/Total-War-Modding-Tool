@@ -27,6 +27,7 @@ public sealed record FileActionResult(bool Ok, string? Message, string? Relative
 public sealed class ProjectFilesController
 {
     private const int MaxNameChars = 100;
+    private static readonly TimeSpan TrashMaxAge = TimeSpan.FromDays(30);
     private const string TextExtension = ".tsv";
     private const string LocTextExtension = ".loc.tsv";
 
@@ -471,6 +472,30 @@ public sealed class ProjectFilesController
         foreach (var trashed in left)
         {
             _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" of a project that left the list stays in the trash: {DisplayText.Safe(trashed.TrashFile)}");
+        }
+    }
+
+    // ---- the trash -------------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Deletes the entries of the trash that are older than 30 days (<see cref="ProjectTrash.Cleanup"/>). Silent housekeeping for the start
+    /// of the app: it runs on a pool thread, not through the operation runner (no window, no lock of the main window), logs the number of
+    /// removed entries when there are any, and never throws: a problem with the trash is a log line, the app goes on.
+    /// </summary>
+    public async Task CleanupTrashAsync()
+    {
+        var (trashRoot, time) = (_trashRoot, _time);
+        try
+        {
+            var removed = await Task.Run(() => ProjectTrash.Cleanup(trashRoot, TrashMaxAge, time, CancellationToken.None));
+            if (removed > 0)
+            {
+                _log.Info($"The cleanup of the trash removed {removed} entries older than {TrashMaxAge.Days} days.");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            _log.Warn($"The cleanup of the trash failed: {DisplayText.Safe(ex.Message)}");
         }
     }
 

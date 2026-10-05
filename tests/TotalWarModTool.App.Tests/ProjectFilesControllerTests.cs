@@ -960,6 +960,80 @@ public class ProjectFilesControllerTests
         Assert.Empty(setup.Game.Runner.Titles);
     }
 
+    // ---- the trash at start --------------------------------------------------------------------------------------------------------
+
+    private sealed class ThrowingTime : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => throw new IOException("the clock failed");
+    }
+
+    private static ProjectFilesController ControllerWith(Setup setup, TimeProvider time) =>
+        new(setup.Projects, setup.Workspace, setup.Documents, setup.History, setup.Game.Runner, setup.Trash, setup.Game.Log, setup.Game.Texts, time);
+
+    // An entry folder of the trash as ProjectTrash names it (UTC time and 8 lower case hex characters) with one file in it.
+    private static string TrashEntry(Setup setup, DateTimeOffset stamp, string hex)
+    {
+        var entry = Path.Combine(setup.Trash, setup.Id.ToString("D"), stamp.UtcDateTime.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + "-" + hex);
+        Directory.CreateDirectory(entry);
+        File.WriteAllText(Path.Combine(entry, "a.txt"), "x");
+        return entry;
+    }
+
+    [Fact] public async Task CleanupTrashAsync_removes_entries_older_than_30_days_silently_and_logs_the_count()
+    {
+        using var setup = await CreateAsync();
+        var now = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+        var old = TrashEntry(setup, now - TimeSpan.FromDays(31), "0a1b2c3d");
+        var young = TrashEntry(setup, now - TimeSpan.FromDays(29), "4e5f6a7b");
+        var files = ControllerWith(setup, new FakeTimeProvider(now));
+        setup.Game.Runner.Titles.Clear();
+
+        await files.CleanupTrashAsync();
+
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(young));
+        Assert.Empty(setup.Game.Runner.Titles);                                  // silent: no runner, no window
+        Assert.Empty(setup.Dialogs.Messages);
+        var line = Assert.Single(setup.Game.Log.Infos, info => info.Contains("trash", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("1", line, StringComparison.Ordinal);
+        Assert.Empty(setup.Game.Log.Warnings);
+        Assert.Empty(setup.Game.Log.Errors);
+
+        // Nothing left to remove: nothing is logged.
+        var infos = setup.Game.Log.Infos.Count;
+        await files.CleanupTrashAsync();
+        Assert.Equal(infos, setup.Game.Log.Infos.Count);
+        Assert.True(Directory.Exists(young));
+    }
+
+    [Fact] public async Task CleanupTrashAsync_without_a_trash_folder_does_nothing()
+    {
+        using var setup = await CreateAsync();
+        var files = ControllerWith(setup, new FakeTimeProvider(DateTimeOffset.UnixEpoch));
+        var infos = setup.Game.Log.Infos.Count;
+
+        await files.CleanupTrashAsync();
+
+        Assert.False(Directory.Exists(setup.Trash));                             // the cleanup creates nothing
+        Assert.Equal(infos, setup.Game.Log.Infos.Count);
+        Assert.Empty(setup.Game.Log.Warnings);
+    }
+
+    [Fact] public async Task A_failing_cleanup_of_the_trash_only_logs_and_never_throws()
+    {
+        using var setup = await CreateAsync();
+        var young = TrashEntry(setup, DateTimeOffset.UtcNow, "0a1b2c3d");        // the trash exists, so the cleanup reaches the clock
+        var files = ControllerWith(setup, new ThrowingTime());
+
+        await files.CleanupTrashAsync();
+
+        var line = Assert.Single(setup.Game.Log.Warnings);
+        Assert.Contains("clock", line, StringComparison.Ordinal);
+        Assert.True(Directory.Exists(young));
+        Assert.Empty(setup.Dialogs.Messages);
+        Assert.Empty(setup.Game.Runner.Titles);
+    }
+
     // ---- names -------------------------------------------------------------------------------------------------------------------
 
     [Fact] public async Task CheckNewName_judges_the_name_the_folder_and_the_extension()
