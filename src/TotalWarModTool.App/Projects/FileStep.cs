@@ -1,3 +1,4 @@
+using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.UndoRedo;
 
@@ -5,12 +6,25 @@ namespace TotalWarModTool.App;
 
 /// <summary>
 /// What a <see cref="FileStep"/> carries from one run to the next: the file in the trash after a step moved it there (null while the file is
-/// in the project), and the folders that the last run created and that the other direction has to remove again (outermost first).
+/// in the project), the folders that the last run created and that the other direction has to remove again (outermost first), and the state
+/// of the file in the project as the step last left it (<paramref name="Placed"/>; null while the file is in the trash, or when it could not be
+/// read). A step moves a file to the trash only while the file still is in that state.
 /// </summary>
-public sealed record FileStepState(TrashedFile? Trash, IReadOnlyList<string> CreatedFolders)
+public sealed record FileStepState(TrashedFile? Trash, IReadOnlyList<string> CreatedFolders, FileFingerprint? Placed = null)
 {
-    /// <summary>Nothing in the trash and no folder created.</summary>
-    public static readonly FileStepState Empty = new(null, []);
+    /// <summary>Nothing in the trash, no folder created, no file placed.</summary>
+    public static readonly FileStepState Empty = new(null, [], null);
+}
+
+/// <summary>
+/// A step refused to move a file to the trash, because the file is not in the state the step left it in (another program or an edit
+/// changed it, or it is gone): the step would have trashed content it did not put there. The history drops the step; the file stays.
+/// </summary>
+public sealed class FileStepChangedException(string relativeFile)
+    : InvalidOperationException("the file was changed or removed since the step left it, so it was not moved to the trash: " + relativeFile)
+{
+    /// <summary>The file (below pack\) that was left as it is.</summary>
+    public string RelativeFile { get; } = relativeFile;
 }
 
 /// <summary>
@@ -63,6 +77,9 @@ public sealed class FileStep : IUndoableAction
     public IReadOnlyList<string> FilesAfterUndo { get; }
 
     public string Description { get; }
+
+    /// <summary>The file of this step that is in the trash right now, or null. A step that is dropped while it holds one leaves it there.</summary>
+    public TrashedFile? InTrash => _state.Trash;
 
     public void Do() => Run(_do);
 

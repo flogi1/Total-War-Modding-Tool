@@ -53,14 +53,19 @@ public sealed partial class DocumentsController
     private static bool SameFile(string a, string b) =>
         string.Equals(a.Replace('/', '\\'), b.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
 
+    private static bool SameSpelling(string a, string b) =>
+        string.Equals(a.Replace('/', '\\'), b.Replace('/', '\\'), StringComparison.Ordinal);
+
     // The tabs of the files that the step removes in this direction (the files it has afterwards are not among them), and the file that it puts
     // in their place. Null when the step cannot run because a tab holds unsaved work: the message is shown and the tab selected.
     private FileStepPlan? PlanFileStep(FileStep step, bool undo)
     {
         var before = undo ? step.FilesAfterDo : step.FilesAfterUndo;
         var after = undo ? step.FilesAfterUndo : step.FilesAfterDo;
-        var removed = before.Where(file => !after.Any(kept => SameFile(kept, file)));
-        var added = after.FirstOrDefault(file => !before.Any(had => SameFile(had, file)));
+        // The lists are compared exactly (a rename of the case only counts as a rename: the tab shows the old spelling); the tabs are found
+        // ignoring case.
+        var removed = before.Where(file => !after.Any(kept => SameSpelling(kept, file)));
+        var added = after.FirstOrDefault(file => !before.Any(had => SameSpelling(had, file)));
         var tabs = removed.SelectMany(file => TabsOfFile(step.ProjectId, file)).Distinct().ToList();
 
         if (FirstTabWithUnsavedWork(tabs) is { } unsaved)

@@ -329,6 +329,8 @@
   "file.noSchema": "No schema is loaded, so no new table can be created. Check the schema folder in the settings.",
   "file.renameChangesKind": "With this name the project would take the file for another kind of file. Choose a different name.",
   "file.addedBinary": "The file was added as it is, because it could not be converted to text: {0}",
+  "file.nameUnchanged": "The name is unchanged. Enter a different name.",
+  "file.stepFileChanged": "The file {0} was changed or removed after this step left it, so the step was removed from the history and nothing was moved to the trash. A file that is still there was left as it is; delete it with Delete if you do not need it.",
   "edit.undoBlocked.title": "Undo not possible",
   "edit.redoBlocked.title": "Redo not possible"
 }

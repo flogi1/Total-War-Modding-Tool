@@ -79,6 +79,13 @@ public sealed partial class AppTexts
     public string FileAddedBinary(string reason) => F("file.addedBinary",
         "The file was added as it is, because it could not be converted to text: {0}", reason);
 
+    public string FileNameUnchanged => T("file.nameUnchanged", "The name is unchanged. Enter a different name.");
+
+    /// <param name="file">The file, escaped. Data, not a UI text.</param>
+    public string FileStepFileChanged(string file) => F("file.stepFileChanged",
+        "The file {0} was changed or removed after this step left it, so the step was removed from the history and nothing was moved to the trash. A file that is still there was left as it is; delete it with Delete if you do not need it.",
+        file);
+
     public string EditUndoBlockedTitle => T("edit.undoBlocked.title", "Undo not possible");
 
     public string EditRedoBlockedTitle => T("edit.redoBlocked.title", "Redo not possible");

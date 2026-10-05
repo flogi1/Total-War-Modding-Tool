@@ -329,6 +329,8 @@
   "file.noSchema": "Es ist kein Schema geladen, deshalb kann keine neue Tabelle angelegt werden. Prüfe den Schema-Ordner in den Einstellungen.",
   "file.renameChangesKind": "Mit diesem Namen würde das Projekt die Datei für eine andere Art von Datei halten. Wähle einen anderen Namen.",
   "file.addedBinary": "Die Datei wurde unverändert hinzugefügt, weil sie nicht in Text umgewandelt werden konnte: {0}",
+  "file.nameUnchanged": "Der Name ist unverändert. Gib einen anderen Namen ein.",
+  "file.stepFileChanged": "Die Datei {0} wurde geändert oder entfernt, nachdem dieser Schritt sie hinterlassen hat. Deshalb wurde der Schritt aus dem Verlauf entfernt und nichts in den Papierkorb verschoben. Eine Datei, die noch da ist, blieb unverändert; lösche sie mit Löschen, wenn du sie nicht brauchst.",
   "edit.undoBlocked.title": "Rückgängig nicht möglich",
   "edit.redoBlocked.title": "Wiederholen nicht möglich"
 }

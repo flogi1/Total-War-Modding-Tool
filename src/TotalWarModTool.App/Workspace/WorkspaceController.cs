@@ -720,7 +720,7 @@ public sealed class WorkspaceController
     {
         if (content.Problem != EntryProblem.None)
         {
-            _log.Warn($"Entry \"{entryPath}\" of pack \"{pack.Name}\" cannot be read ({content.Problem}): {content.Detail}");
+            _log.Warn($"Entry \"{DisplayText.Safe(entryPath)}\" of pack \"{DisplayText.Safe(pack.Name)}\" cannot be read ({content.Problem}): {DisplayText.Safe(content.Detail ?? string.Empty)}");
         }
     }
 

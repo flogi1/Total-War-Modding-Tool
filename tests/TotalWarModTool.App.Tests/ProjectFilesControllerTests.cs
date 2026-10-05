@@ -289,7 +289,7 @@ public class ProjectFilesControllerTests
         Assert.Equal(before, setup.Snapshot());
         Assert.False(setup.History.CanUndo);
         Assert.Equal(["Open gone.txt"], setup.Game.Runner.Titles);              // the second run never started
-        Assert.NotEmpty(setup.Game.Log.Warnings);
+        Assert.Single(setup.Game.Log.Warnings, line => line.Contains("gone.txt", StringComparison.Ordinal));   // logged once, by the workspace
     }
 
     [Fact] public async Task A_cancelled_adopt_leaves_nothing_behind()
@@ -416,7 +416,138 @@ public class ProjectFilesControllerTests
         Assert.Equal("hello"u8.ToArray(), File.ReadAllBytes(Assert.Single(setup.TrashFiles())));   // the deleted bytes are still safe
     }
 
+    // ---- a dropped step: where the file is, and what is never trashed -----------------------------------------------------------------
+
+    [Fact] public async Task A_file_left_in_the_trash_by_a_dropped_step_is_named_in_the_message_and_the_log()
+    {
+        using var setup = await CreateAsync(("script\\a.txt", "hello"));
+        Ok(await setup.Files.DeleteAsync(setup.Id, @"script\a.txt"));
+        var trashed = Assert.Single(setup.TrashFiles());
+        File.WriteAllText(setup.PathOf(@"script\a.txt"), "new");                // another program was faster
+
+        setup.Documents.UndoCommand.Execute(null);
+
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.Contains(trashed, message.Message, StringComparison.Ordinal);    // the user can find the old file
+        Assert.Single(setup.Game.Log.Warnings, line => line.Contains(trashed, StringComparison.Ordinal));
+        Assert.Equal("new", File.ReadAllText(setup.PathOf(@"script\a.txt")));
+        Assert.Equal("hello"u8.ToArray(), File.ReadAllBytes(trashed));
+        Assert.False(setup.History.CanUndo);
+        Assert.False(setup.History.CanRedo);
+    }
+
+    [Fact] public async Task Steps_of_a_project_that_left_the_list_log_the_files_that_stay_in_the_trash()
+    {
+        using var setup = await CreateAsync(("script\\a.txt", "hello"));
+        var other = setup.Game.NewProject(setup.Projects, "Beta", ("script\\b.txt", "world"));
+        Ok(await setup.Files.DeleteAsync(other.Id, @"script\b.txt"));
+        var trashed = Assert.Single(setup.TrashFiles());
+        Ok(await setup.Files.CreateLocAsync(other.Id, "mine"));                 // a step whose file is not in the trash: no line
+
+        Assert.True(setup.Projects.Remove(other.Id).Ok);
+
+        Assert.False(setup.History.CanUndo);
+        Assert.Single(setup.Game.Log.Warnings, line => line.Contains(trashed, StringComparison.Ordinal));
+        Assert.Equal("world"u8.ToArray(), File.ReadAllBytes(trashed));
+    }
+
+    [Fact] public async Task Undo_of_a_new_file_that_was_saved_to_meanwhile_does_not_trash_the_saved_work()
+    {
+        using var setup = await CreateAsync();
+        var created = Ok(await setup.Files.CreateTableAsync(setup.Id, "x_tables", "mine"));
+        var file = created.RelativeFile!;
+        var tab = await OpenAsync(setup, file);
+        tab.InsertRowCommand.Execute(null);
+        Assert.True(await setup.Documents.SaveAsync([tab]));
+        setup.Tabs.Close(tab);
+        var saved = File.ReadAllBytes(setup.PathOf(file));
+
+        setup.Documents.UndoCommand.Execute(null);
+
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(setup.Game.Texts.EditUndoFailedTitle, message.Title);
+        Assert.Equal(setup.Game.Texts.FileStepFileChanged(file), message.Message);
+        Assert.Equal(saved, File.ReadAllBytes(setup.PathOf(file)));             // the saved work is where it was
+        Assert.Empty(setup.TrashFiles());
+        Assert.False(setup.History.CanUndo);
+        Assert.False(setup.History.CanRedo);                                    // the step was dropped
+    }
+
+    [Fact] public async Task Redo_of_a_delete_does_not_trash_a_restored_file_that_was_edited_meanwhile()
+    {
+        using var setup = await CreateAsync(("script\\a.txt", "hello"));
+        Ok(await setup.Files.DeleteAsync(setup.Id, @"script\a.txt"));
+        setup.Documents.UndoCommand.Execute(null);                              // restored
+        File.WriteAllText(setup.PathOf(@"script\a.txt"), "edited by another program");
+
+        setup.Documents.RedoCommand.Execute(null);
+
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(setup.Game.Texts.FileStepFileChanged(@"script\a.txt"), message.Message);
+        Assert.Equal("edited by another program", File.ReadAllText(setup.PathOf(@"script\a.txt")));
+        Assert.Empty(setup.TrashFiles());
+        Assert.False(setup.History.CanUndo);
+        Assert.False(setup.History.CanRedo);
+    }
+
+    [Fact] public async Task A_file_that_another_program_wrote_after_a_dropped_step_is_not_trashed_by_the_undo_below_it()
+    {
+        using var setup = await CreateAsync();
+        var created = Ok(await setup.Files.CreateLocAsync(setup.Id, "mine"));
+        var file = created.RelativeFile!;
+        Ok(await setup.Files.DeleteAsync(setup.Id, file));
+        var trashed = Assert.Single(setup.TrashFiles());
+        File.WriteAllText(setup.PathOf(file), "from another program");
+
+        setup.Documents.UndoCommand.Execute(null);                              // the delete cannot be taken back: dropped, the old file is named
+        Assert.Contains(trashed, Assert.Single(setup.Dialogs.Messages).Message, StringComparison.Ordinal);
+        Assert.True(setup.History.CanUndo);                                     // the creation is next
+
+        setup.Documents.UndoCommand.Execute(null);
+
+        Assert.Equal(2, setup.Dialogs.Messages.Count);
+        Assert.Equal(setup.Game.Texts.FileStepFileChanged(file), setup.Dialogs.Messages[1].Message);
+        Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
+        Assert.Single(setup.TrashFiles());                                      // only the file the delete put there
+        Assert.False(setup.History.CanUndo);
+        Assert.False(setup.History.CanRedo);
+    }
+
     // ---- rename ------------------------------------------------------------------------------------------------------------------
+
+    [Fact] public async Task CheckNewName_knows_the_current_file_of_a_rename()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42), Table(TableB, 7));
+
+        Assert.Equal(setup.Game.Texts.FileNameUnchanged, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "a", ".tsv", TableA));
+        Assert.Equal(setup.Game.Texts.FileNameUnchanged, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "a", ".tsv", "db/x_tables/a.tsv"));
+        Assert.Null(setup.Files.CheckNewName(setup.Id, @"db\x_tables", "A", ".tsv", TableA));                       // only the case changes
+        Assert.Equal(setup.Game.Texts.FileProblemTargetExists, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "B", ".tsv", TableA));
+        Assert.Equal(setup.Game.Texts.FileProblemTargetExists, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "a", ".tsv"));  // a new file: taken
+    }
+
+    [Fact] public async Task A_rename_that_only_changes_the_case_works_and_its_undo_closes_the_tab_and_reopens_the_old_spelling()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42));
+        var requests = new List<(Guid ProjectId, string RelativeFile)>();
+        setup.Files.OpenRequested += (_, request) => requests.Add(request);
+        var a = await OpenAsync(setup, TableA);
+
+        var renamed = Ok(await setup.Files.RenameAsync(setup.Id, TableA, "A"));
+
+        Assert.Equal(@"db\x_tables\A.tsv", renamed.RelativeFile);
+        Assert.Contains(@"A.tsv", Directory.GetFiles(Path.GetDirectoryName(setup.PathOf(TableA))!).Select(Path.GetFileName));
+        Assert.DoesNotContain(a, setup.Tabs.Tabs);
+        Assert.Equal((setup.Id, @"db\x_tables\A.tsv"), Assert.Single(requests));
+        var upper = await OpenAsync(setup, @"db\x_tables\A.tsv");
+
+        setup.Documents.UndoCommand.Execute(null);
+
+        Assert.Contains(@"a.tsv", Directory.GetFiles(Path.GetDirectoryName(setup.PathOf(TableA))!).Select(Path.GetFileName));
+        Assert.DoesNotContain(upper, setup.Tabs.Tabs);                          // a rename of the spelling counts as a rename
+        Assert.Equal((setup.Id, TableA), requests[^1]);
+        Assert.Equal(2, requests.Count);
+    }
 
     [Fact] public async Task Rename_changes_only_the_name_part_and_undo_renames_back()
     {
@@ -508,7 +639,7 @@ public class ProjectFilesControllerTests
         Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), dot.Message, StringComparison.Ordinal);
         Assert.Contains("dot", dot.Message, StringComparison.Ordinal);
         Assert.Equal(setup.Game.Texts.FileProblemTargetExists, taken.Message);
-        Assert.Equal(setup.Game.Texts.FileProblemTargetExists, same.Message);
+        Assert.Equal(setup.Game.Texts.FileNameUnchanged, same.Message);
         Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), empty.Message, StringComparison.Ordinal);
         Assert.Equal(before, setup.Snapshot());
         Assert.False(setup.History.CanUndo);
@@ -575,13 +706,16 @@ public class ProjectFilesControllerTests
         Assert.IsType<FileStep>(setup.History.NextUndo);
         Assert.Empty(setup.TrashFiles());
 
-        // Saved again, the undo runs: the tab closes and the file goes to the trash.
+        // Saved, the tab no longer blocks the step. But the file is not the one the step created any more (the save wrote the user's work into
+        // it), so the undo does not trash it: the step is dropped and the file stays (see Undo_of_a_new_file_that_was_saved_to_meanwhile...).
         Assert.True(await setup.Documents.SaveAsync([tab]));
         setup.Documents.UndoCommand.Execute(null);
-        Assert.False(setup.Exists(created.RelativeFile!));
-        Assert.DoesNotContain(tab, setup.Tabs.Tabs);
-        Assert.Single(setup.TrashFiles());
-        Assert.Single(setup.Dialogs.Messages);                                  // no second message
+        Assert.Equal(2, setup.Dialogs.Messages.Count);
+        Assert.Equal(setup.Game.Texts.FileStepFileChanged(created.RelativeFile!), setup.Dialogs.Messages[1].Message);
+        Assert.True(setup.Exists(created.RelativeFile!));
+        Assert.Contains(tab, setup.Tabs.Tabs);                                  // the step did not run: its tab stays
+        Assert.Empty(setup.TrashFiles());
+        Assert.False(setup.History.CanUndo);
     }
 
     [Fact] public async Task The_undo_of_a_new_file_closes_an_unmodified_tab_of_it_and_the_redo_leaves_no_tab()

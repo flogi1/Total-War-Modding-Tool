@@ -195,9 +195,18 @@ public sealed partial class DocumentsController
             var what = undo ? "Undo" : "Redo";
             _log.Error($"{what} of \"{DisplayText.Safe(next?.Description ?? string.Empty)}\" failed.", ex);
             var reason = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
-            _dialogs.ShowMessage(
-                undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle,
-                undo ? _texts.EditUndoFailedMessage(reason) : _texts.EditRedoFailedMessage(reason));
+
+            // A file step that was dropped while it holds a file in the trash: nothing will bring that file back, so the log says where it is.
+            if (next is FileStep { InTrash: { } trashed })
+            {
+                _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" stays in the trash, the step that brings it back was removed: {DisplayText.Safe(trashed.TrashFile)}");
+            }
+
+            // A step that refused to trash a file it did not leave says that the file was left as it is; the generic text would not.
+            var message = ex is FileStepChangedException changed
+                ? _texts.FileStepFileChanged(Shown(changed.RelativeFile))
+                : undo ? _texts.EditUndoFailedMessage(reason) : _texts.EditRedoFailedMessage(reason);
+            _dialogs.ShowMessage(undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle, message);
             return;
         }
 

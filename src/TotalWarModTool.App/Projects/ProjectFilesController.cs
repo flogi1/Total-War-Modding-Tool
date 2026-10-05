@@ -127,13 +127,13 @@ public sealed class ProjectFilesController
     /// UI text that says why not. A table or loc file name must follow <see cref="NewFiles.NameProblem"/>; every file must be a path that
     /// the write boundary accepts and must not be one that a project leaves out of the pack, and nothing may be there already.
     /// </summary>
-    public string? CheckNewName(Guid projectId, string relativeFolder, string name, string extension)
+    public string? CheckNewName(Guid projectId, string relativeFolder, string name, string extension, string? currentFile = null)
     {
         ArgumentNullException.ThrowIfNull(relativeFolder);
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(extension);
 
-        return StateOf(projectId) is not { } state ? _texts.ProjectUnknown : NameCheck(state.Folder, relativeFolder, name, extension, null);
+        return StateOf(projectId) is not { } state ? _texts.ProjectUnknown : NameCheck(state.Folder, relativeFolder, name, extension, currentFile);
     }
 
     // ---- the actions -----------------------------------------------------------------------------------------------------------------
@@ -197,8 +197,8 @@ public sealed class ProjectFilesController
 
         if (content.Problem != EntryProblem.None || content.Bytes is not { } bytes)
         {
+            // The workspace logged the read problem already.
             var problem = content.Problem == EntryProblem.None ? EntryProblem.Corrupt : content.Problem;
-            _log.Warn($"The entry \"{DisplayText.Safe(entryPath)}\" of the pack \"{DisplayText.Safe(pack.Name)}\" was not added to a project, it cannot be read ({problem}): {DisplayText.Safe(content.Detail ?? string.Empty)}");
             return Fail(MessageText.WithDetail(_texts.EntryProblemText(problem), ShownDetail(content.Detail)));
         }
 
@@ -349,7 +349,7 @@ public sealed class ProjectFilesController
             return Failed("Create", newFile.RelativeFile, created.Problem, created.Detail, _texts.FileProblemText(created.Problem));
         }
 
-        _history.Record(CreatedStep(state, newFile.RelativeFile, created.CreatedFolders));
+        _history.Record(CreatedStep(state, newFile.RelativeFile, created));
         FilesChanged?.Invoke(this, state.Id);
         return new FileActionResult(true, null, newFile.RelativeFile, newFile.Note is { } note ? _texts.FileAddedBinary(Shown(note)) : null);
     }
@@ -406,18 +406,45 @@ public sealed class ProjectFilesController
 
     private string? ShownDetail(string? detail) => string.IsNullOrEmpty(detail) ? null : Shown(detail);
 
-    // File steps of a project that left the list are not executable: without its folder, nothing can be created, trashed or renamed.
+    // File steps of a project that left the list are not executable: without its folder, nothing can be created, trashed or renamed. A file
+    // that such a step holds in the trash stays there with nothing to bring it back, so its place is logged.
     private void DropStepsOfGoneProjects()
     {
         var present = _projects.Projects.Select(state => state.Id).ToHashSet();
-        _history.RemoveWhere(step => step is FileStep fileStep && !present.Contains(fileStep.ProjectId));
+        var left = new List<TrashedFile>();
+        _history.RemoveWhere(step =>
+        {
+            if (step is not FileStep fileStep || present.Contains(fileStep.ProjectId))
+            {
+                return false;
+            }
+
+            if (fileStep.InTrash is { } inTrash)
+            {
+                left.Add(inTrash);
+            }
+
+            return true;
+        });
+
+        foreach (var trashed in left)
+        {
+            _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" of a project that left the list stays in the trash: {DisplayText.Safe(trashed.TrashFile)}");
+        }
     }
 
     // ---- names -----------------------------------------------------------------------------------------------------------------------
 
-    // The check behind CheckNewName. ownFile is the file that is renamed, if one is: its own name is no collision when only the case differs.
+    // The check behind CheckNewName. ownFile is the file that is renamed, if one is: the name it has already is "unchanged", and a name that
+    // differs from it only in case is no collision with itself.
     private string? NameCheck(string projectFolder, string relativeFolder, string name, string extension, string? ownFile)
     {
+        var candidate = JoinFile(relativeFolder, name + extension);
+        if (ownFile is not null && string.Equals(candidate, ownFile.Replace('/', '\\'), StringComparison.Ordinal))
+        {
+            return _texts.FileNameUnchanged;
+        }
+
         var isText = extension.Equals(TextExtension, StringComparison.OrdinalIgnoreCase)
             || extension.Equals(LocTextExtension, StringComparison.OrdinalIgnoreCase);
         var reason = isText ? NewFiles.NameProblem(name) : PlainNameProblem(name);
@@ -426,7 +453,6 @@ public sealed class ProjectFilesController
             return _texts.FileNameInvalid(Shown(reason));
         }
 
-        var candidate = JoinFile(relativeFolder, name + extension);
         var check = PackFolderPaths.ResolveForWrite(projectFolder, candidate);
         if (check.Problem == PackPathProblem.UnsafePath)
         {
@@ -444,7 +470,7 @@ public sealed class ProjectFilesController
             return _texts.FileNameInvalid(Shown("A project ignores files with this name."));
         }
 
-        var onlyCaseDiffers = ownFile is not null && SameFile(candidate, ownFile) && !string.Equals(candidate, ownFile.Replace('/', '\\'), StringComparison.Ordinal);
+        var onlyCaseDiffers = ownFile is not null && SameFile(candidate, ownFile);   // the exactly equal name returned above
         return !onlyCaseDiffers && ProjectFileOps.Exists(projectFolder, candidate) ? _texts.FileProblemTargetExists : null;
     }
 
@@ -492,10 +518,10 @@ public sealed class ProjectFilesController
     // ---- the undo steps --------------------------------------------------------------------------------------------------------------
 
     // A new file: undo moves it to the trash and removes the folders the creation made, redo brings it back (and notes the folders that makes).
-    private FileStep CreatedStep(ProjectState state, string file, IReadOnlyList<string> createdFolders)
+    private FileStep CreatedStep(ProjectState state, string file, FileOpResult created)
     {
         var (projectId, folder, trashRoot, time) = (state.Id, state.Folder, _trashRoot, _time);
-        return new FileStep(projectId, "Create " + file, [file], [], new FileStepState(null, createdFolders),
+        return new FileStep(projectId, "Create " + file, [file], [], new FileStepState(null, created.CreatedFolders, created.Fingerprint),
             doWork: current => BringBack(trashRoot, folder, current),
             undoWork: current => MoveAway(trashRoot, projectId, folder, file, time, current, removeCreatedFolders: true));
     }
@@ -504,7 +530,7 @@ public sealed class ProjectFilesController
     private FileStep DeletedStep(ProjectState state, string file, TrashedFile trashed)
     {
         var (projectId, folder, trashRoot, time) = (state.Id, state.Folder, _trashRoot, _time);
-        return new FileStep(projectId, "Delete " + file, [], [file], new FileStepState(trashed, []),
+        return new FileStep(projectId, "Delete " + file, [], [file], new FileStepState(trashed, [], null),
             doWork: current => MoveAway(trashRoot, projectId, folder, file, time, current, removeCreatedFolders: false),
             undoWork: current => BringBack(trashRoot, folder, current));
     }
@@ -518,9 +544,12 @@ public sealed class ProjectFilesController
             undoWork: current => Renamed(ProjectFileOps.Rename(folder, to, from), current));
     }
 
+    // Moves the file to the trash, but only while it is the file the step left in the project: a step never puts content into the trash that it
+    // did not put on disk itself (a saved edit, a file another program wrote). Otherwise it throws and the history drops the step.
     private static FileStepResult MoveAway(string trashRoot, Guid projectId, string folder, string file, TimeProvider time, FileStepState current,
         bool removeCreatedFolders)
     {
+        RequireUnchanged(folder, file, current.Placed);
         var moved = ProjectTrash.MoveToTrash(trashRoot, projectId, folder, file, time);
         if (moved.File is not { } trashed)
         {
@@ -532,9 +561,10 @@ public sealed class ProjectFilesController
             ProjectFileOps.RemoveEmptyFolders(folder, current.CreatedFolders);
         }
 
-        return new FileStepResult(FileOpProblem.None, null, new FileStepState(trashed, []));
+        return new FileStepResult(FileOpProblem.None, null, new FileStepState(trashed, [], null));
     }
 
+    // Brings the file back from the trash. A failure names the file that stays in the trash: the step is dropped, so nothing else will.
     private static FileStepResult BringBack(string trashRoot, string folder, FileStepState current)
     {
         if (current.Trash is not { } trashed)
@@ -544,8 +574,27 @@ public sealed class ProjectFilesController
 
         var restored = ProjectTrash.Restore(trashed, folder, trashRoot);
         return restored.Problem == FileOpProblem.None
-            ? new FileStepResult(FileOpProblem.None, null, new FileStepState(null, restored.CreatedFolders))
-            : new FileStepResult(restored.Problem, restored.Detail, current);
+            ? new FileStepResult(FileOpProblem.None, null, new FileStepState(null, restored.CreatedFolders, restored.Fingerprint))
+            : new FileStepResult(restored.Problem, "the file stays in the trash at '" + trashed.TrashFile + "': " + restored.Detail, current);
+    }
+
+    private static void RequireUnchanged(string folder, string file, FileFingerprint? placed)
+    {
+        FileProbe probe;
+        try
+        {
+            probe = ProjectFileWriter.Probe(folder, file);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            throw new FileStepChangedException(file);
+        }
+
+        // A file that cannot be told (a link, a folder in its place) or whose state the step never knew is not the file the step left.
+        if (probe.State != FileProbeState.Present || placed is null || !Equals(probe.Fingerprint, placed))
+        {
+            throw new FileStepChangedException(file);
+        }
     }
 
     private static FileStepResult Renamed(FileOpResult result, FileStepState current) => new(result.Problem, result.Detail, current);

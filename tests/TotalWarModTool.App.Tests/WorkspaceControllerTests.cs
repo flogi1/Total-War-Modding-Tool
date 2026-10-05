@@ -631,6 +631,20 @@ public class WorkspaceControllerTests
         Assert.Contains(game.Log.Warnings, line => line.Contains("gone.txt", StringComparison.Ordinal));
     }
 
+    [Fact] public async Task ReadEntryBytesAsync_logs_a_read_problem_with_escaped_names()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+
+        await c.ReadEntryBytesAsync(Pack(c, "a.pack"), "gone" + (char)7 + ".txt");
+
+        var line = Assert.Single(game.Log.Warnings, text => text.Contains("gone", StringComparison.Ordinal));
+        Assert.False(line.Contains((char)7));
+        Assert.Contains("gone\\u0007.txt", line, StringComparison.Ordinal);
+    }
+
     [Fact] public async Task ReadEntryBytesAsync_uses_the_cached_index_and_handles_a_changed_pack_like_OpenEntryAsync()
     {
         using var game = new TestGame();

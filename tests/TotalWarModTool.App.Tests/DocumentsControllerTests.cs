@@ -565,6 +565,32 @@ public class DocumentsControllerTests
         }
     }
 
+    [Fact] public async Task A_rename_that_only_changes_the_case_counts_as_a_rename_for_the_tabs()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var probe = new StepProbe();
+            var reopen = new List<(Guid ProjectId, string RelativeFile)>();
+            setup.Controller.FileReopenRequested += (_, request) => reopen.Add(request);
+            a.Rows[0][Value] = "50";                                            // the tab of a.tsv has unsaved work
+            // A step that renamed A.tsv to a.tsv: the file after Do differs from the one after Undo in its case only.
+            setup.History.Record(probe.Step(setup.Project.Id, [FileA], [@"db\x_tables\A.tsv"]));
+
+            setup.Controller.UndoCommand.Execute(null);                         // refused: the undo would take a.tsv away
+
+            Assert.Equal(0, probe.Undos);
+            Assert.Equal(setup.Game.Texts.EditUndoBlockedTitle, Assert.Single(setup.Dialogs.Messages).Title);
+            Assert.True(await setup.Controller.SaveAsync([a]));
+
+            setup.Controller.UndoCommand.Execute(null);
+
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+            Assert.Contains(b, setup.Tabs.Tabs);
+            Assert.Equal((setup.Project.Id, @"db\x_tables\A.tsv"), Assert.Single(reopen));
+        }
+    }
+
     [Fact] public async Task The_undo_of_a_rename_step_closes_the_tab_of_the_new_name_and_asks_for_the_old_one()
     {
         var (setup, a, b) = await TwoTablesAsync();
