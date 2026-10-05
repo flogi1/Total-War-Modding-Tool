@@ -56,6 +56,9 @@ public abstract class TabViewModel : ObservableObject, IDisposable
 
     public ICommand CloseCommand { get; }
 
+    /// <summary>True when the tab has changes that are not saved. Only an editable tab can have any; the header shows a mark.</summary>
+    public virtual bool IsModified => false;
+
     /// <summary>Stops listening to the texts, then calls <see cref="OnDispose"/>. Safe to call more than once.</summary>
     public void Dispose()
     {

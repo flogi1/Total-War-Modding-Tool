@@ -1,3 +1,5 @@
+using TotalWarModTool.Projects;
+
 namespace TotalWarModTool.App;
 
 // Texts of the editable tabs: the messages for a cell text that is refused. One text per type of value; EditableRowsTabViewModel
@@ -47,4 +49,86 @@ public sealed partial class AppTexts
     /// <param name="reason">Why the step failed; technical text of the exception, escaped. Data, not a UI text.</param>
     public string EditRedoFailedMessage(string reason) =>
         F("edit.redoFailed.message", "The step could not be repeated and was removed from the history. Reason: {0}", reason);
+
+    // ---- saving and the guard for unsaved changes -----------------------------------------------------------------------------------
+
+    public string MenuProjectSave => T("menu.project.save", "Save");
+
+    public string MenuProjectSaveAll => T("menu.project.saveAll", "Save all");
+
+    /// <summary>The shortcut shown next to "Save" in the menu; the shortcut itself is bound in the window.</summary>
+    public string MenuProjectSaveGesture => T("menu.project.saveGesture", "Ctrl+S");
+
+    /// <summary>The shortcut shown next to "Save all" in the menu; the shortcut itself is bound in the window.</summary>
+    public string MenuProjectSaveAllGesture => T("menu.project.saveAllGesture", "Ctrl+Shift+S");
+
+    /// <summary>The title of the progress window of a save.</summary>
+    public string OperationSaveFiles => T("operation.save", "Save files");
+
+    /// <summary>The tool tip of the mark in the header of a tab that has changes that are not saved.</summary>
+    public string TabModified => T("tab.modified", "Unsaved changes");
+
+    public string SaveFailedTitle => T("save.failed.title", "Saving failed");
+
+    /// <param name="failed">Number of files that could not be saved.</param>
+    public string SaveFailedSummary(int failed) =>
+        F("save.failed.summary", "Files that could not be saved: {0}. The tabs stay modified, so no change is lost.", failed);
+
+    /// <param name="file">Display name of the file (escaped). Data, not a UI text.</param>
+    /// <param name="reason">One of the <c>SaveProblem</c> texts, with its detail.</param>
+    public string SaveProblemLine(string file, string reason) => F("save.problemLine", "{0}: {1}", file, reason);
+
+    /// <param name="text">One of the <c>SaveProblem</c> texts.</param>
+    /// <param name="detail">Short technical English of the library, escaped. Data, not a UI text.</param>
+    public string SaveProblemWithDetail(string text, string detail) => F("save.problem.withDetail", "{0} Detail: {1}", text, detail);
+
+    // Every FileWriteProblem has its own property so that the locale check sees each key; SaveProblemText only chooses among them.
+    public string SaveProblemUnsafePath => T("save.problem.unsafePath",
+        "The path of the file is not a plain path below the pack folder, so the file is not written.");
+
+    public string SaveProblemLink => T("save.problem.link", "The file or one of its folders is a link. The tool never writes through links.");
+
+    public string SaveProblemLocked => T("save.problem.locked",
+        "The file is in use by another program or is read-only. Close it in the other program, then save again.");
+
+    public string SaveProblemFailed => T("save.problem.failed", "The file could not be written.");
+
+    public string SaveProblemProjectGone => T("save.problem.projectGone",
+        "The project of this file is no longer in the list, so the file cannot be written.");
+
+    public string SaveProblemRefused => T("save.problem.refused", "The content cannot be written as text.");
+
+    /// <summary>The text for a write problem; empty for <see cref="FileWriteProblem.None"/>.</summary>
+    public string SaveProblemText(FileWriteProblem problem) => problem switch
+    {
+        FileWriteProblem.UnsafePath => SaveProblemUnsafePath,
+        FileWriteProblem.Link => SaveProblemLink,
+        FileWriteProblem.Locked => SaveProblemLocked,
+        FileWriteProblem.Failed => SaveProblemFailed,
+        _ => string.Empty,
+    };
+
+    public string SaveCancelledTitle => T("save.cancelled.title", "Saving cancelled");
+
+    /// <param name="saved">Number of files that were written before the cancel.</param>
+    /// <param name="total">Number of files that were to be written.</param>
+    public string SaveCancelledMessage(int saved, int total) =>
+        F("save.cancelled.message", "Saving was cancelled. {0} of {1} files were saved; the others are still modified.", saved, total);
+
+    public string UnsavedTitle => T("unsaved.title", "Unsaved changes");
+
+    public string UnsavedMessage => T("unsaved.message", "These files have changes that are not saved. What should happen to them?");
+
+    public string UnsavedSave => T("unsaved.save", "Save");
+
+    public string UnsavedDiscard => T("unsaved.discard", "Discard");
+
+    public string UnsavedBuildMessage => T("unsaved.build.message",
+        "The project has changes that are not saved. A build contains only saved files. Save all and build?");
+
+    public string UnsavedBuildSaveAll => T("unsaved.build.saveAll", "Save all and build");
+
+    /// <summary>Why a project cannot be removed from the list while some of its tabs have changes that are not saved.</summary>
+    public string ProjectRemoveUnsaved => T("project.removeUnsaved",
+        "The project has open tabs with unsaved changes. Save or discard them first.");
 }

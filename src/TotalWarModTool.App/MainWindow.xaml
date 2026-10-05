@@ -12,6 +12,8 @@
         <KeyBinding Key="W" Modifiers="Control" Command="{Binding Tabs.CloseSelectedCommand}" />
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding Documents.UndoCommand}" />
         <KeyBinding Key="Y" Modifiers="Control" Command="{Binding Documents.RedoCommand}" />
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding Documents.SaveCommand}" />
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding Documents.SaveAllCommand}" />
         <KeyBinding Key="B" Modifiers="Control" Command="{Binding Projects.BuildActiveCommand}" />
         <KeyBinding Key="B" Modifiers="Control+Shift" Command="{Binding Projects.BuildAndInstallActiveCommand}" />
     </Window.InputBindings>
@@ -40,6 +42,15 @@
                           ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.MenuProjectImport}" Command="{Binding Projects.ImportPackCommand}"
                           ToolTip="{Binding ProjectImportToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <!-- Saving needs the editable documents. Nothing to save needs no explanation; only a running operation gets a tool tip. -->
+                <MenuItem Header="{Binding Texts.MenuProjectSave}" Command="{Binding Documents.SaveCommand}"
+                          Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}"
+                          InputGestureText="{Binding Texts.MenuProjectSaveGesture}"
+                          ToolTip="{Binding ProjectSaveToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <MenuItem Header="{Binding Texts.MenuProjectSaveAll}" Command="{Binding Documents.SaveAllCommand}"
+                          Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}"
+                          InputGestureText="{Binding Texts.MenuProjectSaveAllGesture}"
+                          ToolTip="{Binding ProjectSaveToolTip}" ToolTipService.ShowOnDisabled="True" />
                 <Separator />
                 <MenuItem Header="{Binding Texts.BuildMessageTitle}" Command="{Binding Projects.BuildActiveCommand}"
                           InputGestureText="{Binding Texts.MenuProjectBuildGesture}"

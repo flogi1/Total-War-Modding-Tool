@@ -218,6 +218,12 @@ public sealed partial class ExplorerViewModel
 
     // ---- context menus ---------------------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Builds the entries of every context menu again. For a change that the explorer cannot see itself: the reason why a project cannot be
+    /// removed depends on the unsaved changes of its tabs.
+    /// </summary>
+    public void RefreshProjectActions() => RefreshActions();
+
     // Builds the entries of every menu again: the reasons, the commands and the texts all depend on what is going on right now.
     private void RefreshActions()
     {

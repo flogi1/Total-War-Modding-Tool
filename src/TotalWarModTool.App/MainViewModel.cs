@@ -83,6 +83,12 @@ public sealed class MainViewModel : ObservableObject
             projects.Changed += (_, _) => CloseTabsOfRemovedProjects();
         }
 
+        // The menu of a project says why it cannot be removed while a tab of it has unsaved changes: that reason changes with them.
+        if (documents is not null)
+        {
+            documents.ModifiedChanged += (_, _) => Explorer.RefreshProjectActions();
+        }
+
         if (projects is not null && projectCommands is not null)
         {
             // The status bar shows the result of the last project command; the menu says why Build is disabled.
@@ -152,6 +158,12 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>Why "Import pack" of the menu is disabled (no game profile, or another operation runs); null when it can run.</summary>
     public string? ProjectImportToolTip => ProjectReason(null);
+
+    /// <summary>
+    /// The tool tip of "Save" and "Save all" of the menu: "busy" while another operation runs, else null. Having nothing to save needs no
+    /// explanation, and the busy test is the one the commands use, so the tool tip and the state of the entry agree.
+    /// </summary>
+    public string? ProjectSaveToolTip => Documents is null || _projects is null || _projects.CanStartOperation ? null : Texts.ProjectBusy;
 
     /// <summary>Scans the packs and loads the schema again. Enabled when a game profile exists and no operation runs.</summary>
     public ICommand RefreshCommand => _refreshCommand;
@@ -266,6 +278,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ProjectBuildToolTip));
         OnPropertyChanged(nameof(ProjectBuildAndInstallToolTip));
         OnPropertyChanged(nameof(ProjectImportToolTip));
+        OnPropertyChanged(nameof(ProjectSaveToolTip));
     }
 
     // A project that left the list takes its tabs with it: they would show files of a project the app no longer knows.

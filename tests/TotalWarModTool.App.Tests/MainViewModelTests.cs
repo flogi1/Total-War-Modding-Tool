@@ -431,6 +431,35 @@ public class MainViewModelWorkspaceTests
         Assert.IsType<InfoTabViewModel>(vm.Tabs.Tabs[0]);                           // the one that was there first
     }
 
+    private static IEnumerable<ProjectNode> ProjectNodesOf(ExplorerViewModel explorer) =>
+        explorer.Groups.OfType<ProjectsGroupNode>().SelectMany(group => group.Children).OfType<ProjectNode>();
+
+    [Fact] public async Task The_remove_entry_of_the_explorer_follows_the_unsaved_changes_of_the_tabs()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c, withDocuments: true);
+        await c.LoadAsync();
+        var table = TotalWarModTool.Tables.TableTsv.Write("x_tables", 0, "db/x_tables/a",
+            new TotalWarModTool.Schema.TableDefinition(0, [new TotalWarModTool.Schema.FieldDefinition("value", TotalWarModTool.Schema.FieldType.I32, "I32", false, null)]),
+            [[42]]).Text!;
+        var state = game.NewProject(m.Projects, "Alpha", (@"db\x_tables\a.tsv", table));
+        await m.Main.OpenProjectFileAsync(state.Id, @"db\x_tables\a.tsv");
+        var tab = Assert.IsType<EditableRowsTabViewModel>(Assert.Single(m.Main.Tabs.Tabs));
+        NodeAction Remove() => Assert.Single(ProjectNodesOf(m.Main.Explorer).Single().Actions,
+            action => action.Header == game.Texts.ProjectActionRemove);
+        Assert.True(Remove().Command.CanExecute(null));
+
+        tab.Rows[0][0] = "50";                                                     // the menu of the node is built again: no stale reason
+
+        Assert.False(Remove().Command.CanExecute(null));
+        Assert.Equal(game.Texts.ProjectRemoveUnsaved, Remove().DisabledReason);
+
+        tab.Document.MarkSaved();
+
+        Assert.True(Remove().Command.CanExecute(null));
+        Assert.Null(Remove().DisabledReason);
+    }
+
     [Fact] public async Task Refresh_reloads_the_projects()
     {
         using var game = new TestGame();

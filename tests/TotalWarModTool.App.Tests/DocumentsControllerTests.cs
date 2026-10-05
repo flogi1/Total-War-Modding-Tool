@@ -161,6 +161,7 @@ public class DocumentsControllerTests
             a.Rows[0][Value] = "50";
             b.Rows[0][Value] = "9";                                    // B, A, B
 
+            setup.Dialogs.UnsavedAnswer = SaveChoice.Discard;          // A is modified: closing it asks since the guard exists
             setup.Tabs.Close(a);
 
             Assert.Same(b, Assert.Single(setup.Controller.EditableTabs));

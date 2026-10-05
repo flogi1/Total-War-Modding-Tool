@@ -159,11 +159,17 @@
 
     <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
                 MouseDown="OnTabControlMouseDown">
-        <!-- The header of a tab: the mark of an outdated tab (the colour of a warning), the title and the close button. -->
+        <!--
+            The header of a tab: the mark of unsaved changes (a dot in the colour of the text), the mark of an outdated tab (the colour of a
+            warning), the title and the close button. The two marks are independent. Only an editable tab can be modified.
+        -->
         <TabControl.ItemTemplate>
             <DataTemplate DataType="{x:Type local:TabViewModel}">
                 <StackPanel Orientation="Horizontal" Background="Transparent" ToolTip="{Binding ToolTip}">
-                    <Ellipse Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Theme.Warning}"
+                    <Ellipse x:Name="ModifiedMark" Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Theme.Text}"
+                             ToolTip="{Binding DataContext.Texts.TabModified, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                             Visibility="{Binding IsModified, Converter={StaticResource BoolToVisibility}}" />
+                    <Ellipse x:Name="StaleMark" Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{DynamicResource Theme.Warning}"
                              ToolTip="{Binding StaleText}"
                              Visibility="{Binding IsStale, Converter={StaticResource BoolToVisibility}}" />
                     <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />

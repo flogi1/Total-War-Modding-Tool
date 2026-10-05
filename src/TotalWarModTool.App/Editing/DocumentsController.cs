@@ -13,8 +13,9 @@ namespace TotalWarModTool.App;
 
 /// <summary>
 /// The editable documents of the open tabs: decides which project files open as an <see cref="EditableRowsTabViewModel"/>, runs the global
-/// undo and redo across the tabs, forgets the steps of a tab that is closed and follows which tabs are modified. Lives on the UI thread.
-/// Sets <see cref="TabsViewModel.SpecialTab"/> of its tabs.
+/// undo and redo across the tabs, forgets the steps of a tab that is closed, follows which tabs are modified, saves them and guards
+/// unsaved changes (closing a tab or the app, removing a project, building). Lives on the UI thread. Sets <see cref="TabsViewModel.SpecialTab"/>
+/// and <see cref="TabsViewModel.CanClose"/> of its tabs.
 /// </summary>
 public sealed partial class DocumentsController
 {
@@ -22,6 +23,7 @@ public sealed partial class DocumentsController
     private const int MaxDetailChars = 300;
 
     private readonly TabsViewModel _tabs;
+    private readonly ProjectsController _projects;
     private readonly ActionHistory _history;
     private readonly IOperationRunner _runner;
     private readonly IEditDialogs _dialogs;
@@ -29,13 +31,18 @@ public sealed partial class DocumentsController
     private readonly AppTexts _texts;
     private readonly RelayCommand _undoCommand;
     private readonly RelayCommand _redoCommand;
+    private readonly RelayCommand _saveCommand;
+    private readonly RelayCommand _saveAllCommand;
 
     // The editable tabs this controller listens to (to their IsModified) and the ones that were modified at the last check.
     private readonly List<EditableRowsTabViewModel> _tracked = [];
     private HashSet<EditableRowsTabViewModel> _modified = [];
 
-    /// <param name="projects">Raises <see cref="ProjectsController.OperationStateChanged"/>, which tells the commands to ask again.</param>
-    /// <param name="runner">While it runs an operation, undo and redo are disabled.</param>
+    /// <param name="projects">
+    /// Raises <see cref="ProjectsController.OperationStateChanged"/>, which tells the commands to ask again; gives the folder of a project, to
+    /// save its files into, and says whether an operation may start.
+    /// </param>
+    /// <param name="runner">While it runs an operation, undo, redo and save are disabled. Saving runs through it.</param>
     public DocumentsController(TabsViewModel tabs, ProjectsController projects, ActionHistory history, IOperationRunner runner,
         IEditDialogs dialogs, IAppLog log, AppTexts texts)
     {
@@ -48,6 +55,7 @@ public sealed partial class DocumentsController
         ArgumentNullException.ThrowIfNull(texts);
 
         _tabs = tabs;
+        _projects = projects;
         _history = history;
         _runner = runner;
         _dialogs = dialogs;
@@ -55,9 +63,13 @@ public sealed partial class DocumentsController
         _texts = texts;
         _undoCommand = new RelayCommand(() => Step(undo: true), () => CanStep(undo: true));
         _redoCommand = new RelayCommand(() => Step(undo: false), () => CanStep(undo: false));
+        _saveCommand = new RelayCommand(SaveSelected, CanSaveSelected);
+        _saveAllCommand = new RelayCommand(SaveAllModified, CanSaveAll);
 
         tabs.SpecialTab = CreateEditableTab;
+        tabs.CanClose = CanCloseTab;
         tabs.Tabs.CollectionChanged += OnTabsCollectionChanged;
+        tabs.Changed += (_, _) => RaiseSaveCommandsChanged();
         history.Changed += RaiseCommandsChanged;
         projects.OperationStateChanged += (_, _) => RaiseCommandsChanged();
         SyncTabs();
@@ -165,6 +177,7 @@ public sealed partial class DocumentsController
     {
         _undoCommand.RaiseCanExecuteChanged();
         _redoCommand.RaiseCanExecuteChanged();
+        RaiseSaveCommandsChanged();
     }
 
     // ---- tabs and modified state -----------------------------------------------------------------------------------------------------
@@ -209,6 +222,7 @@ public sealed partial class DocumentsController
         if (!modified.SetEquals(_modified))
         {
             _modified = modified;
+            RaiseSaveCommandsChanged();
             ModifiedChanged?.Invoke(this, EventArgs.Empty);
         }
     }

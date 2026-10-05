@@ -244,12 +244,43 @@ public class TabsViewTests
         setup.ViewModel.Add(Pack, TextEntry("a.txt"), null);
         Pump(setup.Window);
         var item = Assert.IsType<TabItem>(setup.TabControl.ItemContainerGenerator.ContainerFromIndex(0));
-        var mark = Descendants<Ellipse>(item).Single();
+        var mark = Descendants<Ellipse>(item).Single(ellipse => ellipse.Name == "StaleMark");
         Assert.Equal(Visibility.Collapsed, mark.Visibility);
 
         setup.ViewModel.MarkStale(Pack.Path);
         Pump(setup.Window);
         Assert.Equal((Visibility.Visible, Texts.TabStale), (mark.Visibility, mark.ToolTip));
+    });
+
+    [Fact] public void A_modified_tab_shows_its_own_mark_apart_from_the_stale_mark() => Sta.Run(() =>
+    {
+        var setup = Create();
+        var document = TotalWarModTool.Editing.RowsDocument.ForLoc("text/db/a.loc", [new LocRow("k", "Text", false)]);
+        var tab = new EditableRowsTabViewModel(TabSource.ForProject(Guid.NewGuid(), "Project"), "text/db/a.loc.tsv", Texts, setup.ViewModel.Close, document,
+            new TotalWarModTool.UndoRedo.ActionHistory());
+        setup.ViewModel.Tabs.Add(tab);
+        setup.ViewModel.Add(Pack, TextEntry("b.txt"), null);                      // a tab type that has no such property of its own
+        Pump(setup.Window);
+        var item = Assert.IsType<TabItem>(setup.TabControl.ItemContainerGenerator.ContainerFromIndex(0));
+        var other = Assert.IsType<TabItem>(setup.TabControl.ItemContainerGenerator.ContainerFromIndex(1));
+        var modified = Descendants<Ellipse>(item).Single(ellipse => ellipse.Name == "ModifiedMark");
+        var stale = Descendants<Ellipse>(item).Single(ellipse => ellipse.Name == "StaleMark");
+        var otherModified = Descendants<Ellipse>(other).Single(ellipse => ellipse.Name == "ModifiedMark");
+        Assert.Equal((Visibility.Collapsed, Visibility.Collapsed, Visibility.Collapsed), (modified.Visibility, stale.Visibility, otherModified.Visibility));
+
+        tab.Rows[0][0] = "other";
+        Pump(setup.Window);
+        Assert.Equal((Visibility.Visible, Texts.TabModified), (modified.Visibility, modified.ToolTip));
+        Assert.Equal(Visibility.Collapsed, stale.Visibility);
+        Assert.Equal(Visibility.Collapsed, otherModified.Visibility);
+
+        setup.ViewModel.MarkStale(tab.PackPath);                                   // both marks can show at the same time
+        Pump(setup.Window);
+        Assert.Equal((Visibility.Visible, Visibility.Visible), (modified.Visibility, stale.Visibility));
+
+        tab.Document.MarkSaved();
+        Pump(setup.Window);
+        Assert.Equal((Visibility.Collapsed, Visibility.Visible), (modified.Visibility, stale.Visibility));
     });
 
     [Fact] public void Text_tab_is_a_read_only_monospace_box_with_a_notice_only_when_truncated() => Sta.Run(() =>

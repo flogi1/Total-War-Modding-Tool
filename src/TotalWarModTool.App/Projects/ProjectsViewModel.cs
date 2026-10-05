@@ -46,6 +46,18 @@ public sealed class ProjectsViewModel : ObservableObject
         projects.OperationStateChanged += (_, _) => RaiseCanExecuteChanged();
     }
 
+    /// <summary>
+    /// Set by the composition root: the text that says why the project cannot leave the list because it has unsaved changes (null when it
+    /// can). Added to <see cref="RemoveDisabledReason"/>; <see cref="Remove"/> refuses as well.
+    /// </summary>
+    public Func<Guid, string?>? UnsavedReason { get; set; }
+
+    /// <summary>
+    /// Set by the composition root: awaited at the start of a build for the project. False stops the build without a message (the
+    /// question already told the user).
+    /// </summary>
+    public Func<Guid, Task<bool>>? BeforeBuild { get; set; }
+
     public ICommand NewProjectCommand => _newProject;
 
     public ICommand OpenProjectCommand => _openProject;
@@ -92,10 +104,19 @@ public sealed class ProjectsViewModel : ObservableObject
         Complete(_projects.SetActive(id), _texts.ProjectMessageTitle, null);
     }
 
-    /// <summary>Takes the project out of the list without asking: the folder stays, and "Open project" brings it back.</summary>
+    /// <summary>
+    /// Takes the project out of the list without asking: the folder stays, and "Open project" brings it back. Refused with the text of
+    /// <see cref="RemoveDisabledReason"/> while there is one (an unknown project, an installed pack, unsaved changes).
+    /// </summary>
     public void Remove(Guid id)
     {
         StatusMessage = null;
+        if (RemoveDisabledReason(id) is { } reason)
+        {
+            _dialogs.ShowMessage(_texts.ProjectMessageTitle, reason);
+            return;
+        }
+
         Complete(_projects.Remove(id), _texts.ProjectMessageTitle, null);
     }
 
@@ -133,14 +154,14 @@ public sealed class ProjectsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// The text that says why the project cannot be removed from the list (unknown, or a pack the tool installed for it is still recorded:
-    /// uninstall first); null when it can.
+    /// The text that says why the project cannot be removed from the list (unknown, a pack the tool installed for it is still recorded:
+    /// uninstall first, or <see cref="UnsavedReason"/>: it has unsaved changes); null when it can.
     /// </summary>
     public string? RemoveDisabledReason(Guid id) => StateOf(id) switch
     {
         null => _texts.ProjectUnknown,
         { Installed: not null } => _texts.ProjectRemoveInstalled,
-        _ => null,
+        _ => UnsavedReason?.Invoke(id),
     };
 
     // ---- commands ----------------------------------------------------------------------------------------------------------------
@@ -264,6 +285,12 @@ public sealed class ProjectsViewModel : ObservableObject
 
     private async Task BuildCoreAsync(Guid id, bool install)
     {
+        // Unsaved changes are not part of a build: the hook asks and saves. No (or a save that failed) stops here, the hook told the user.
+        if (BeforeBuild is { } before && !await before(id))
+        {
+            return;
+        }
+
         var report = await _projects.BuildAsync(id, install);
         if (report is null)
         {

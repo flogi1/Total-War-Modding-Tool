@@ -125,6 +125,88 @@ public class ProjectWindowsTests
         Assert.True(Find<Button>(window, "OkButton").IsEnabled);
     });
 
+    // The automation click is posted to the dispatcher: this lets it run (a closed window has no layout to update, so Pump does not fit).
+    private static void Drain(Window window) => window.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+
+    // Shows the window without a disposable closer: the test clicks a button, which closes it. Whatever is still open at the end is closed.
+    private static void ShowAndRun(Window window, Action<List<Button>> test)
+    {
+        var closed = false;
+        window.Closed += (_, _) => closed = true;
+        AddControlStyles(window);
+        window.Show();
+        Pump(window);
+        try
+        {
+            test(VisualDescendants<Button>(window).ToList());
+        }
+        finally
+        {
+            if (!closed)
+            {
+                window.Close();
+            }
+        }
+    }
+
+    [Fact] public void The_choice_window_returns_the_clicked_button_and_cancel_for_escape() => Sta.Run(() =>
+    {
+        string[] files = ["db/x_tables/a.tsv", "db/x_tables/b.tsv"];
+        string[] texts = ["Save", "Discard", "Cancel"];
+        ChoiceWindow Make(IReadOnlyList<string>? lines = null) => new("Unsaved changes", "What should happen?", lines ?? files, texts, 0, 2);
+
+        // The content, the default button (Enter) and the cancel button (Esc).
+        var window = Make();
+        ShowAndRun(window, buttons =>
+        {
+            Assert.Equal(("Unsaved changes", WindowStartupLocation.CenterOwner, false), (window.Title, window.WindowStartupLocation, window.ShowInTaskbar));
+            Assert.Equal("What should happen?", Find<TextBlock>(window, "MessageText").Text);
+            var list = Find<ItemsControl>(window, "LinesList");
+            Assert.Equal(files, list.Items.Cast<string>());
+            Assert.True(list.IsVisible);
+            Assert.Equal(texts, buttons.Select(button => (string)button.Content));
+            Assert.Equal([true, false, false], buttons.Select(button => button.IsDefault));
+            Assert.Equal([false, false, true], buttons.Select(button => button.IsCancel));
+            Assert.Equal(2, window.Result);                          // nothing clicked yet: the answer is the cancel button
+        });
+
+        // Every button returns its own index and closes the window.
+        for (var index = 0; index < texts.Length; index++)
+        {
+            var clicked = Make();
+            var expected = index;
+            var wasClosed = false;
+            clicked.Closed += (_, _) => wasClosed = true;
+            ShowAndRun(clicked, buttons =>
+            {
+                Click(buttons[expected]);
+                Drain(clicked);
+                Assert.True(wasClosed);
+                Assert.Equal(expected, clicked.Result);
+            });
+        }
+
+        // The close box and Esc end the window without a click: the cancel button's answer, also after the window was closed.
+        var closed = Make();
+        ShowAndRun(closed, _ =>
+        {
+            closed.Close();
+            Assert.Equal(2, closed.Result);
+        });
+
+        // Two buttons and no lines: the list is hidden.
+        var two = new ChoiceWindow("Build", "Save all and build?", [], ["Save all and build", "Cancel"], 0, 1);
+        ShowAndRun(two, buttons =>
+        {
+            Assert.False(Find<ItemsControl>(two, "LinesList").IsVisible);
+            Assert.Equal([true, false], buttons.Select(button => button.IsDefault));
+            Assert.Equal([false, true], buttons.Select(button => button.IsCancel));
+            Click(buttons[0]);
+            Drain(two);
+            Assert.Equal(0, two.Result);
+        });
+    });
+
     [Fact] public void The_report_window_shows_summary_and_sections() => Sta.Run(() =>
     {
         var report = new Report("Import report", "Imported 1 table.\nOne entry was left out.",

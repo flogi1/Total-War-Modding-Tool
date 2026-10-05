@@ -130,6 +130,13 @@ internal sealed class TestGame : IDisposable
         DocumentsController? documents = withDocuments
             ? new DocumentsController(new TabsViewModel(Texts), projects, new TotalWarModTool.UndoRedo.ActionHistory(), runner ?? Runner, new FakeEditDialogs(), Log, Texts)
             : null;
+        if (documents is not null)
+        {
+            // The two hooks the composition root sets.
+            commands.UnsavedReason = documents.UnsavedReason;
+            commands.BeforeBuild = documents.ConfirmSaveBeforeBuildAsync;
+        }
+
         var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents);
         return new MainSetup(main, projects, dialogs, documents);
     }

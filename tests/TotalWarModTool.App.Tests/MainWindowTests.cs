@@ -37,12 +37,12 @@ public class MainWindowTests
         public void Dispose() => Setup.Dispose();
     }
 
-    // Like Create, over a main view model with projects (the fake dialogs are in Main).
-    private static async Task<ProjectSetup> CreateWithProjects()
+    // Like Create, over a main view model with projects (the fake dialogs are in Main) and, by default, with the editable documents.
+    private static async Task<ProjectSetup> CreateWithProjects(bool withDocuments = true)
     {
         var game = new TestGame();
         var controller = game.NewController();
-        var main = game.NewMain(controller);
+        var main = game.NewMain(controller, withDocuments: withDocuments);
         await controller.LoadAsync();
         var window = new MainWindow(main.Main);
         window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
@@ -141,28 +141,80 @@ public class MainWindowTests
         var project = menus[2];
         Assert.Equal(Visibility.Visible, project.Visibility);
 
+        // The two save entries sit above the separator in front of Build (see The_project_menu_has_save_and_save_all_with_their_gestures).
         var entries = project.Items.Cast<object>().ToList();
-        Assert.Equal(6, entries.Count);
-        Assert.IsType<Separator>(entries[3]);
+        Assert.Equal(8, entries.Count);
+        Assert.IsType<Separator>(entries[5]);
         var items = entries.OfType<MenuItem>().ToList();
-        Assert.Equal([texts.ProjectNewTitle, texts.MenuProjectOpen, texts.MenuProjectImport, texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall],
-            items.Select(i => i.Header));
-        Assert.Equal([projects.NewProjectCommand, projects.OpenProjectCommand, projects.ImportPackCommand, projects.BuildActiveCommand, projects.BuildAndInstallActiveCommand],
-            items.Select(i => i.Command));
-        Assert.Equal(["", "", "", texts.MenuProjectBuildGesture, texts.MenuProjectBuildAndInstallGesture], items.Select(i => i.InputGestureText ?? ""));
+        Assert.Equal([texts.ProjectNewTitle, texts.MenuProjectOpen, texts.MenuProjectImport, texts.MenuProjectSave, texts.MenuProjectSaveAll,
+            texts.BuildMessageTitle, texts.ProjectActionBuildAndInstall], items.Select(i => i.Header));
+        Assert.Equal([projects.NewProjectCommand, projects.OpenProjectCommand, projects.ImportPackCommand, setup.Setup.ViewModel.Documents!.SaveCommand,
+            setup.Setup.ViewModel.Documents!.SaveAllCommand, projects.BuildActiveCommand, projects.BuildAndInstallActiveCommand], items.Select(i => i.Command));
+        Assert.Equal(["", "", "", texts.MenuProjectSaveGesture, texts.MenuProjectSaveAllGesture, texts.MenuProjectBuildGesture, texts.MenuProjectBuildAndInstallGesture],
+            items.Select(i => i.InputGestureText ?? ""));
 
         // A menu item asks its command when the menu opens.
         project.IsSubmenuOpen = true;
         Pump(window);
-        Assert.False(items[3].Command.CanExecute(null));
-        Assert.False(items[3].IsEnabled);
+        Assert.False(items[5].Command.CanExecute(null));
+        Assert.False(items[5].IsEnabled);
         project.IsSubmenuOpen = false;
-        Assert.Equal(texts.ProjectNoneActive, items[3].ToolTip);
-        Assert.True(ToolTipService.GetShowOnDisabled(items[3]));
+        Assert.Equal(texts.ProjectNoneActive, items[5].ToolTip);
+        Assert.True(ToolTipService.GetShowOnDisabled(items[5]));
 
         var bindings = window.InputBindings.OfType<KeyBinding>().ToList();
         Assert.Same(projects.BuildActiveCommand, Assert.Single(bindings, b => b.Key == Key.B && b.Modifiers == ModifierKeys.Control).Command);
         Assert.Same(projects.BuildAndInstallActiveCommand, Assert.Single(bindings, b => b.Key == Key.B && b.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)).Command);
+    });
+
+    [Fact] public void The_project_menu_has_save_and_save_all_with_their_gestures() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var viewModel = setup.Setup.ViewModel;
+        var documents = viewModel.Documents!;
+        var project = Descendants<MenuItem>(window).ToList()[2];
+        var items = project.Items.OfType<MenuItem>().ToList();
+        var save = items.Single(item => Equals(item.Header, texts.MenuProjectSave));
+        var saveAll = items.Single(item => Equals(item.Header, texts.MenuProjectSaveAll));
+
+        // Above the separator that stands in front of Build, behind the entries that open or create a project.
+        var entries = project.Items.Cast<object>().ToList();
+        Assert.Equal((3, 4, 5), (entries.IndexOf(save), entries.IndexOf(saveAll), entries.FindIndex(entry => entry is Separator)));
+        Assert.Same(documents.SaveCommand, save.Command);
+        Assert.Same(documents.SaveAllCommand, saveAll.Command);
+        Assert.Equal(("Ctrl+S", "Ctrl+Shift+S"), (texts.MenuProjectSaveGesture, texts.MenuProjectSaveAllGesture));
+        Assert.Equal((texts.MenuProjectSaveGesture, texts.MenuProjectSaveAllGesture), (save.InputGestureText, saveAll.InputGestureText));
+
+        var bindings = window.InputBindings.OfType<KeyBinding>().ToList();
+        Assert.Same(documents.SaveCommand, Assert.Single(bindings, b => b.Key == Key.S && b.Modifiers == ModifierKeys.Control).Command);
+        Assert.Same(documents.SaveAllCommand, Assert.Single(bindings, b => b.Key == Key.S && b.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)).Command);
+
+        // Nothing to save: disabled, and no tool tip, because "nothing to save" needs no explanation. While an operation runs: the busy text.
+        project.IsSubmenuOpen = true;
+        Pump(window);
+        Assert.False(save.IsEnabled);
+        Assert.False(saveAll.IsEnabled);
+        Assert.Null(save.ToolTip);
+        Assert.Null(saveAll.ToolTip);
+        Assert.True(ToolTipService.GetShowOnDisabled(save));
+        Assert.True(ToolTipService.GetShowOnDisabled(saveAll));
+        project.IsSubmenuOpen = false;
+
+        setup.Setup.Game.Runner.IsRunning = true;
+        Assert.Equal(texts.ProjectBusy, viewModel.ProjectSaveToolTip);
+        setup.Setup.Game.Runner.IsRunning = false;
+        Assert.Null(viewModel.ProjectSaveToolTip);
+    });
+
+    [Fact] public void The_save_entries_are_collapsed_without_documents() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects(withDocuments: false);
+        var project = Descendants<MenuItem>(setup.Setup.Window).ToList()[2];
+        var texts = setup.Setup.Game.Texts;
+
+        var save = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.MenuProjectSave));
+        var saveAll = project.Items.OfType<MenuItem>().Single(item => Equals(item.Header, texts.MenuProjectSaveAll));
+        Assert.Equal((Visibility.Collapsed, Visibility.Collapsed), (save.Visibility, saveAll.Visibility));
     });
 
     [Fact] public void The_project_menu_is_hidden_without_projects() => Sta.RunAsync(async () =>

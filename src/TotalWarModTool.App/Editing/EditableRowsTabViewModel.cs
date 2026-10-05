@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
 using TotalWarModTool.Editing;
+using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
 using TotalWarModTool.UndoRedo;
@@ -68,7 +69,13 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     public ObservableCollection<EditRow> Rows => _rows;
 
     /// <summary>True while the document differs from the state at its last save. Raises <c>PropertyChanged</c>; the tab header shows a mark.</summary>
-    public bool IsModified => _document.IsModified;
+    public override bool IsModified => _document.IsModified;
+
+    /// <summary>
+    /// The state of the file right after the last save of this tab (null before the first save). A later check for outside changes compares
+    /// the file with it.
+    /// </summary>
+    internal FileFingerprint? SavedFingerprint { get; set; }
 
     /// <summary>The rows the user selected, as indexes; set by the view. Indexes outside the rows are ignored by the commands.</summary>
     public IReadOnlyList<int> SelectedRows

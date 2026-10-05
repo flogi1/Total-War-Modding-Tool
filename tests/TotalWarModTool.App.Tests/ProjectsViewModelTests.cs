@@ -819,6 +819,68 @@ public class ProjectsViewModelTests
         Assert.Null(vm.RemoveDisabledReason(state.Id));
     }
 
+    [Fact] public async Task Remove_is_disabled_with_a_reason_while_the_project_has_unsaved_changes()
+    {
+        using var setup = await CreateAsync();
+        var vm = setup.ViewModel;
+        var state = NewProject(setup);
+        string? reason = "Save first.";
+        vm.UnsavedReason = id => id == state.Id ? reason : null;
+
+        Assert.Equal("Save first.", vm.RemoveDisabledReason(state.Id));
+        Assert.Equal(setup.Texts.ProjectUnknown, vm.RemoveDisabledReason(Guid.NewGuid()));       // an unknown project keeps its own reason
+
+        vm.Remove(state.Id);                                                                      // refused with the reason, nothing changes
+        Assert.Equal((setup.Texts.ProjectMessageTitle, "Save first."), Assert.Single(setup.Dialogs.Messages));
+        Assert.Single(setup.Projects.Projects);
+
+        reason = null;
+        Assert.Null(vm.RemoveDisabledReason(state.Id));
+        vm.Remove(state.Id);
+        Assert.Empty(setup.Projects.Projects);
+        Assert.Single(setup.Dialogs.Messages);
+    }
+
+    [Fact] public async Task Build_with_unsaved_changes_asks_to_save_all_first()
+    {
+        using var setup = await CreateAsync();
+        var vm = setup.ViewModel;
+        var state = NewProject(setup);
+        var asked = new List<Guid>(); var proceed = false;
+        vm.BeforeBuild = id =>
+        {
+            asked.Add(id);
+            return Task.FromResult(proceed);
+        };
+        var runs = setup.Game.Runner.Titles.Count;
+
+        // No: nothing is built, and the view model says nothing of its own (the question already told the user).
+        await vm.BuildAsync(state.Id, install: false);
+        Assert.Equal([state.Id], asked);
+        Assert.Equal(runs, setup.Game.Runner.Titles.Count);
+        Assert.Null(vm.StatusMessage);
+        Assert.Empty(setup.Dialogs.Messages);
+        Assert.Empty(setup.Dialogs.Reports);
+
+        // Yes: the build runs, also from the command that builds and installs.
+        proceed = true;
+        await vm.BuildAsync(state.Id, install: false);
+        Assert.Equal(2, asked.Count);
+        Assert.Equal(setup.Texts.OperationBuild("My Mod"), Assert.Single(setup.Game.Runner.Titles.Skip(runs)));
+        Assert.NotNull(vm.StatusMessage);
+
+        vm.BuildAndInstallActiveCommand.Execute(null);
+        Assert.Equal(3, asked.Count);
+        Assert.Equal(setup.Texts.OperationBuildAndInstall("My Mod"), setup.Game.Runner.Titles[^1]);
+
+        // Without the hook the build starts at once.
+        vm.BeforeBuild = null;
+        var before = setup.Game.Runner.Titles.Count;
+        await vm.BuildAsync(state.Id, install: false);
+        Assert.Equal(before + 1, setup.Game.Runner.Titles.Count);
+        Assert.Equal(3, asked.Count);
+    }
+
     [Fact] public async Task The_import_command_waits_for_the_start_up_load_and_for_a_running_operation()
     {
         using var game = new TestGame();

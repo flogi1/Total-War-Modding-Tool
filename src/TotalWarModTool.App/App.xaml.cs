@@ -166,7 +166,11 @@ public partial class App : Application
 
         // The editable tabs of the project files and the global undo history. The controller owns the list of tabs the main view model shows.
         var documents = new DocumentsController(new TabsViewModel(texts), projects, new ActionHistory(), progressRunner,
-            new EditDialogs(() => mainWindow), log, texts);
+            new EditDialogs(texts, () => mainWindow), log, texts);
+
+        // A project with unsaved changes cannot leave the list, and a build asks to save them first.
+        projectCommands.UnsavedReason = documents.UnsavedReason;
+        projectCommands.BeforeBuild = documents.ConfirmSaveBeforeBuildAsync;
 
         // The button of the explorer ("game not found") leads to the page "Game"; the menu entry keeps the page that was shown last.
         var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace, () =>
@@ -186,6 +190,16 @@ public partial class App : Application
 
         var window = new MainWindow(viewModel);
         mainWindow = window;
+
+        // Unsaved changes: a close that the controller does not allow now is cancelled; the controller asks and, when the answer is "go on", has the
+        // window closed again. That close is posted, because a window cannot be closed from inside its own Closing event.
+        window.Closing += (_, closing) =>
+        {
+            if (!documents.RequestAppClose(() => window.Dispatcher.BeginInvoke(window.Close)))
+            {
+                closing.Cancel = true;
+            }
+        };
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
 
