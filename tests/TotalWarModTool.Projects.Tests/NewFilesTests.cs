@@ -113,7 +113,50 @@ public class NewFilesTests
         foreach (var name in new[] { "a", "my mod", "ünit", "a-b_c(1)", new string('a', 100), "NULL1", "comfort" })
         {
             Assert.Null(NewFiles.NameProblem(name));
+            Assert.Equal(NameIssue.None, NewFiles.NameIssueOf(name));
         }
+    }
+
+    // Every row of BadNames with the kind of its problem.
+    public static TheoryData<string, NameIssue> BadNameIssues() => new()
+    {
+        { string.Empty, NameIssue.Empty },
+        { " a", NameIssue.LeadingOrTrailingSpace },
+        { "a ", NameIssue.LeadingOrTrailingSpace },
+        { "a.b", NameIssue.Dot },
+        { "a/b", NameIssue.Separator },
+        { "a\\b", NameIssue.Separator },
+        { "..", NameIssue.Dot },
+        { "NUL", NameIssue.ReservedName },
+        { "a;b", NameIssue.Semicolon },
+        { "a\tb", NameIssue.TabOrLineBreak },
+        { "a\nb", NameIssue.TabOrLineBreak },
+        { "a\rb", NameIssue.TabOrLineBreak },
+        { "a:b", NameIssue.InvalidCharacter },
+        { "a|b", NameIssue.InvalidCharacter },
+        { "a" + (char)0xD800, NameIssue.UnpairedSurrogate },
+        { new string('a', 101), NameIssue.TooLong },
+        { "~$x", NameIssue.Ignored },
+        { "~$", NameIssue.Ignored },
+        { "a" + (char)0x202E + "b", NameIssue.InvisibleCharacter },
+        { "a" + (char)0x200B, NameIssue.InvisibleCharacter },
+        { "a" + (char)0x85 + "b", NameIssue.InvisibleCharacter },
+        { (char)0x9F + "a", NameIssue.InvisibleCharacter },
+        { "a" + (char)0xDC00 + "b", NameIssue.UnpairedSurrogate },
+        { "a" + (char)0x00 + "b", NameIssue.InvalidCharacter },
+    };
+
+    [Theory, MemberData(nameof(BadNameIssues))]
+    public void Every_bad_name_has_the_kind_of_its_problem_and_NameProblem_agrees(string name, NameIssue expected)
+    {
+        Assert.Equal(expected, NewFiles.NameIssueOf(name));
+        Assert.NotNull(NewFiles.NameProblem(name));
+    }
+
+    [Fact] public void The_issue_table_covers_every_bad_name()
+    {
+        var mapped = ((IEnumerable<object[]>)BadNameIssues()).Select(row => (string)row[0]).ToList();
+        Assert.Equal(((IEnumerable<object[]>)BadNames()).Select(row => (string)row[0]), mapped);
     }
 
     [Fact] public void Adopt_of_a_table_gets_the_new_name_in_the_path_and_in_the_meta_line()

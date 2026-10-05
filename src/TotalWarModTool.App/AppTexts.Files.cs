@@ -65,8 +65,51 @@ public sealed partial class AppTexts
     /// <param name="reason">Why the file cannot be created; English text of the library. Data, not a UI text.</param>
     public string FileCannotCreate(string reason) => F("file.cannotCreate", "The file cannot be created: {0}", reason);
 
-    /// <param name="reason">Why the name cannot be used; English text of the library. Data, not a UI text.</param>
-    public string FileNameInvalid(string reason) => F("file.nameInvalid", "This name cannot be used: {0}", reason);
+    public string FileNameEmpty => T("file.name.empty", "The name is empty. Enter a name.");
+
+    /// <param name="maxChars">The longest allowed name, in characters.</param>
+    public string FileNameTooLong(int maxChars) => F("file.name.tooLong", "The name may have at most {0} characters.", maxChars);
+
+    public string FileNameSeparator => T("file.name.separator", "The name must not contain a slash or a backslash.");
+
+    public string FileNameDot => T("file.name.dot", "The name must not contain a dot.");
+
+    public string FileNameLeadingOrTrailingSpace => T("file.name.space", "The name must not start or end with a space.");
+
+    public string FileNameTabOrLineBreak => T("file.name.tabOrLineBreak", "The name must not contain a tab or a line break.");
+
+    public string FileNameSemicolon => T("file.name.semicolon", "The name must not contain a semicolon (;).");
+
+    public string FileNameUnpairedSurrogate => T("file.name.unpairedSurrogate",
+        "The name contains a broken character (an unpaired surrogate). Type the name again.");
+
+    public string FileNameInvisibleCharacter => T("file.name.invisible", "The name must not contain invisible control characters.");
+
+    public string FileNameIgnored => T("file.name.ignored",
+        "A project ignores files with this name, so the file would never get into the pack. Choose a different name.");
+
+    public string FileNameInvalidCharacter => T("file.name.invalidCharacter",
+        "The name must not contain characters that Windows does not allow in file names, such as : | ? * < >.");
+
+    public string FileNameReservedName => T("file.name.reserved", "Windows reserves this name (for example NUL, CON or COM1). Choose a different name.");
+
+    /// <summary>The text for a name the rules refuse; empty for <see cref="NameIssue.None"/>.</summary>
+    public string FileNameIssueText(NameIssue issue) => issue switch
+    {
+        NameIssue.Empty => FileNameEmpty,
+        NameIssue.TooLong => FileNameTooLong(NewFiles.MaxNameLength),
+        NameIssue.Separator => FileNameSeparator,
+        NameIssue.Dot => FileNameDot,
+        NameIssue.LeadingOrTrailingSpace => FileNameLeadingOrTrailingSpace,
+        NameIssue.TabOrLineBreak => FileNameTabOrLineBreak,
+        NameIssue.Semicolon => FileNameSemicolon,
+        NameIssue.UnpairedSurrogate => FileNameUnpairedSurrogate,
+        NameIssue.InvisibleCharacter => FileNameInvisibleCharacter,
+        NameIssue.Ignored => FileNameIgnored,
+        NameIssue.InvalidCharacter => FileNameInvalidCharacter,
+        NameIssue.ReservedName => FileNameReservedName,
+        _ => string.Empty,
+    };
 
     /// <param name="file">The file, escaped. Data, not a UI text.</param>
     public string FileTabUnsaved(string file) => F("file.tabUnsaved",

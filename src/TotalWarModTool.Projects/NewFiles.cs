@@ -5,6 +5,49 @@ using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Projects;
 
+/// <summary>Why a name cannot be the name part of a new table or loc file (<see cref="NewFiles.NameIssueOf"/>).</summary>
+public enum NameIssue
+{
+    /// <summary>The name can be used.</summary>
+    None,
+
+    /// <summary>The name is empty.</summary>
+    Empty,
+
+    /// <summary>The name is longer than 100 characters.</summary>
+    TooLong,
+
+    /// <summary>The name contains '/' or '\'.</summary>
+    Separator,
+
+    /// <summary>The name contains a dot (the extension decides the kind of the file).</summary>
+    Dot,
+
+    /// <summary>The name starts or ends with a space.</summary>
+    LeadingOrTrailingSpace,
+
+    /// <summary>The name contains a tab or a line break.</summary>
+    TabOrLineBreak,
+
+    /// <summary>The name contains ';' (the separator of the meta line).</summary>
+    Semicolon,
+
+    /// <summary>The name contains an unpaired surrogate character.</summary>
+    UnpairedSurrogate,
+
+    /// <summary>The name contains an invisible control character (bidi control, zero-width character, C1 control).</summary>
+    InvisibleCharacter,
+
+    /// <summary>A project ignores files with this name.</summary>
+    Ignored,
+
+    /// <summary>The name contains a character that a Windows file name cannot hold.</summary>
+    InvalidCharacter,
+
+    /// <summary>The name is a reserved Windows device name (NUL, CON, COM1, ...).</summary>
+    ReservedName,
+}
+
 /// <summary>RelativeFile is below pack\ with '\'. Note says why a table or loc entry stayed binary (null otherwise).</summary>
 public sealed record NewFile(string RelativeFile, byte[] Content, ProjectFileKind Kind, string? Note);
 
@@ -20,7 +63,8 @@ public static class NewFiles
     /// <summary>The folder of loc files inside a pack.</summary>
     public const string LocFolder = "text/db";
 
-    private const int MaxNameLength = 100;
+    /// <summary>The longest name part of a new table or loc file, in characters.</summary>
+    public const int MaxNameLength = 100;
     private const string LocExtension = ".loc";
     private const string DbFolder = "db";
     private const string TextExtension = ".tsv";
@@ -50,51 +94,73 @@ public static class NewFiles
         return result;
     }
 
-    /// <summary>Null when the name can be the name part of a table or loc file; otherwise a short English reason.</summary>
-    public static string? NameProblem(string name)
+    /// <summary>Null when the name can be the name part of a table or loc file; otherwise a short English reason (one per <see cref="NameIssue"/>).</summary>
+    public static string? NameProblem(string name) => NameIssueOf(name) switch
+    {
+        NameIssue.None => null,
+        NameIssue.Empty => "The name is empty.",
+        NameIssue.TooLong => $"The name is longer than {MaxNameLength} characters.",
+        NameIssue.Separator => "The name contains a slash or a backslash.",
+        NameIssue.Dot => "The name contains a dot.",
+        NameIssue.LeadingOrTrailingSpace => "The name starts or ends with a space.",
+        NameIssue.TabOrLineBreak => "The name contains a tab or a line break.",
+        NameIssue.Semicolon => "The name contains ';'.",
+        NameIssue.UnpairedSurrogate => "The name contains an unpaired surrogate character.",
+        NameIssue.InvisibleCharacter => "The name contains an invisible control character.",
+        NameIssue.Ignored => IgnoredReason,
+        NameIssue.InvalidCharacter => "The name contains a character that is not allowed in a Windows file name.",
+        NameIssue.ReservedName => "The name is a reserved Windows device name.",
+        _ => "The name cannot be used.",
+    };
+
+    /// <summary>
+    /// Why the name cannot be the name part of a table or loc file, or <see cref="NameIssue.None"/>. The checks run in a fixed order and the
+    /// first that fails decides; <see cref="NameProblem"/> is null exactly for <see cref="NameIssue.None"/>.
+    /// </summary>
+    public static NameIssue NameIssueOf(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
 
         if (name.Length == 0)
         {
-            return "The name is empty.";
+            return NameIssue.Empty;
         }
 
         if (name.Length > MaxNameLength)
         {
-            return $"The name is longer than {MaxNameLength} characters.";
+            return NameIssue.TooLong;
         }
 
         if (name.Contains('\\') || name.Contains('/'))
         {
-            return "The name contains a slash or a backslash.";
+            return NameIssue.Separator;
         }
 
         // The extensions .tsv and .loc.tsv decide what kind of file it is, so the name has none of its own.
         if (name.Contains('.'))
         {
-            return "The name contains a dot.";
+            return NameIssue.Dot;
         }
 
         if (name[0] == ' ' || name[^1] == ' ')
         {
-            return "The name starts or ends with a space.";
+            return NameIssue.LeadingOrTrailingSpace;
         }
 
         if (name.AsSpan().IndexOfAny('\t', '\n', '\r') >= 0)
         {
-            return "The name contains a tab or a line break.";
+            return NameIssue.TabOrLineBreak;
         }
 
         // The meta line of the text file carries the pack path, and ';' separates its parts.
         if (name.Contains(';'))
         {
-            return "The name contains ';'.";
+            return NameIssue.Semicolon;
         }
 
         if (!PackNameRules.IsWellFormed(name))
         {
-            return "The name contains an unpaired surrogate character.";
+            return NameIssue.UnpairedSurrogate;
         }
 
         // Invisible characters (bidi controls, zero-width characters, C1 controls) make names that look the same but are not.
@@ -102,16 +168,24 @@ public static class NewFiles
         {
             if (rune.Value is >= 0x80 and <= 0x9F || Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format)
             {
-                return "The name contains an invisible control character.";
+                return NameIssue.InvisibleCharacter;
             }
         }
 
         if (IsIgnored(name + TextExtension) || IsIgnored(name + LocTextExtension))
         {
-            return IgnoredReason;
+            return NameIssue.Ignored;
         }
 
-        return ProjectLayout.UnsafePathReason(DbFolder + "/" + ProbeTable + "/" + name);
+        // What is left of the path rules for a name that passed the checks above: a character Windows does not allow, and a device name.
+        if (ProjectLayout.UnsafePathReason(DbFolder + "/" + ProbeTable + "/" + name) is null)
+        {
+            return NameIssue.None;
+        }
+
+        return PackNameRules.IsReservedDeviceName(name) && !name.Any(ProjectLayout.IsInvalidSegmentChar)
+            ? NameIssue.ReservedName
+            : NameIssue.InvalidCharacter;
     }
 
     // The problem of the final file below the pack folder (relative, with '\'): what ResolveForWrite would refuse, or a file name that a

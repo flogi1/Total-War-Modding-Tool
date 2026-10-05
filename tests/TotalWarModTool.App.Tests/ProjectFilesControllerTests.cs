@@ -1,3 +1,4 @@
+using TotalWarModTool.Localization;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
@@ -924,11 +925,10 @@ public class ProjectFilesControllerTests
         var same = Refused(await setup.Files.RenameAsync(setup.Id, TableA, "a"));
         var empty = Refused(await setup.Files.RenameAsync(setup.Id, TableA, ""));
 
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), dot.Message, StringComparison.Ordinal);
-        Assert.Contains("dot", dot.Message, StringComparison.Ordinal);
+        Assert.Equal(setup.Game.Texts.FileNameDot, dot.Message);
         Assert.Equal(setup.Game.Texts.FileProblemTargetExists, taken.Message);
         Assert.Equal(setup.Game.Texts.FileNameUnchanged, same.Message);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), empty.Message, StringComparison.Ordinal);
+        Assert.Equal(setup.Game.Texts.FileNameEmpty, empty.Message);
         Assert.Equal(before, setup.Snapshot());
         Assert.False(setup.History.CanUndo);
         Assert.Empty(setup.Game.Runner.Titles);
@@ -948,9 +948,9 @@ public class ProjectFilesControllerTests
 
         Assert.Equal(setup.Game.Texts.FileRenameChangesKind, kind.Message);
         Assert.Equal(setup.Game.Texts.FileRenameChangesKind, loc.Message);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), slash.Message, StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), folder.Message, StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), ignored.Message, StringComparison.Ordinal);
+        Assert.Equal(setup.Game.Texts.FileNameSeparator, slash.Message);
+        Assert.Equal(setup.Game.Texts.FileNameSeparator, folder.Message);
+        Assert.Equal(setup.Game.Texts.FileNameIgnored, ignored.Message);
         Assert.Equal(before, setup.Snapshot());
     }
 
@@ -1173,12 +1173,56 @@ public class ProjectFilesControllerTests
         Assert.Equal(setup.Game.Texts.FileProblemTargetExists, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "A", ".tsv"));
         Assert.Equal(setup.Game.Texts.FileProblemTargetExists, setup.Files.CheckNewName(setup.Id, "script", "a", ".txt"));
         Assert.Equal(setup.Game.Texts.FileProblemTargetExists, setup.Files.CheckNewName(setup.Id, @"script\", "a", ".txt"));   // a trailing separator is fine
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, @"db\x_tables", "a.b", ".tsv"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, @"db\x_tables", "", ".tsv"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, "script", "", ".lua"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, "script", "a/b", ".lua"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, "script", "x", ".bak"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, @"..\outside", "x", ".lua"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileNameInvalid(string.Empty), setup.Files.CheckNewName(setup.Id, "script", "con", ".lua"), StringComparison.Ordinal);
+        Assert.Equal(setup.Game.Texts.FileNameDot, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "a.b", ".tsv"));
+        Assert.Equal(setup.Game.Texts.FileNameEmpty, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "", ".tsv"));
+        Assert.Equal(setup.Game.Texts.FileNameEmpty, setup.Files.CheckNewName(setup.Id, "script", "", ".lua"));
+        Assert.Equal(setup.Game.Texts.FileNameSeparator, setup.Files.CheckNewName(setup.Id, "script", "a/b", ".lua"));
+        Assert.Equal(setup.Game.Texts.FileNameIgnored, setup.Files.CheckNewName(setup.Id, "script", "x", ".bak"));
+
+        // A path that the write boundary refuses: the localized sentence first, the technical detail of the library after it.
+        Assert.StartsWith(setup.Game.Texts.FileProblemUnsafePath + "\n\n", setup.Files.CheckNewName(setup.Id, @"..\outside", "x", ".lua"), StringComparison.Ordinal);
+        Assert.StartsWith(setup.Game.Texts.FileProblemUnsafePath + "\n\n", setup.Files.CheckNewName(setup.Id, "script", "con", ".lua"), StringComparison.Ordinal);
+    }
+
+    [Fact] public async Task CheckNewName_names_every_kind_of_bad_name_in_the_language_of_the_UI()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42));
+        var ui = new UiText(Path.Combine(RepoRoot.Find(), "locales"));
+        var texts = new AppTexts(ui);
+        var files = new ProjectFilesController(setup.Projects, setup.Workspace, setup.Documents, setup.History, setup.Game.Runner, setup.Trash,
+            setup.Game.Log, texts, TimeProvider.System);
+        (string Name, Func<AppTexts, string> Text)[] tables =
+        [
+            (string.Empty, t => t.FileNameEmpty),
+            (new string('a', 101), t => t.FileNameTooLong(NewFiles.MaxNameLength)),
+            ("a/b", t => t.FileNameSeparator),
+            ("a.b", t => t.FileNameDot),
+            (" a", t => t.FileNameLeadingOrTrailingSpace),
+            ("a\tb", t => t.FileNameTabOrLineBreak),
+            ("a;b", t => t.FileNameSemicolon),
+            ("a" + (char)0xD800, t => t.FileNameUnpairedSurrogate),
+            ("a" + (char)0x200B, t => t.FileNameInvisibleCharacter),
+            ("~$x", t => t.FileNameIgnored),
+            ("a:b", t => t.FileNameInvalidCharacter),
+            ("NUL", t => t.FileNameReservedName),
+        ];
+
+        foreach (var language in new[] { "en", "de" })
+        {
+            ui.Load(language);
+            foreach (var (name, text) in tables)
+            {
+                Assert.Equal(text(texts), files.CheckNewName(setup.Id, @"db\x_tables", name, ".tsv"));
+                Assert.Equal(text(texts), files.CheckNewName(setup.Id, @"text\db", name, ".loc.tsv"));
+            }
+
+            // Any other file: the name rules of the App, in the same words.
+            Assert.Equal(texts.FileNameEmpty, files.CheckNewName(setup.Id, "script", string.Empty, ".lua"));
+            Assert.Equal(texts.FileNameSeparator, files.CheckNewName(setup.Id, "script", @"a\b", ".lua"));
+            Assert.Equal(texts.FileNameIgnored, files.CheckNewName(setup.Id, "script", "~$x", ".lua"));
+        }
+
+        Assert.Equal("Der Name darf keinen Punkt enthalten.", texts.FileNameDot);
+        Assert.Equal("Der Name darf höchstens 100 Zeichen lang sein.", texts.FileNameTooLong(NewFiles.MaxNameLength));
     }
 }

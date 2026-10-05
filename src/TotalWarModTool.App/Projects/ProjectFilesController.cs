@@ -167,7 +167,7 @@ public sealed class ProjectFilesController
     /// <summary>
     /// Null when <paramref name="name"/> can be the name of a new or renamed file in <paramref name="relativeFolder"/> (below pack\, with '\';
     /// empty for the pack folder) with <paramref name="extension"/> (".tsv", ".loc.tsv", another extension with its dot, or empty); else the
-    /// UI text that says why not. A table or loc file name must follow <see cref="NewFiles.NameProblem"/>; every file must be a path that
+    /// UI text that says why not. A table or loc file name must follow <see cref="NewFiles.NameIssueOf"/>; every file must be a path that
     /// the write boundary accepts and must not be one that a project leaves out of the pack, and nothing may be there already.
     /// </summary>
     public string? CheckNewName(Guid projectId, string relativeFolder, string name, string extension, string? currentFile = null)
@@ -528,16 +528,18 @@ public sealed class ProjectFilesController
 
         var isText = extension.Equals(TextExtension, StringComparison.OrdinalIgnoreCase)
             || extension.Equals(LocTextExtension, StringComparison.OrdinalIgnoreCase);
-        var reason = isText ? NewFiles.NameProblem(name) : PlainNameProblem(name);
-        if (reason is not null)
+        var issue = isText ? NewFiles.NameIssueOf(name) : PlainNameIssue(name);
+        if (issue != NameIssue.None)
         {
-            return _texts.FileNameInvalid(Shown(reason));
+            return _texts.FileNameIssueText(issue);
         }
 
+        // A path that the write boundary refuses (too long, a character or a name Windows does not allow): the sentence says what to do, the
+        // English detail of the library stays as technical detail behind it.
         var check = PackFolderPaths.ResolveForWrite(projectFolder, candidate);
         if (check.Problem == PackPathProblem.UnsafePath)
         {
-            return _texts.FileNameInvalid(Shown(check.Detail ?? string.Empty));
+            return MessageText.WithDetail(_texts.FileProblemUnsafePath, ShownDetail(check.Detail));
         }
 
         if (check.Problem == PackPathProblem.Link)
@@ -548,22 +550,23 @@ public sealed class ProjectFilesController
         // The name checks of a table or loc file cover this already.
         if (!isText && ProjectFiles.IsIgnored(name + extension, default))
         {
-            return _texts.FileNameInvalid(Shown("A project ignores files with this name."));
+            return _texts.FileNameIssueText(NameIssue.Ignored);
         }
 
         var onlyCaseDiffers = ownFile is not null && SameFile(candidate, ownFile);   // the exactly equal name returned above
         return !onlyCaseDiffers && ProjectFileOps.Exists(projectFolder, candidate) ? _texts.FileProblemTargetExists : null;
     }
 
-    // The name of a file that is neither a table nor a loc file: one segment; dots are fine (the extension stays separate).
-    private static string? PlainNameProblem(string name)
+    // The name of a file that is neither a table nor a loc file: one segment; dots are fine (the extension stays separate). The rest is the
+    // job of the path rules of the write boundary.
+    private static NameIssue PlainNameIssue(string name)
     {
         if (name.Length == 0)
         {
-            return "The name is empty.";
+            return NameIssue.Empty;
         }
 
-        return name.Contains('\\') || name.Contains('/') ? "The name contains a slash or a backslash." : null;
+        return name.Contains('\\') || name.Contains('/') ? NameIssue.Separator : NameIssue.None;
     }
 
     private static bool SameFile(string a, string b) =>

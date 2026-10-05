@@ -126,7 +126,7 @@ public class ProjectFilesViewModelTests
         // The check of the dialog looks in the folder of the chosen table and for the text form.
         Assert.Null(ask.Validate(new NewTableInput("x_tables", "other")));
         Assert.Equal(setup.Texts.FileProblemTargetExists, ask.Validate(new NewTableInput("x_tables", "mine")));
-        Assert.StartsWith(setup.Texts.FileNameInvalid(string.Empty), ask.Validate(new NewTableInput("x_tables", "a.b")), StringComparison.Ordinal);
+        Assert.Equal(setup.Texts.FileNameDot, ask.Validate(new NewTableInput("x_tables", "a.b")));
     }
 
     [Fact] public async Task New_loc_asks_for_a_name_creates_the_file_in_text_db_and_opens_it()
@@ -432,7 +432,7 @@ public class ProjectFilesViewModelTests
         Assert.Equal(setup.Texts.FileNameUnchanged, ask.Validate("a"));
         Assert.Equal(setup.Texts.FileProblemTargetExists, ask.Validate("b"));
         Assert.Null(ask.Validate("A"));                                                     // a change of case only is a rename
-        Assert.StartsWith(setup.Texts.FileNameInvalid(string.Empty), ask.Validate("a.b"), StringComparison.Ordinal);
+        Assert.Equal(setup.Texts.FileNameDot, ask.Validate("a.b"));
 
         // The file is renamed; it was not open, so nothing is opened, and the status line says what happened.
         Assert.False(setup.Exists(TableA));

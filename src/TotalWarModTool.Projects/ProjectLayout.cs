@@ -92,6 +92,9 @@ public static class ProjectLayout
     /// <summary>True when an entry with this pack path would be taken for a table or loc file in text form.</summary>
     public static bool LooksLikeTextForm(string packPath) => FromRelativeFile(packPath).Kind != ProjectFileKind.Raw;
 
+    /// <summary>True for a character that a Windows file name cannot hold: a control character below the space, or one of <c>&lt;&gt;:"|?*\</c>.</summary>
+    internal static bool IsInvalidSegmentChar(char c) => c < ' ' || InvalidSegmentChars.Contains(c);
+
     private static string? UnsafeSegmentReason(string segment)
     {
         if (segment.Length == 0)
@@ -111,7 +114,7 @@ public static class ProjectLayout
 
         foreach (var c in segment)
         {
-            if (c < ' ' || InvalidSegmentChars.Contains(c))
+            if (IsInvalidSegmentChar(c))
             {
                 return "The path contains a character that is not allowed in a Windows file name.";
             }
