@@ -185,13 +185,13 @@ public static class ProjectTrash
         }
 
         hooks?.AfterMove?.Invoke();
-        if (File.Exists(source) && SameContent(source, target))
+        // A move across drives copies and then deletes, and Windows reports success when the copy worked but the source stayed. Exactly one copy must survive: the source.
+        // Only a source that is proven to be a separate, byte-identical file is that case: a different file at the source is another program's new file, and a source that
+        // reaches the copy through a link is the copy itself; in both the move stands and nothing is deleted.
+        if (CopyDeletedAsHalfMove(source, () => SafeFolders.Reverify(packResolve, relativeFile, source, null) is null, target, () => folders.TryDeleteFile(target)))
         {
-            // A move across drives copies and then deletes, and Windows reports success when the copy worked but the source stayed. Exactly one copy must survive: the source.
-            // Only a source that is byte-identical to the copy is that case: a different file at the source is another program's new file, and the trash copy is then the only copy of ours.
-            var detail = "the file was copied to the trash but could not be removed from the project (another program may hold it)";
             return AsTrash(SafeFolders.Failure(FileOpProblem.Locked,
-                folders.TryDeleteFile(target) ? detail : $"{detail} (a copy is left behind: '{target}')"));
+                "the file was copied to the trash but could not be removed from the project (another program may hold it)"));
         }
 
         return Moved(projectId, target, relativeFile);
@@ -322,14 +322,14 @@ public static class ProjectTrash
         }
 
         hooks?.AfterMove?.Invoke();
-        if (File.Exists(parts.File) && SameContent(parts.File, target))
+        // The move reported success but the trash file stayed (a move across drives whose delete failed). The target did not exist before and the
+        // move never overwrites, so what is there is the copy of this call: it goes, and the trash file stays the only copy. Only when the trash
+        // file is proven to be a separate, byte-identical file: a different file there (or one that reaches the copy through a link) is no leftover
+        // of this move, and then the restore stands (the file stays in the trash, harmless, and Cleanup removes it later).
+        if (CopyDeletedAsHalfMove(parts.File,
+                () => SafeFolders.Reverify(trashResolve, trashRelative, parts.File, "trash") is null, target, () => folders.TryDeleteFile(target)))
         {
-            // The move reported success but the trash file stayed (a move across drives whose delete failed). The target did not exist before and the
-            // move never overwrites, so what is there is the copy of this call: it goes, and the trash file stays the only copy. Only when the trash
-            // file is byte-identical to it: a different file there is no leftover of this move, and then the restore stands (the file stays in the
-            // trash, harmless, and Cleanup removes it later).
-            var detail = "the file was copied back but could not be removed from the trash (another program may hold it)";
-            return SafeFolders.Failure(FileOpProblem.Locked, folders.TryDeleteFile(target) ? detail : $"{detail} (a copy is left behind: '{target}')");
+            return SafeFolders.Failure(FileOpProblem.Locked, "the file was copied back but could not be removed from the trash (another program may hold it)");
         }
 
         // The file is back; the empty folders of the trash go: the entry folder, then the folder of the project when that is empty too.
@@ -390,12 +390,15 @@ public static class ProjectTrash
     /// <c>&lt;trashRoot&gt;\&lt;GUID D&gt;\&lt;entry&gt;</c>: a folder whose name is no GUID, an entry whose name is not exactly
     /// <c>yyyyMMdd-HHmmss-&lt;8 lower case hex&gt;</c> with a valid UTC time, and every link at either level is skipped and never followed. A trash
     /// root that is not a fully qualified path, is a drive root, a <c>\\?\</c> form or a link is not touched.
-    /// An entry is deleted by a walk of its own, not by the recursive delete of the framework: right before it, the trash root, the folder of the
-    /// project and the entry are checked again for links; every folder is checked before it is entered; a link found inside (to a file or to a
+    /// An entry is deleted by a walk of its own, not by the recursive delete of the framework: right before it, and again before every folder it
+    /// enters and every file, link and folder it deletes, the trash root, the folder of the project, the entry and the current folder are checked for
+    /// links (and still being folders); a link found inside (to a file or to a
     /// folder) is removed as a link and never entered. Read-only files are not changed: such an entry stays. Any error stops only its entry
     /// (it stays, perhaps partly emptied, and does not count). A project folder is removed afterwards only when this run deleted an entry from
     /// it and it is empty now. The token is checked between entries; cancelling returns the count so far. Returns the number of deleted entries.
-    /// Touches nothing outside <paramref name="trashRoot"/>.
+    /// Residual window: between such a check and the single file system call after it another process can still swap a folder for a link; the
+    /// check narrows that window to one call but cannot close it (the framework offers no delete relative to an open handle). Touches nothing outside
+    /// <paramref name="trashRoot"/> otherwise.
     /// </summary>
     public static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken) =>
         Cleanup(trashRoot, maxAge, time, cancellationToken, null);
@@ -460,29 +463,38 @@ public static class ProjectTrash
     }
 
     /// <summary>
-    /// Deletes one entry folder with everything in it. The trash root, the folder of the project and the entry are checked once more right
-    /// before (a link may have taken the place of one of them). False when one of them is a link or gone, or when anything cannot be deleted.
+    /// Deletes one entry folder with everything in it. The chain trash root, folder of the project and entry is checked right before (a link
+    /// may have taken the place of one of them) and again before every folder that is entered and every file that is deleted. False when a
+    /// part of the chain is a link or gone, or when anything cannot be deleted.
     /// </summary>
     private static bool TryDeleteEntry(string root, string projectTrash, string entry)
     {
-        foreach (var folder in new[] { root, projectTrash, entry })
+        bool ChainClean()
         {
-            if (IsLinkOrUnknown(folder) || !Directory.Exists(folder))
+            foreach (var folder in new[] { root, projectTrash, entry })
             {
-                return false;
+                if (IsLinkOrUnknown(folder) || !Directory.Exists(folder))
+                {
+                    return false;
+                }
             }
+
+            return true;
         }
 
-        return DeleteTree(entry, 0);
+        return ChainClean() && DeleteTree(entry, 0, ChainClean);
     }
 
     /// <summary>
     /// Deletes a folder and its content without following links: a link inside is removed as a link, a real folder is emptied first, a real
-    /// file is deleted (a read-only file fails). The folder is looked at for a link right before it is entered. False at the first failure.
+    /// file is deleted (a read-only file fails). The chain above the entry (<paramref name="chainClean"/>) and the folder itself are looked at
+    /// for a link right before the folder is entered and right before every file, link and folder is deleted. False at the first doubt or failure.
     /// </summary>
-    private static bool DeleteTree(string folder, int depth)
+    private static bool DeleteTree(string folder, int depth, Func<bool> chainClean)
     {
-        if (depth > MaxEntryDepth || IsLinkOrUnknown(folder))
+        bool Safe() => chainClean() && !IsLinkOrUnknown(folder);
+
+        if (depth > MaxEntryDepth || !Safe())
         {
             return false;
         }
@@ -491,6 +503,11 @@ public static class ProjectTrash
         {
             foreach (var path in Directory.GetFileSystemEntries(folder))
             {
+                if (!Safe())
+                {
+                    return false;
+                }
+
                 var attributes = File.GetAttributes(path);
                 var isFolder = attributes.HasFlag(FileAttributes.Directory);
                 if (attributes.HasFlag(FileAttributes.ReparsePoint))
@@ -506,7 +523,7 @@ public static class ProjectTrash
                 }
                 else if (isFolder)
                 {
-                    if (!DeleteTree(path, depth + 1))
+                    if (!DeleteTree(path, depth + 1, chainClean))
                     {
                         return false;
                     }
@@ -515,6 +532,11 @@ public static class ProjectTrash
                 {
                     File.Delete(path);
                 }
+            }
+
+            if (!Safe())
+            {
+                return false;
             }
 
             Directory.Delete(folder, recursive: false);
@@ -694,14 +716,55 @@ public static class ProjectTrash
         return null;
     }
 
-    /// <summary>True only when both files can be read and have the same length and the same bytes (compared in blocks). Any read error counts as "not identical".</summary>
-    private static bool SameContent(string a, string b)
+    /// <summary>
+    /// After a move that reported success: true only when the file that stayed at <paramref name="survivor"/> is proven to be a separate file with
+    /// the same bytes as <paramref name="copy"/>, and <paramref name="deleteCopy"/> then deleted the copy. Every doubt means false and nothing is
+    /// deleted (the move stands): the survivor is gone, has the same full path as the copy, its way is no longer clean or it is a link itself
+    /// (<paramref name="survivorIsClean"/> says so; it is asked again after the file was opened), it cannot be read, or the content differs. The
+    /// survivor is held open without sharing delete while the content is compared and the copy is deleted: if both paths led to the same file
+    /// through a link, the delete of the copy fails with a sharing violation and nothing is lost. (Two hard links are two names of one file: the
+    /// delete of the copy name succeeds and the data stays under the survivor name, which is a correct roll back.)
+    /// </summary>
+    private static bool CopyDeletedAsHalfMove(string survivor, Func<bool> survivorIsClean, string copy, Func<bool> deleteCopy)
     {
         try
         {
-            using var first = new FileStream(a, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            using var second = new FileStream(b, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (first.Length != second.Length)
+            if (!File.Exists(survivor)
+                || string.Equals(Path.GetFullPath(survivor), Path.GetFullPath(copy), StringComparison.OrdinalIgnoreCase)
+                || !survivorIsClean() || IsLinkOrUnknown(survivor))
+            {
+                return false;
+            }
+
+            using var held = new FileStream(survivor, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (!survivorIsClean() || IsLinkOrUnknown(survivor))
+            {
+                return false;
+            }
+
+            bool same;
+            using (var other = new FileStream(copy, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            {
+                same = SameContent(held, other);
+            }
+
+            return same && deleteCopy();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// True only when both streams have the same length, end at the same time and carry the same bytes (compared in blocks). A stream that
+    /// shrinks or grows while it is compared, a read error and anything else unexpected count as "not identical".
+    /// </summary>
+    internal static bool SameContent(Stream a, Stream b)
+    {
+        try
+        {
+            if (a.Length != b.Length)
             {
                 return false;
             }
@@ -710,23 +773,46 @@ public static class ProjectTrash
             var bufferB = new byte[81920];
             while (true)
             {
-                var read = first.Read(bufferA, 0, bufferA.Length);
-                if (read == 0)
+                var readA = ReadBlock(a, bufferA);
+                var readB = ReadBlock(b, bufferB);
+                if (readA != readB)
+                {
+                    return false;   // one stream ended before the other
+                }
+
+                if (readA == 0)
                 {
                     return true;
                 }
 
-                second.ReadExactly(bufferB, 0, read);
-                if (!bufferA.AsSpan(0, read).SequenceEqual(bufferB.AsSpan(0, read)))
+                if (!bufferA.AsSpan(0, readA).SequenceEqual(bufferB.AsSpan(0, readB)))
                 {
                     return false;
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ObjectDisposedException)
         {
-            return false;   // EndOfStreamException is an IOException: a file that changed while it was read is not identical
+            return false;
         }
+    }
+
+    /// <summary>Reads until the buffer is full or the stream ends; returns the number of bytes read.</summary>
+    private static int ReadBlock(Stream stream, byte[] buffer)
+    {
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = stream.Read(buffer, total, buffer.Length - total);
+            if (read == 0)
+            {
+                break;
+            }
+
+            total += read;
+        }
+
+        return total;
     }
 
     private static string NewEntryName(TimeProvider time) =>
@@ -794,9 +880,10 @@ public static class ProjectTrash
     }
 
     /// <summary>True when the full path <paramref name="path"/> lies below <paramref name="root"/>, on a folder boundary, ignoring case.</summary>
-    private static bool IsBelow(string root, string path)
+    internal static bool IsBelow(string root, string path)
     {
-        var prefix = Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar;
+        // Exactly one separator ends the prefix, also for a root such as "D:\" that already has one.
+        var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
         return path.Length > prefix.Length && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 

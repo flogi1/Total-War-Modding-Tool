@@ -601,6 +601,205 @@ public class ProjectTrashTests
         Assert.Equal([9, 9, 9], File.ReadAllBytes(file.TrashFile));   // harmless leftover, Cleanup removes it later
     }
 
+    [Fact] public void MoveToTrash_never_compares_the_copy_with_itself_when_the_folder_of_the_source_becomes_a_link_to_the_entry()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        Put(project, @"db\a.tsv", [1, 2, 3]);
+        var folder = PackFile(project, "db");
+        var swapped = false;
+        string? copy = null;
+
+        try
+        {
+            var result = ProjectTrash.MoveToTrash(trash, Id, project, @"db\a.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+            {
+                AfterMove = () =>
+                {
+                    // After the move: pack\db (empty now) becomes a junction to the entry folder, so that the "source" is the copy itself.
+                    copy = Directory.GetFiles(trash, "a.tsv", SearchOption.AllDirectories).Single();
+                    Directory.Delete(folder);
+                    swapped = JunctionHelper.TryCreate(folder, Path.GetDirectoryName(copy)!);
+                },
+            });
+
+            if (!swapped)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.None, result.Problem);   // the move stands
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(result.File!.TrashFile));   // the only copy was not deleted
+        }
+        finally
+        {
+            DropLink(folder);
+        }
+    }
+
+    [Fact] public void MoveToTrash_with_a_hard_link_at_the_source_loses_no_data()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        var source = Put(project, "a.tsv", [1, 2, 3]);
+        var made = false;
+
+        var result = ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+        {
+            AfterMove = () => made = TryHardLink(source, Directory.GetFiles(trash, "a.tsv", SearchOption.AllDirectories).Single()),
+        });
+
+        if (!made)
+        {
+            return;   // hard links cannot be made in this environment
+        }
+
+        // Two names of one file: deleting the name of the copy leaves the data under the other name, so it is a correct roll back, not a loss.
+        Assert.Equal(FileOpProblem.Locked, result.Problem);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(source));
+        Assert.Empty(Snapshot(trash));
+    }
+
+    [Fact] public void Restore_never_compares_the_copy_with_itself_when_the_trash_entry_becomes_a_link_to_the_target_folder()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        Put(project, @"db\a.tsv", [1, 2, 3]);
+        var file = Trash(trash, project, @"db\a.tsv", new FakeTimeProvider(Start));
+        Directory.Delete(PackFile(project, "db"));
+        var entry = EntryFolder(file);
+        var swapped = false;
+
+        try
+        {
+            var result = ProjectTrash.Restore(file, project, trash, new ProjectTrash.TrashHooks
+            {
+                AfterMove = () =>
+                {
+                    // The entry folder (empty now) becomes a junction to pack\db: the "trash file" is the restored file itself.
+                    Directory.Delete(entry);
+                    swapped = JunctionHelper.TryCreate(entry, PackFile(project, "db"));
+                },
+            });
+
+            if (!swapped)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.None, result.Problem);
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(PackFile(project, @"db\a.tsv")));   // the restored file was not deleted
+        }
+        finally
+        {
+            DropLink(entry);
+        }
+    }
+
+    [Fact] public void Restore_with_a_hard_link_as_the_trash_file_loses_no_data()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        Put(project, "a.tsv", [1, 2, 3]);
+        var file = Trash(trash, project, "a.tsv", new FakeTimeProvider(Start));
+        var target = PackFile(project, "a.tsv");
+        var made = false;
+
+        var result = ProjectTrash.Restore(file, project, trash, new ProjectTrash.TrashHooks
+        {
+            AfterMove = () => made = TryHardLink(file.TrashFile, target),
+        });
+
+        if (!made)
+        {
+            return;   // hard links cannot be made in this environment
+        }
+
+        // Two names of one file: deleting the name of the copy leaves the data under the other name, so it is a correct roll back, not a loss.
+        Assert.Equal(FileOpProblem.Locked, result.Problem);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(file.TrashFile));
+        Assert.False(File.Exists(target));
+    }
+
+    /// <summary>Makes <paramref name="link"/> a second name of the existing file <paramref name="existing"/> (NTFS); false when that is not possible here.</summary>
+    private static bool TryHardLink(string link, string existing)
+    {
+        var info = new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        info.ArgumentList.Add("/c");
+        info.ArgumentList.Add("mklink");
+        info.ArgumentList.Add("/H");
+        info.ArgumentList.Add(link);
+        info.ArgumentList.Add(existing);
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(info)!;
+            process.StandardInput.Close();
+            if (!process.WaitForExit(10_000))
+            {
+                process.Kill(entireProcessTree: true);
+                return false;
+            }
+
+            return process.ExitCode == 0 && File.Exists(link);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    // ---- the comparison and the path prefix ----
+
+    /// <summary>A stream with a content of its own that reports a length of its own: it shrinks or grows "during" a comparison.</summary>
+    private sealed class MisreportingStream(byte[] content, long reportedLength) : MemoryStream(content)
+    {
+        public override long Length => reportedLength;
+    }
+
+    [Fact] public void SameContent_is_true_only_for_streams_that_end_together_with_the_same_bytes()
+    {
+        Assert.True(ProjectTrash.SameContent(new MemoryStream([1, 2, 3]), new MemoryStream([1, 2, 3])));
+        Assert.True(ProjectTrash.SameContent(new MemoryStream([]), new MemoryStream([])));
+        Assert.False(ProjectTrash.SameContent(new MemoryStream([1, 2, 3]), new MemoryStream([1, 2, 4])));
+        Assert.False(ProjectTrash.SameContent(new MemoryStream([1, 2, 3]), new MemoryStream([1, 2, 3, 4])));
+
+        // The second stream reports the same length but ends early, or carries more than it reported.
+        Assert.False(ProjectTrash.SameContent(new MemoryStream([1, 2, 3, 4]), new MisreportingStream([1, 2, 3], 4)));
+        Assert.False(ProjectTrash.SameContent(new MemoryStream([1, 2, 3]), new MisreportingStream([1, 2, 3, 4], 3)));
+        Assert.False(ProjectTrash.SameContent(new MisreportingStream([1, 2, 3], 4), new MemoryStream([1, 2, 3, 4])));
+
+        // More than one block, with the difference in the last byte.
+        var big = new byte[200_000];
+        var other = (byte[])big.Clone();
+        other[^1] = 1;
+        Assert.True(ProjectTrash.SameContent(new MemoryStream(big), new MemoryStream((byte[])big.Clone())));
+        Assert.False(ProjectTrash.SameContent(new MemoryStream(big), new MemoryStream(other)));
+    }
+
+    [Fact] public void IsBelow_ends_the_prefix_with_exactly_one_separator()
+    {
+        Assert.True(ProjectTrash.IsBelow(@"D:\", @"D:\x"));
+        Assert.True(ProjectTrash.IsBelow(@"D:\", @"D:\x\y"));
+        Assert.False(ProjectTrash.IsBelow(@"D:\", @"D:\"));
+        Assert.False(ProjectTrash.IsBelow(@"D:\", @"E:\x"));
+        Assert.True(ProjectTrash.IsBelow(@"D:\a", @"D:\a\b"));
+        Assert.True(ProjectTrash.IsBelow(@"D:\a\", @"D:\a\b"));
+        Assert.True(ProjectTrash.IsBelow(@"D:\A", @"d:\a\b"));   // ignoring case
+        Assert.False(ProjectTrash.IsBelow(@"D:\a", @"D:\a"));
+        Assert.False(ProjectTrash.IsBelow(@"D:\a", @"D:\ab\c"));   // on a folder boundary
+    }
+
     // ---- the trash root ----
 
     [Fact] public void A_trash_root_that_is_not_a_full_path_a_drive_root_or_a_device_form_is_refused_and_nothing_is_touched()
@@ -623,11 +822,18 @@ public class ProjectTrashTests
         var before = Snapshot(dir.Path);
         var trashed = new TrashedFile(Id, Path.Combine(dir.Path, "trash", Id.ToString("D"), EntryName(Start), "a.tsv"), "a.tsv");
 
+        // A regression of the root check must fail here, before anything outside the temp dir is changed or deleted (the drive root is real).
+        var forbidden = new ProjectTrash.TrashHooks
+        {
+            BeforeMove = () => throw new InvalidOperationException("the trash root check let a path pass"),
+            AfterMove = () => throw new InvalidOperationException("the trash root check let a path pass"),
+            BeforeDeleteEntry = _ => throw new InvalidOperationException("the trash root check let a path pass"),
+        };
         foreach (var root in roots)
         {
-            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.MoveToTrash(root, Id, project, "missing.tsv", time).Problem);
-            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.Restore(trashed, project, root).Problem);
-            Assert.Equal(0, ProjectTrash.Cleanup(root, TimeSpan.Zero, time, CancellationToken.None));
+            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.MoveToTrash(root, Id, project, "missing.tsv", time, forbidden).Problem);
+            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.Restore(trashed, project, root, forbidden).Problem);
+            Assert.Equal(0, ProjectTrash.Cleanup(root, TimeSpan.Zero, time, CancellationToken.None, forbidden));
         }
 
         Assert.Equal(before, Snapshot(dir.Path));
