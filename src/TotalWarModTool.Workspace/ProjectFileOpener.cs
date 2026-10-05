@@ -27,7 +27,12 @@ public static class ProjectFileOpener
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentException.ThrowIfNullOrWhiteSpace(relativeFile);
-        CheckInsidePackFolder(relativeFile);
+        var check = PackFolderPaths.Resolve(projectFolder, relativeFile);
+        if (check.Problem == PackPathProblem.UnsafePath)
+        {
+            throw new ArgumentException(check.Detail, nameof(relativeFile));
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var entryPath = relativeFile.Replace('\\', '/');
@@ -39,12 +44,10 @@ public static class ProjectFileOpener
             _ => EntryOpener.KindOf(packPath),
         };
         var isTable = DbTablePath.TryGetTableName(packPath, out var tableName) && kind == EntryKind.Table;
-        var packFolder = Path.Combine(projectFolder, ProjectFile.PackFolder);
-        var fullPath = Path.Combine(packFolder, relativeFile);
-        CheckResolvedInsidePackFolder(packFolder, fullPath, relativeFile);
-        if (LinkOnPath(packFolder, relativeFile) is { } link)
+        var fullPath = check.FullPath!;
+        if (check.Problem == PackPathProblem.Link)
         {
-            return Result(entryPath, kind, 0, EntryProblem.Unreadable, $"links are not supported: the path passes through the link '{link}'");
+            return Result(entryPath, kind, 0, EntryProblem.Unreadable, $"links are not supported: the path passes through the link '{check.LinkPath}'");
         }
 
         long length;
@@ -138,55 +141,6 @@ public static class ProjectFileOpener
         new(TableDecodeStatus.Failed, tableName, 0, HasGuid: false, Definition: null, [], detail);
 
     private static string Describe(TsvDiagnosis diagnosis) => $"line {diagnosis.Line.ToString(CultureInfo.InvariantCulture)}: {diagnosis.Detail}";
-
-    private static void CheckInsidePackFolder(string relativeFile)
-    {
-        if (Path.IsPathRooted(relativeFile) || relativeFile.Split('\\', '/').Contains(".."))
-        {
-            throw new ArgumentException("The file must be a relative path below the pack folder.", nameof(relativeFile));
-        }
-    }
-
-    // Second line of defence behind the segment check: whatever the path resolves to, it must lie inside the pack folder.
-    private static void CheckResolvedInsidePackFolder(string packFolder, string fullPath, string relativeFile)
-    {
-        var root = Path.GetFullPath(packFolder);
-        if (!root.EndsWith(Path.DirectorySeparatorChar))
-        {
-            root += Path.DirectorySeparatorChar;
-        }
-
-        if (!Path.GetFullPath(fullPath).StartsWith(root, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("The file must be a relative path below the pack folder: " + relativeFile, nameof(relativeFile));
-        }
-    }
-
-    /// <summary>
-    /// The first link on the way from the pack folder to the file: the pack folder itself ("pack"), a folder segment or the file, as a
-    /// path relative to the project folder. Null when there is none; a part that does not exist is no link (the read reports it).
-    /// </summary>
-    private static string? LinkOnPath(string packFolder, string relativeFile)
-    {
-        if (ProjectFiles.IsLink(packFolder))
-        {
-            return ProjectFile.PackFolder;
-        }
-
-        var path = packFolder;
-        var walked = ProjectFile.PackFolder;
-        foreach (var segment in relativeFile.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            path = Path.Combine(path, segment);
-            walked += "\\" + segment;
-            if (ProjectFiles.IsLink(path))
-            {
-                return walked;
-            }
-        }
-
-        return null;
-    }
 
     private static bool TryDecodeStrict(byte[] bytes, out string text)
     {
