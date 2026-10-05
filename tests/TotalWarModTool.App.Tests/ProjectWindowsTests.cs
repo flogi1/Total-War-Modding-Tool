@@ -3,6 +3,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -204,6 +205,195 @@ public class ProjectWindowsTests
             Click(buttons[0]);
             Drain(two);
             Assert.Equal(0, two.Result);
+        });
+    });
+
+    // ---- the name window and the new table window --------------------------------------------------------------------------------
+
+    private static string TableName(int index) => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"t{index:D4}_tables");
+
+    private static readonly string[] ManyTables = Enumerable.Range(0, 1500).Select(TableName).ToArray();
+
+    // A tunnelling key event as the window would get it from the keyboard; the key is handled when a handler of the window took it.
+    private static bool PressKey(UIElement target, Key key)
+    {
+        var args = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(target)!, 0, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+        target.RaiseEvent(args);
+        return args.Handled;
+    }
+
+    [Fact] public void The_name_window_and_the_new_table_window_return_the_input_and_null_for_escape() => Sta.Run(() =>
+    {
+        // The name window: the content, the focus on the name with the suggestion selected, the validation and the answer.
+        var nameModel = new NameInputViewModel(Texts, "File name", "mine", name => name == "taken" ? "A file with this name exists already" : null);
+        var nameWindow = new NameInputWindow(nameModel, "Rename");
+        ShowAndRun(nameWindow, _ =>
+        {
+            var nameBox = Find<TextBox>(nameWindow, "NameBox");
+            var error = Find<TextBlock>(nameWindow, "ErrorText");
+            var ok = Find<Button>(nameWindow, "OkButton");
+            var cancel = Find<Button>(nameWindow, "CancelButton");
+
+            Assert.Equal(("Rename", WindowStartupLocation.CenterOwner, false), (nameWindow.Title, nameWindow.WindowStartupLocation, nameWindow.ShowInTaskbar));
+            Assert.Equal("File name", Find<TextBlock>(nameWindow, "NameLabel").Text);
+            Assert.Equal("File name", Assert.IsType<TextBlock>(AutomationProperties.GetLabeledBy(nameBox)).Text);
+            Assert.Equal(("mine", 4), (nameBox.Text, nameBox.SelectionLength));                // the suggestion is selected, so typing replaces it
+            Assert.Same(nameBox, FocusManager.GetFocusedElement(nameWindow));
+            Assert.False(error.IsVisible);
+            Assert.Equal(("OK", "Cancel"), ((string)ok.Content, (string)cancel.Content));
+            Assert.Equal((true, true, true), (ok.IsDefault, cancel.IsCancel, ok.IsEnabled));
+
+            nameBox.Text = "taken";
+            Pump(nameWindow);
+
+            Assert.Equal("taken", nameModel.Name);
+            Assert.Equal(("A file with this name exists already", true, false), (error.Text, error.IsVisible, ok.IsEnabled));
+            Assert.Null(nameWindow.Result);
+
+            nameBox.Text = "free";
+            Pump(nameWindow);
+
+            Assert.Equal((false, true), (error.IsVisible, ok.IsEnabled));
+
+            Click(ok);
+            Drain(nameWindow);
+
+            Assert.Equal("free", nameWindow.Result);
+            Assert.False(nameWindow.IsVisible);                                                 // OK closes the window
+        });
+
+        // Cancel, the close box and Esc give no answer, whatever was typed.
+        var cancelled = new NameInputWindow(new NameInputViewModel(Texts, "Name", "mine", _ => null), "Rename");
+        ShowAndRun(cancelled, _ =>
+        {
+            Find<TextBox>(cancelled, "NameBox").Text = "typed";
+            Click(Find<Button>(cancelled, "CancelButton"));
+            Drain(cancelled);
+
+            Assert.False(cancelled.IsVisible);
+            Assert.Null(cancelled.Result);
+        });
+
+        var escaped = new NameInputWindow(new NameInputViewModel(Texts, "Name", "mine", _ => null), "Rename");
+        ShowAndRun(escaped, _ =>
+        {
+            escaped.Close();
+            Assert.Null(escaped.Result);
+        });
+
+        // The new table window: a filter box over a list of 1,500 tables, then the name; the first table is selected.
+        var tableModel = new NewTableViewModel(Texts, ManyTables, "mine", input => input.TableName == "t0151_tables" ? "No name here" : null);
+        var tableWindow = new NewTableWindow(tableModel, "New table");
+        ShowAndRun(tableWindow, _ =>
+        {
+            var filterBox = Find<TextBox>(tableWindow, "FilterBox");
+            var list = Find<ListBox>(tableWindow, "TableList");
+            var nameBox = Find<TextBox>(tableWindow, "NameBox");
+            var error = Find<TextBlock>(tableWindow, "ErrorText");
+            var ok = Find<Button>(tableWindow, "OkButton");
+            var cancel = Find<Button>(tableWindow, "CancelButton");
+
+            Assert.Equal(("New table", WindowStartupLocation.CenterOwner, false), (tableWindow.Title, tableWindow.WindowStartupLocation, tableWindow.ShowInTaskbar));
+            Assert.Equal(("Filter tables", "Table", "Name"),
+                (Find<TextBlock>(tableWindow, "FilterLabel").Text, Find<TextBlock>(tableWindow, "TableLabel").Text, Find<TextBlock>(tableWindow, "NameLabel").Text));
+            Assert.Equal("Filter tables", Assert.IsType<TextBlock>(AutomationProperties.GetLabeledBy(filterBox)).Text);
+            Assert.Equal("Table", Assert.IsType<TextBlock>(AutomationProperties.GetLabeledBy(list)).Text);
+            Assert.Equal("Name", Assert.IsType<TextBlock>(AutomationProperties.GetLabeledBy(nameBox)).Text);
+            Assert.Same(filterBox, FocusManager.GetFocusedElement(tableWindow));
+            Assert.Equal(("mine", 4), (nameBox.Text, nameBox.SelectionLength));
+            Assert.Equal(1500, list.Items.Count);
+            Assert.Equal(TableName(0), list.SelectedItem);
+            Assert.Equal((true, true, true), (ok.IsDefault, cancel.IsCancel, ok.IsEnabled));
+            Assert.False(error.IsVisible);
+
+            // Typing in the filter box narrows the list at once, anywhere in the name; the first table of the rest is selected.
+            filterBox.Text = "T01";
+            Pump(tableWindow);
+
+            Assert.Equal(100, list.Items.Count);
+            Assert.Equal(TableName(100), list.SelectedItem);
+            Assert.Equal(TableName(100), tableModel.SelectedTable);
+
+            // A table that is still listed stays selected when the filter changes.
+            list.SelectedItem = TableName(150);
+            filterBox.Text = "t015";
+            Pump(tableWindow);
+
+            Assert.Equal(10, list.Items.Count);
+            Assert.Equal(TableName(150), list.SelectedItem);
+            Assert.Equal(TableName(150), tableModel.SelectedTable);
+
+            // The check follows the table: this one has no free name, and OK is blocked with the reason.
+            list.SelectedItem = TableName(151);
+            Pump(tableWindow);
+
+            Assert.Equal(("No name here", true, false), (error.Text, error.IsVisible, ok.IsEnabled));
+
+            list.SelectedItem = TableName(150);
+            nameBox.Text = "other";
+            Pump(tableWindow);
+
+            Assert.Equal((false, true), (error.IsVisible, ok.IsEnabled));
+
+            // Arrow down in the filter box and Enter in the list are taken by the window (moving the focus on), not by the default button.
+            Assert.True(PressKey(filterBox, Key.Down));
+            Assert.True(PressKey(list, Key.Enter));
+            Assert.Null(tableWindow.Result);
+
+            Click(ok);
+            Drain(tableWindow);
+
+            Assert.Equal(new NewTableInput(TableName(150), "other"), tableWindow.Result);
+            Assert.False(tableWindow.IsVisible);
+        });
+
+        var tableEscaped = new NewTableWindow(new NewTableViewModel(Texts, ManyTables, "mine", _ => null), "New table");
+        ShowAndRun(tableEscaped, _ =>
+        {
+            tableEscaped.Close();
+            Assert.Null(tableEscaped.Result);
+        });
+
+        var tableCancelled = new NewTableWindow(new NewTableViewModel(Texts, ManyTables, "mine", _ => null), "New table");
+        ShowAndRun(tableCancelled, _ =>
+        {
+            Click(Find<Button>(tableCancelled, "CancelButton"));
+            Drain(tableCancelled);
+
+            Assert.False(tableCancelled.IsVisible);
+            Assert.Null(tableCancelled.Result);
+        });
+    });
+
+    [Fact] public void The_new_table_window_shows_only_the_rows_that_fit_in_the_list()
+    {
+        // 1,500 names must not become 1,500 controls: the list is virtualized.
+        Sta.Run(() =>
+        {
+            var window = new NewTableWindow(new NewTableViewModel(Texts, ManyTables, "mine", _ => null), "New table");
+            ShowAndRun(window, _ =>
+            {
+                var list = Find<ListBox>(window, "TableList");
+
+                var realized = VisualDescendants<ListBoxItem>(list).Count();
+
+                Assert.Equal(1500, list.Items.Count);
+                Assert.InRange(realized, 1, 200);
+            });
+        });
+    }
+
+    [Fact] public void The_new_table_window_says_so_when_there_is_no_table_to_choose_from() => Sta.Run(() =>
+    {
+        var window = new NewTableWindow(new NewTableViewModel(Texts, [], "mine", _ => null), "New table");
+        ShowAndRun(window, _ =>
+        {
+            var error = Find<TextBlock>(window, "ErrorText");
+
+            Assert.Equal((Texts.FileNoSchema, true), (error.Text, error.IsVisible));
+            Assert.False(Find<Button>(window, "OkButton").IsEnabled);
+            Assert.Empty(Find<ListBox>(window, "TableList").Items);
+            Assert.True(Find<Button>(window, "CancelButton").IsEnabled);
         });
     });
 

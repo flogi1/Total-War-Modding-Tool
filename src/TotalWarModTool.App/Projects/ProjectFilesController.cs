@@ -493,7 +493,8 @@ public sealed class ProjectFilesController
     private static string FileNameOf(string relativeFile) => relativeFile[(relativeFile.LastIndexOfAny(['/', '\\']) + 1)..];
 
     // The parts of a file that a rename keeps (folder, extension and the kind that the project takes the file for) and the name part it replaces.
-    private static (string Folder, string Name, string Extension, ProjectFileKind Kind) SplitFile(string relativeFile)
+    // Internal: the rename dialog asks for the name part and checks it against the same split.
+    internal static (string Folder, string Name, string Extension, ProjectFileKind Kind) SplitFile(string relativeFile)
     {
         var file = relativeFile.Replace('/', '\\');
         var slash = file.LastIndexOf('\\');

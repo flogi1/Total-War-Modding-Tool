@@ -1,0 +1,40 @@
+<Window x:Class="TotalWarModTool.App.NameInputWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Width="460" MinWidth="320" SizeToContent="Height" ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource Theme.WindowBackground}"
+        Foreground="{DynamicResource Theme.Text}"
+        ContentRendered="OnContentRendered">
+    <!--
+        DataContext is the NameInputViewModel; the title is set in code (it is given by the caller). The box updates the view model on every
+        keystroke, so that the validation answers at once. OK is the default button and is disabled while the validation has a text.
+    -->
+    <Window.Resources>
+        <Style x:Key="ErrorTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.Warning}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Text}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <StackPanel Margin="16" FocusManager.FocusedElement="{Binding ElementName=NameBox}">
+        <TextBlock x:Name="NameLabel" Text="{Binding Label}" Margin="0,0,0,4" />
+        <TextBox x:Name="NameBox" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=NameLabel}" />
+
+        <TextBlock x:Name="ErrorText" Text="{Binding Error}" Style="{StaticResource ErrorTextStyle}" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+            <Button x:Name="OkButton" Content="{Binding Texts.DialogOk}" MinWidth="90" Padding="12,3" IsDefault="True"
+                    IsEnabled="{Binding CanAccept}" Click="OnOkClick" />
+            <Button x:Name="CancelButton" Content="{Binding Texts.DialogCancel}" MinWidth="90" Padding="12,3" Margin="8,0,0,0" IsCancel="True"
+                    Click="OnCancelClick" />
+        </StackPanel>
+    </StackPanel>
+</Window>

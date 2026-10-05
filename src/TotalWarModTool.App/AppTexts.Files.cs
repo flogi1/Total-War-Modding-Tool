@@ -86,6 +86,45 @@ public sealed partial class AppTexts
         "The file {0} was changed or removed after this step left it, so the step was removed from the history and nothing was moved to the trash. A file that is still there was left as it is; delete it with Delete if you do not need it.",
         file);
 
+    // ---- commands and dialogs of the file operations -----------------------------------------------------------------------------------
+    // The name label reuses DialogName, "no project is active" ProjectNoneActive, and "another operation runs" ProjectBusy.
+
+    public string FileNewTableTitle => T("file.newTable.title", "New table");
+
+    public string FileNewLocTitle => T("file.newLoc.title", "New loc file");
+
+    public string FileAddTitle => T("file.add.title", "Add to the project");
+
+    public string FileRenameTitle => T("file.rename.title", "Rename");
+
+    public string FileTableFilterLabel => T("file.table.filterLabel", "Filter tables");
+
+    public string FileTableListLabel => T("file.table.listLabel", "Table");
+
+    public string FileTableNoMatch => T("file.table.noMatch", "No table matches the filter. Change the filter text.");
+
+    public string FileSameNameTitle => T("file.sameName.title", "Replace the whole file in the game?");
+
+    public string FileSameNameMessage => T("file.sameName.message",
+        "The new file has the same name as the entry it comes from. In the game it replaces that whole file, not only the rows you change. Keep this name?");
+
+    public string FileSameNameKeep => T("file.sameName.keep", "Keep the name");
+
+    public string FileSameNameChange => T("file.sameName.change", "Choose another name");
+
+    /// <param name="file">The new file, escaped. Data, not a UI text.</param>
+    public string FileCreatedStatus(string file) => F("file.createdStatus", "Created {0}.", file);
+
+    /// <param name="file">The file that was added, escaped. Data, not a UI text.</param>
+    public string FileAddedStatus(string file) => F("file.addedStatus", "Added {0} to the project.", file);
+
+    /// <param name="from">The old name of the file, escaped. Data, not a UI text.</param>
+    /// <param name="to">The new name of the file, escaped. Data, not a UI text.</param>
+    public string FileRenamedStatus(string from, string to) => F("file.renamedStatus", "Renamed {0} to {1}.", from, to);
+
+    /// <param name="file">The file that was deleted, escaped. Data, not a UI text.</param>
+    public string FileDeletedStatus(string file) => F("file.deletedStatus", "Deleted {0}. Undo brings it back.", file);
+
     public string EditUndoBlockedTitle => T("edit.undoBlocked.title", "Undo not possible");
 
     public string EditRedoBlockedTitle => T("edit.redoBlocked.title", "Redo not possible");
