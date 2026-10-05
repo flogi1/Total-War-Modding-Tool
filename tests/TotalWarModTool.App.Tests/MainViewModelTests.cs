@@ -718,8 +718,13 @@ public class MainViewModelWorkspaceTests
         var deleted = texts.FileDeletedStatus(@"text\db\mine.loc.tsv");
         Assert.Equal((deleted, deleted), (main.ProjectStatusLine, main.ProjectStatusToolTip));
 
-        // A file command that has nothing to say clears the line: the older message of the project commands does not come back.
+        // A file command that cannot start (an unknown project) leaves the line as it is.
         await m.Files.DeleteAsync(Guid.NewGuid(), "x.lua");
+        Assert.Equal((deleted, deleted), (main.ProjectStatusLine, main.ProjectStatusToolTip));
+
+        // One that starts and has nothing to say (the file is not there: a message) clears the line; the older message of the project
+        // commands does not come back.
+        await m.Files.DeleteAsync(project.Id, "x.lua");
         Assert.Equal((false, (string?)null, (string?)null), (main.HasProjectStatus, main.ProjectStatusLine, main.ProjectStatusToolTip));
     }
 

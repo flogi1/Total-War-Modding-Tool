@@ -58,13 +58,14 @@ public sealed class NewTableViewModel : ObservableObject
     /// <summary>The tables that the filter lets through, in the order of the source list.</summary>
     public IReadOnlyList<string> FilteredTables => _filtered;
 
-    /// <summary>The chosen table; null when the list shows none.</summary>
+    /// <summary>The chosen table; null when the list shows none. Setting null while the list shows tables is ignored.</summary>
     public string? SelectedTable
     {
         get => _selected;
         set
         {
-            if (_replacingList)
+            // A table stays chosen while the list shows tables: a deselect from the view (Ctrl+click) is not a choice.
+            if (_replacingList || (value is null && _filtered.Count > 0))
             {
                 return;
             }

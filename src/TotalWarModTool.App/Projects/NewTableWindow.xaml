@@ -47,7 +47,7 @@
                  ItemsSource="{Binding FilteredTables}" SelectedItem="{Binding SelectedTable, Mode=TwoWay}"
                  ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True"
                  automation:AutomationProperties.LabeledBy="{Binding ElementName=TableLabel}"
-                 PreviewKeyDown="OnListKeyDown" />
+                 PreviewKeyDown="OnListKeyDown" SelectionChanged="OnSelectionChanged" />
 
         <TextBlock x:Name="NameLabel" Grid.Row="4" Text="{Binding Texts.DialogName}" Margin="0,0,0,4" />
         <TextBox x:Name="NameBox" Grid.Row="5" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"

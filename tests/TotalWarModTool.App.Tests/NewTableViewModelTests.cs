@@ -106,6 +106,34 @@ public class NewTableViewModelTests
         Assert.Equal(new NewTableInput("units_tables", "other"), viewModel.Result);
     }
 
+    [Fact] public void A_deselect_from_the_view_is_ignored_while_the_list_has_tables()
+    {
+        var viewModel = Create();
+        viewModel.SelectedTable = "units_tables";
+        var changed = new List<string?>(); viewModel.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        viewModel.SelectedTable = null;                                                    // a Ctrl+click on the chosen table
+
+        Assert.Equal("units_tables", viewModel.SelectedTable);
+        Assert.Equal((null, true), (viewModel.Error, viewModel.CanAccept));                // not "no table matches"
+        Assert.DoesNotContain(nameof(NewTableViewModel.Error), changed);
+
+        // With a filter that lists tables the same holds; only a list without tables has no selection and says so.
+        viewModel.Filter = "unit";
+        viewModel.SelectedTable = null;
+
+        Assert.Equal("units_tables", viewModel.SelectedTable);
+
+        viewModel.Filter = "no such table";
+
+        Assert.Null(viewModel.SelectedTable);
+        Assert.Equal((Texts.FileTableNoMatch, false), (viewModel.Error, viewModel.CanAccept));
+
+        viewModel.SelectedTable = null;
+
+        Assert.Equal(Texts.FileTableNoMatch, viewModel.Error);
+    }
+
     [Fact] public void The_name_check_is_not_asked_while_no_table_is_selected()
     {
         var asked = 0;

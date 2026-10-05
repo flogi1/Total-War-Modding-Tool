@@ -222,6 +222,17 @@ public class ProjectWindowsTests
         return args.Handled;
     }
 
+    // Esc through the input pipeline of the window (not a Close call): the cancel button of the window answers it, as for a user.
+    private static void PressEscape(Window window)
+    {
+        var args = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window)!, Environment.TickCount, Key.Escape)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        };
+        InputManager.Current.ProcessInput(args);
+        Drain(window);
+    }
+
     [Fact] public void The_name_window_and_the_new_table_window_return_the_input_and_null_for_escape() => Sta.Run(() =>
     {
         // The name window: the content, the focus on the name with the suggestion selected, the validation and the answer.
@@ -277,7 +288,10 @@ public class ProjectWindowsTests
         var escaped = new NameInputWindow(new NameInputViewModel(Texts, "Name", "mine", _ => null), "Rename");
         ShowAndRun(escaped, _ =>
         {
-            escaped.Close();
+            Find<TextBox>(escaped, "NameBox").Text = "typed";
+            PressEscape(escaped);
+
+            Assert.False(escaped.IsVisible);
             Assert.Null(escaped.Result);
         });
 
@@ -323,6 +337,14 @@ public class ProjectWindowsTests
             Assert.Equal(TableName(150), list.SelectedItem);
             Assert.Equal(TableName(150), tableModel.SelectedTable);
 
+            // A Ctrl+click that would deselect the table is undone: a table stays chosen while the list shows tables.
+            list.SelectedItem = null;
+            Pump(tableWindow);
+
+            Assert.Equal(TableName(150), list.SelectedItem);
+            Assert.Equal(TableName(150), tableModel.SelectedTable);
+            Assert.True(ok.IsEnabled);
+
             // The check follows the table: this one has no free name, and OK is blocked with the reason.
             list.SelectedItem = TableName(151);
             Pump(tableWindow);
@@ -337,7 +359,11 @@ public class ProjectWindowsTests
 
             // Arrow down in the filter box and Enter in the list are taken by the window (moving the focus on), not by the default button.
             Assert.True(PressKey(filterBox, Key.Down));
+            Assert.True(list.IsKeyboardFocusWithin);                                            // the list has the focus: on the chosen table
+            Assert.Equal(TableName(150), list.SelectedItem);
             Assert.True(PressKey(list, Key.Enter));
+            Assert.True(nameBox.IsKeyboardFocused);                                             // Enter went on to the name, with the name selected
+            Assert.Equal(nameBox.Text.Length, nameBox.SelectionLength);
             Assert.Null(tableWindow.Result);
 
             Click(ok);
@@ -350,7 +376,9 @@ public class ProjectWindowsTests
         var tableEscaped = new NewTableWindow(new NewTableViewModel(Texts, ManyTables, "mine", _ => null), "New table");
         ShowAndRun(tableEscaped, _ =>
         {
-            tableEscaped.Close();
+            PressEscape(tableEscaped);
+
+            Assert.False(tableEscaped.IsVisible);
             Assert.Null(tableEscaped.Result);
         });
 

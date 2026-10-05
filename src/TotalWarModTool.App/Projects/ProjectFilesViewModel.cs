@@ -8,10 +8,12 @@ namespace TotalWarModTool.App;
 
 /// <summary>
 /// The file commands of a mod project (new table, new loc file, add a pack entry to the project, rename, delete). It asks the user only
-/// through <see cref="IFileDialogs"/> and passes the work to the <see cref="ProjectFilesController"/>. Every command first clears
-/// <see cref="StatusMessage"/> and sets it again when it ends with something to say. A command that cannot start because another operation
-/// runs, or that the user cancels, says nothing; a refused action is shown as a message. A project that cannot be used is reported before
-/// anything is asked.
+/// through <see cref="IFileDialogs"/> and passes the work to the <see cref="ProjectFilesController"/>. A command that really starts (it can
+/// start, and its dialog was confirmed) clears <see cref="StatusMessage"/> and sets it again when it ends with something to say; one that
+/// cannot start or that the user cancels leaves the last result line alone. Another operation that runs when the command is started says
+/// nothing (the menu is disabled with the reason); one that turns up while the dialog is open is reported, so that the input is not lost
+/// silently. A refusal that is known before the dialog (a project that cannot be used, a tab with unsaved work) is reported before anything
+/// is asked, and so is a refused action.
 /// </summary>
 public sealed class ProjectFilesViewModel : ObservableObject
 {
@@ -20,6 +22,7 @@ public sealed class ProjectFilesViewModel : ObservableObject
     private const string FallbackName = "new";
     private const string TextExtension = ".tsv";
     private const string LocTextExtension = ".loc.tsv";
+    private const string LocRawExtension = ".loc";
 
     private readonly ProjectFilesController _files;
     private readonly ProjectsController _projects;
@@ -67,11 +70,14 @@ public sealed class ProjectFilesViewModel : ObservableObject
     /// <summary>The text that says why a pack entry cannot be added to the active project (none is active, it cannot be used, another operation runs); null when it can.</summary>
     public string? AdoptDisabledReason => _projects.Active is { } active ? _files.DisabledReason(active.Id) : _texts.ProjectNoneActive;
 
-    /// <summary>The text that says why a file of the project cannot be renamed or deleted right now; null when it can.</summary>
+    /// <summary>
+    /// The text that says why a file of the project cannot be renamed or deleted right now (the project, another operation, or a tab of the
+    /// file with unsaved changes or a cell that is being edited: save or close it first); null when it can.
+    /// </summary>
     public string? FileActionDisabledReason(Guid projectId, string relativeFile)
     {
         ArgumentNullException.ThrowIfNull(relativeFile);
-        return _files.DisabledReason(projectId);
+        return _files.DisabledReason(projectId) ?? _files.OpenTabReason(projectId, relativeFile);
     }
 
     // ---- the commands ------------------------------------------------------------------------------------------------------------
@@ -79,26 +85,30 @@ public sealed class ProjectFilesViewModel : ObservableObject
     /// <summary>Asks for a table and a name, creates the empty table and asks to open it.</summary>
     public async Task NewTableAsync(Guid projectId)
     {
-        StatusMessage = null;
         if (!CanStart(projectId))
         {
             return;
         }
 
-        var tables = _files.CreatableTables;
-        var suggestion = Suggest(NameOf(projectId), name => tables.Count == 0 ? null : CheckTable(projectId, tables[0], name));
-        if (_dialogs.AskNewTable(tables, suggestion, input => CheckTable(projectId, input.TableName, input.Name)) is not { } chosen)
+        // The list of the tables is worked out in the background, once per schema, before the dialog opens. Null: it was cancelled.
+        if (await _files.GetCreatableTablesAsync() is not { } tables)
         {
             return;
         }
 
+        var suggestion = Suggest(NameOf(projectId), name => tables.Count == 0 ? null : CheckTable(projectId, tables[0], name));
+        if (_dialogs.AskNewTable(tables, suggestion, input => CheckTable(projectId, input.TableName, input.Name)) is not { } chosen || !StillCanStart())
+        {
+            return;
+        }
+
+        StatusMessage = null;
         Complete(projectId, await _files.CreateTableAsync(projectId, chosen.TableName, chosen.Name), _texts.FileCreatedStatus, open: true);
     }
 
     /// <summary>Asks for a name, creates the empty loc file in text\db and asks to open it.</summary>
     public async Task NewLocAsync(Guid projectId)
     {
-        StatusMessage = null;
         if (!CanStart(projectId))
         {
             return;
@@ -108,11 +118,12 @@ public sealed class ProjectFilesViewModel : ObservableObject
         string? Check(string name) => _files.CheckNewName(projectId, folder, name, LocTextExtension);
 
         var suggestion = Suggest(NameOf(projectId), Check);
-        if (_dialogs.AskName(_texts.FileNewLocTitle, _texts.DialogName, suggestion, Check) is not { } chosen)
+        if (_dialogs.AskName(_texts.FileNewLocTitle, _texts.DialogName, suggestion, Check) is not { } chosen || !StillCanStart())
         {
             return;
         }
 
+        StatusMessage = null;
         Complete(projectId, await _files.CreateLocAsync(projectId, chosen), _texts.FileCreatedStatus, open: true);
     }
 
@@ -126,8 +137,13 @@ public sealed class ProjectFilesViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(pack);
         ArgumentNullException.ThrowIfNull(entryPath);
 
-        StatusMessage = null;
-        if (_projects.Active is not { } active || !CanStart(active.Id))
+        if (_projects.Active is not { } active)
+        {
+            _dialogs.ShowMessage(_texts.ProjectMessageTitle, _texts.ProjectNoneActive);
+            return;
+        }
+
+        if (!CanStart(active.Id))
         {
             return;
         }
@@ -136,8 +152,12 @@ public sealed class ProjectFilesViewModel : ObservableObject
         var (renamable, currentName) = NewFiles.AdoptName(entryPath);
         if (renamable)
         {
-            var (folder, extension) = AdoptTarget(entryPath);
-            string? Check(string name) => _files.CheckNewName(active.Id, folder, name, extension);
+            var (folder, extension, rawExtension) = AdoptTarget(entryPath);
+
+            // The file becomes text when that is lossless and stays as it is otherwise, and the dialog cannot know which: a name is free only
+            // when it is free in both forms, so that the dialog never says "free" for a name that the action refuses.
+            string? Check(string name) => _files.CheckNewName(active.Id, folder, name, extension)
+                ?? (_files.CheckNewName(active.Id, folder, name, rawExtension) == _texts.FileProblemTargetExists ? _texts.FileProblemTargetExists : null);
 
             var suggestion = Suggest(active.DisplayName, Check);
             while (true)
@@ -147,8 +167,9 @@ public sealed class ProjectFilesViewModel : ObservableObject
                     return;
                 }
 
-                // The same name puts the file over the one of the game: only on an explicit yes; no goes back to the question.
-                if (string.Equals(chosen, currentName, StringComparison.Ordinal) && !_dialogs.ConfirmSameName(Shown(entryPath)))
+                // The same name puts the file over the one of the game: only on an explicit yes; no goes back to the question. Paths of a pack
+                // are case-insensitive for the game, so a name that differs in case only is the same name.
+                if (string.Equals(chosen, currentName, StringComparison.OrdinalIgnoreCase) && !_dialogs.ConfirmSameName(Shown(entryPath)))
                 {
                     suggestion = chosen;
                     continue;
@@ -159,6 +180,12 @@ public sealed class ProjectFilesViewModel : ObservableObject
             }
         }
 
+        if (!StillCanStart())
+        {
+            return;
+        }
+
+        StatusMessage = null;
         Complete(active.Id, await _files.AdoptAsync(active.Id, pack, entryPath, newName), _texts.FileAddedStatus, open: true);
     }
 
@@ -170,8 +197,7 @@ public sealed class ProjectFilesViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(relativeFile);
 
-        StatusMessage = null;
-        if (!CanStart(projectId))
+        if (!CanStart(projectId, relativeFile))
         {
             return;
         }
@@ -179,11 +205,12 @@ public sealed class ProjectFilesViewModel : ObservableObject
         var file = relativeFile.Replace('/', '\\');
         var (folder, name, extension, _) = ProjectFilesController.SplitFile(file);
         if (_dialogs.AskName(_texts.FileRenameTitle, _texts.DialogName, name, input => _files.CheckNewName(projectId, folder, input, extension, file))
-            is not { } chosen)
+            is not { } chosen || !StillCanStart())
         {
             return;
         }
 
+        StatusMessage = null;
         Complete(projectId, await _files.RenameAsync(projectId, file, chosen), renamed => _texts.FileRenamedStatus(Shown(file), renamed), open: false);
     }
 
@@ -192,33 +219,47 @@ public sealed class ProjectFilesViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(relativeFile);
 
-        StatusMessage = null;
-        if (!CanStart(projectId))
+        if (!CanStart(projectId, relativeFile))
         {
             return;
         }
 
+        StatusMessage = null;
         Complete(projectId, await _files.DeleteAsync(projectId, relativeFile), _texts.FileDeletedStatus, open: false);
     }
 
     // ---- helpers -----------------------------------------------------------------------------------------------------------------
 
-    // False when the command cannot start: another operation runs (nothing to say, as in the other commands) or the project cannot be used
-    // (the reason is shown, and no question is asked that could not be answered).
-    private bool CanStart(Guid projectId)
+    // False when the command cannot start: another operation runs (nothing to say, as in the other commands), or the project cannot be used or,
+    // for a rename or delete of relativeFile, a tab of that file holds work that would be lost (the reason is shown, and no question is
+    // asked that could not be answered).
+    private bool CanStart(Guid projectId, string? relativeFile = null)
     {
         if (!_projects.CanStartOperation)
         {
             return false;
         }
 
-        if (_files.DisabledReason(projectId) is { } reason)
+        if ((_files.DisabledReason(projectId) ?? (relativeFile is null ? null : _files.OpenTabReason(projectId, relativeFile))) is { } reason)
         {
             _dialogs.ShowMessage(_texts.ProjectMessageTitle, reason);
             return false;
         }
 
         return true;
+    }
+
+    // The dialog was confirmed; another operation may have started while it was open. Then the action would not start, so the user is told
+    // instead of losing what was typed without a word.
+    private bool StillCanStart()
+    {
+        if (_projects.CanStartOperation)
+        {
+            return true;
+        }
+
+        _dialogs.ShowMessage(_texts.ProjectMessageTitle, _texts.ProjectBusy);
+        return false;
     }
 
     // A refusal is shown as a message; a success becomes the status line (the text and the note of the controller), and a new or added file
@@ -247,17 +288,17 @@ public sealed class ProjectFilesViewModel : ObservableObject
     private string? CheckTable(Guid projectId, string tableName, string name) =>
         _files.CheckNewName(projectId, "db\\" + tableName, name, TextExtension);
 
-    // Where the file of an entry lands in the project and with which extension: a table in db\<table> as .tsv, a loc file in the folder
-    // of the entry as .loc.tsv.
-    private static (string Folder, string Extension) AdoptTarget(string entryPath)
+    // Where the file of an entry lands in the project and with which extension: a table in db\<table> as .tsv (as it is: no extension), a
+    // loc file in the folder of the entry as .loc.tsv (as it is: .loc).
+    private static (string Folder, string TextExtension, string RawExtension) AdoptTarget(string entryPath)
     {
         if (DbTablePath.TryGetTableName(entryPath, out var tableName))
         {
-            return ("db\\" + tableName, TextExtension);
+            return ("db\\" + tableName, TextExtension, string.Empty);
         }
 
         var slash = entryPath.LastIndexOf('/');
-        return ((slash < 0 ? string.Empty : entryPath[..slash]).Replace('/', '\\'), LocTextExtension);
+        return ((slash < 0 ? string.Empty : entryPath[..slash]).Replace('/', '\\'), LocTextExtension, LocRawExtension);
     }
 
     private string NameOf(Guid projectId) => _projects.Projects.FirstOrDefault(state => state.Id == projectId)?.DisplayName ?? string.Empty;

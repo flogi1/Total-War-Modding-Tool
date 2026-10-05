@@ -158,6 +158,7 @@ public class ProjectFilesViewModelTests
         await setup.ViewModel.NewTableAsync(setup.Id).WaitAsync(Timeout);
 
         Assert.Equal(["my_mod_", "my_mod__2", "my_mod__3"], setup.Dialogs.TableAsks.Select(ask => ask.Suggestion));
+        Assert.Single(setup.Game.Runner.Titles, setup.Texts.OperationPrepareTables);          // the table list was prepared once for the three dialogs
         Assert.True(setup.Exists(@"db\x_tables\my_mod_.tsv"));
         Assert.True(setup.Exists(@"db\x_tables\my_mod__2.tsv"));
 
@@ -206,7 +207,7 @@ public class ProjectFilesViewModelTests
         Assert.Null(setup.ViewModel.StatusMessage);
         Assert.Empty(setup.Dialogs.Messages);
         Assert.Empty(setup.Dialogs.Confirms);
-        Assert.Empty(setup.Game.Runner.Titles);                                             // no run was started
+        Assert.Equal([setup.Texts.OperationPrepareTables], setup.Game.Runner.Titles);      // the table list was prepared; no file run was started
         Assert.False(setup.History.CanUndo);
     }
 
@@ -324,7 +325,7 @@ public class ProjectFilesViewModelTests
         await setup.ViewModel.AdoptAsync(pack, "db/x_tables/data__").WaitAsync(Timeout);
 
         Assert.Equal(before, setup.Snapshot());
-        Assert.Null(setup.ViewModel.StatusMessage);
+        Assert.Equal(setup.Texts.FileAddedStatus(@"db\x_tables\more__.tsv"), setup.ViewModel.StatusMessage);   // a cancelled command leaves the last line
     }
 
     [Fact] public async Task Adopt_into_an_existing_target_shows_a_message()
@@ -529,29 +530,210 @@ public class ProjectFilesViewModelTests
         Assert.Equal(2, setup.Dialogs.Messages.Count);
         Assert.All(setup.Dialogs.Messages, message => Assert.StartsWith(setup.Texts.ProjectProblemNotFound, message.Message, StringComparison.Ordinal));
 
-        // No project is active (the list is empty): adding says so, and doing it does nothing.
+        // No project is active (the list is empty): adding says why instead of doing nothing, and asks nothing.
         setup.Dialogs.Messages.Clear();
         Assert.True(setup.Projects.Remove(setup.Id).Ok);
         Assert.Equal(setup.Texts.ProjectNoneActive, setup.ViewModel.AdoptDisabledReason);
         await setup.ViewModel.AdoptAsync(pack, "script/main.lua").WaitAsync(Timeout);
 
         Assert.Empty(setup.Dialogs.NameAsks);
-        Assert.Empty(setup.Dialogs.Messages);
+        Assert.Equal([(setup.Texts.ProjectMessageTitle, setup.Texts.ProjectNoneActive)], setup.Dialogs.Messages);
         Assert.Empty(setup.Opened);
     }
 
-    [Fact] public async Task The_status_is_cleared_when_the_next_command_starts()
+    [Fact] public async Task A_file_with_unsaved_work_in_a_tab_is_refused_before_any_dialog()
     {
-        using var setup = await CreateAsync(("script\\a.txt", "one"));
+        using var setup = await CreateAsync(Table(TableA, 42), Table(TableB, 7));
+        var opened = await setup.Projects.OpenFileAsync(setup.Id, TableA);
+        Assert.NotNull(opened);
+        setup.Tabs.Add(TabSource.ForProject(setup.Id, setup.Project.DisplayName), opened, setup.Workspace.Schema);
+        var tab = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.Tabs[^1]);
+        var reason = setup.Texts.FileTabUnsaved(TableA.Replace('\\', '/'));
+
+        // Open with nothing to lose: possible.
+        Assert.Null(setup.ViewModel.FileActionDisabledReason(setup.Id, TableA));
+
+        tab.Rows[0][0] = "50";
+
+        Assert.Equal(reason, setup.ViewModel.FileActionDisabledReason(setup.Id, TableA));
+        Assert.Null(setup.ViewModel.FileActionDisabledReason(setup.Id, TableB));               // another file, no tab
+        Assert.Equal(setup.Texts.ProjectBusy, WithBusy(setup, () => setup.ViewModel.FileActionDisabledReason(setup.Id, TableA)));   // busy comes first
+        setup.Game.Runner.Titles.Clear();
+        setup.Dialogs.NameAnswers.Enqueue("c");
+
+        await setup.ViewModel.RenameAsync(setup.Id, TableA).WaitAsync(Timeout);
+        await setup.ViewModel.DeleteAsync(setup.Id, TableA).WaitAsync(Timeout);
+
+        // Both say why and neither asked for a name that could not be used.
+        Assert.Equal([(setup.Texts.ProjectMessageTitle, reason), (setup.Texts.ProjectMessageTitle, reason)], setup.Dialogs.Messages);
+        Assert.Empty(setup.Dialogs.NameAsks);
+        Assert.True(setup.Exists(TableA));
+        Assert.Empty(setup.Game.Runner.Titles);
+        Assert.Null(setup.ViewModel.StatusMessage);
+
+        // The other file is renamed as usual.
+        await setup.ViewModel.RenameAsync(setup.Id, TableB).WaitAsync(Timeout);
+
+        Assert.Single(setup.Dialogs.NameAsks);
+    }
+
+    private static T WithBusy<T>(Setup setup, Func<T> read)
+    {
+        setup.Game.Runner.IsRunning = true;
+        try
+        {
+            return read();
+        }
+        finally
+        {
+            setup.Game.Runner.IsRunning = false;
+        }
+    }
+
+    [Fact] public async Task A_command_that_turns_busy_while_its_dialog_is_open_says_so_instead_of_dropping_the_input()
+    {
+        using var setup = await CreateAsync(Table(TableA, 1));
+        var pack = await AddPackAsync(setup, ("db/x_tables/data__", TestGame.TableBytes));
+        setup.Dialogs.WhileAsking = () => setup.Game.Runner.IsRunning = true;                    // another operation starts while the user types
+        setup.Dialogs.NameAnswers.Enqueue("mine");
+        setup.Dialogs.NameAnswers.Enqueue("mine");
+        setup.Dialogs.NameAnswers.Enqueue("mine");
+        setup.Dialogs.TableAnswers.Enqueue(new NewTableInput("x_tables", "mine"));
+        setup.Game.Runner.Titles.Clear();
+        var busy = (setup.Texts.ProjectMessageTitle, setup.Texts.ProjectBusy);
+
+        // The table list is prepared before the dialog; the dialog is the first thing that can be overtaken.
+        await setup.ViewModel.NewTableAsync(setup.Id).WaitAsync(Timeout);
+        setup.Game.Runner.IsRunning = false;
+        await setup.ViewModel.NewLocAsync(setup.Id).WaitAsync(Timeout);
+        setup.Game.Runner.IsRunning = false;
+        await setup.ViewModel.AdoptAsync(pack, "db/x_tables/data__").WaitAsync(Timeout);
+        setup.Game.Runner.IsRunning = false;
+        await setup.ViewModel.RenameAsync(setup.Id, TableA).WaitAsync(Timeout);
+        setup.Game.Runner.IsRunning = false;
+
+        Assert.Equal([busy, busy, busy, busy], setup.Dialogs.Messages);
+        Assert.False(setup.Exists(@"db\x_tables\mine.tsv"));
+        Assert.False(setup.Exists(@"text\db\mine.loc.tsv"));
+        Assert.True(setup.Exists(TableA));
+        Assert.Empty(setup.Opened);
+        Assert.Null(setup.ViewModel.StatusMessage);
+        Assert.False(setup.History.CanUndo);
+    }
+
+    [Fact] public async Task The_status_stays_until_a_command_really_starts()
+    {
+        using var setup = await CreateAsync((@"script\a.txt", "one"));
         var changed = new List<string?>(); setup.ViewModel.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
         await setup.ViewModel.DeleteAsync(setup.Id, @"script\a.txt").WaitAsync(Timeout);
+        var deleted = setup.ViewModel.StatusMessage;
 
-        Assert.NotNull(setup.ViewModel.StatusMessage);
+        Assert.Equal(setup.Texts.FileDeletedStatus(@"script\a.txt"), deleted);
         Assert.Contains(nameof(ProjectFilesViewModel.StatusMessage), changed);
 
-        await setup.ViewModel.NewLocAsync(setup.Id).WaitAsync(Timeout);                    // the user cancels: nothing to say
+        // A command the user cancels, and one that cannot start, leave the last result line alone.
+        await setup.ViewModel.NewLocAsync(setup.Id).WaitAsync(Timeout);
+        await setup.ViewModel.RenameAsync(setup.Id, @"script\missing.txt").WaitAsync(Timeout);   // cancelled in the dialog
+        setup.Game.Runner.IsRunning = true;
+        await setup.ViewModel.NewLocAsync(setup.Id).WaitAsync(Timeout);                          // another operation runs: cannot start
+        setup.Game.Runner.IsRunning = false;
+
+        Assert.Equal(deleted, setup.ViewModel.StatusMessage);
+
+        // One that starts replaces it, also when the action ends with nothing to say (here a message).
+        setup.Dialogs.NameAnswers.Enqueue("mine");
+        await setup.ViewModel.NewLocAsync(setup.Id).WaitAsync(Timeout);
+
+        Assert.Equal(setup.Texts.FileCreatedStatus(@"text\db\mine.loc.tsv"), setup.ViewModel.StatusMessage);
+
+        setup.Dialogs.NameAnswers.Enqueue("mine");                                              // taken: the action is refused after the dialog
+        await setup.ViewModel.NewLocAsync(setup.Id).WaitAsync(Timeout);
 
         Assert.Null(setup.ViewModel.StatusMessage);
+        Assert.Single(setup.Dialogs.Messages);
+    }
+
+    [Fact] public async Task The_table_list_is_prepared_in_the_background_once_per_schema_and_a_cancel_shows_no_dialog()
+    {
+        using var setup = await CreateAsync();
+        var title = setup.Texts.OperationPrepareTables;
+
+        await setup.ViewModel.NewTableAsync(setup.Id).WaitAsync(Timeout);
+        await setup.ViewModel.NewTableAsync(setup.Id).WaitAsync(Timeout);
+
+        // Two dialogs, one preparation, and it ran before the first dialog opened.
+        Assert.Equal(2, setup.Dialogs.TableAsks.Count);
+        Assert.Equal([title], setup.Game.Runner.Titles);
+        Assert.Equal(["x_tables"], setup.Dialogs.TableAsks[1].Tables);
+
+        // Another schema instance: prepared again.
+        await setup.Workspace.ReloadSchemaAsync();
+        setup.Game.Runner.Titles.Clear();
+        await setup.ViewModel.NewTableAsync(setup.Id).WaitAsync(Timeout);
+
+        Assert.Equal(3, setup.Dialogs.TableAsks.Count);
+        Assert.Equal([title], setup.Game.Runner.Titles);
+
+        // The user cancels the preparation: no dialog, no message, and the status stays.
+        await setup.Workspace.ReloadSchemaAsync();
+        setup.Game.Runner.CancelNext = true;
+        setup.Game.Runner.Titles.Clear();
+        await setup.ViewModel.NewTableAsync(setup.Id).WaitAsync(Timeout);
+
+        Assert.Equal(3, setup.Dialogs.TableAsks.Count);
+        Assert.Equal([title], setup.Game.Runner.Titles);
+        Assert.Empty(setup.Dialogs.Messages);
+        Assert.Null(setup.ViewModel.StatusMessage);
+    }
+
+    // ---- adding a pack entry: the same name, and both forms of a name -----------------------------------------------------------
+
+    [Fact] public async Task The_same_name_is_confirmed_ignoring_case_because_pack_paths_are_case_insensitive()
+    {
+        using var setup = await CreateAsync();
+        var pack = await AddPackAsync(setup, ("db/x_tables/data__", TestGame.TableBytes), ("text/db/names.loc", [1, 2, 3]));
+
+        // "DATA__" for "data__": the game takes both for the same file, so the whole game table is replaced: ask.
+        setup.Dialogs.NameAnswers.Enqueue("DATA__");
+        setup.Dialogs.ConfirmAnswers.Enqueue(false);
+        await setup.ViewModel.AdoptAsync(pack, "db/x_tables/data__").WaitAsync(Timeout);
+
+        Assert.Equal(["db/x_tables/data__"], setup.Dialogs.Confirms);
+        Assert.Equal(["alpha", "DATA__"], setup.Dialogs.NameAsks.Select(ask => ask.Suggestion));
+        Assert.False(setup.Exists(@"db\x_tables\DATA__.tsv"));
+
+        // The same holds for a loc file.
+        setup.Dialogs.NameAnswers.Enqueue("NAMES");
+        setup.Dialogs.ConfirmAnswers.Enqueue(false);
+        await setup.ViewModel.AdoptAsync(pack, "text/db/names.loc").WaitAsync(Timeout);
+
+        Assert.Equal(["db/x_tables/data__", "text/db/names.loc"], setup.Dialogs.Confirms);
+
+        // Yes adds it under the spelling that was typed.
+        setup.Dialogs.NameAnswers.Enqueue("DATA__");
+        setup.Dialogs.ConfirmAnswers.Enqueue(true);
+        await setup.ViewModel.AdoptAsync(pack, "db/x_tables/data__").WaitAsync(Timeout);
+
+        Assert.True(setup.Exists(@"db\x_tables\DATA__.tsv"));
+    }
+
+    [Fact] public async Task The_name_check_of_an_added_table_or_loc_file_refuses_a_name_that_is_taken_in_either_form()
+    {
+        using var setup = await CreateAsync((@"db\x_tables\rawone", "x"), (@"db\x_tables\textone.tsv", "x"), (@"text\db\rawloc.loc", "x"), (@"text\db\textloc.loc.tsv", "x"));
+        var pack = await AddPackAsync(setup, ("db/x_tables/data__", TestGame.TableBytes), ("text/db/names.loc", [1, 2, 3]));
+
+        await setup.ViewModel.AdoptAsync(pack, "db/x_tables/data__").WaitAsync(Timeout);            // cancelled: only the check is of interest
+        await setup.ViewModel.AdoptAsync(pack, "text/db/names.loc").WaitAsync(Timeout);
+        var (table, loc) = (setup.Dialogs.NameAsks[0].Validate, setup.Dialogs.NameAsks[1].Validate);
+
+        // The file can become text or stay as it is: a name is free only when both are.
+        Assert.Equal(setup.Texts.FileProblemTargetExists, table("rawone"));
+        Assert.Equal(setup.Texts.FileProblemTargetExists, table("textone"));
+        Assert.Equal(setup.Texts.FileProblemTargetExists, table("RAWONE"));
+        Assert.Null(table("free"));
+        Assert.Equal(setup.Texts.FileProblemTargetExists, loc("rawloc"));
+        Assert.Equal(setup.Texts.FileProblemTargetExists, loc("textloc"));
+        Assert.Null(loc("free"));
     }
 }

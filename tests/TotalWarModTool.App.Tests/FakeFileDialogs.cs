@@ -15,6 +15,9 @@ internal sealed class FakeFileDialogs : IFileDialogs
     /// <summary>The answers of <see cref="ConfirmSameName"/>, one per call.</summary>
     public Queue<bool> ConfirmAnswers { get; } = new();
 
+    /// <summary>Runs inside every question before the answer is returned: lets a test change the world while the dialog is open.</summary>
+    public Action? WhileAsking { get; set; }
+
     public List<NameAsk> NameAsks { get; } = [];
 
     public List<TableAsk> TableAsks { get; } = [];
@@ -27,18 +30,21 @@ internal sealed class FakeFileDialogs : IFileDialogs
     public string? AskName(string title, string label, string suggestion, Func<string, string?> validate)
     {
         NameAsks.Add(new NameAsk(title, label, suggestion, validate));
+        WhileAsking?.Invoke();
         return NameAnswers.Count > 0 ? NameAnswers.Dequeue() : null;
     }
 
     public NewTableInput? AskNewTable(IReadOnlyList<string> tables, string suggestion, Func<NewTableInput, string?> validate)
     {
         TableAsks.Add(new TableAsk(tables, suggestion, validate));
+        WhileAsking?.Invoke();
         return TableAnswers.Count > 0 ? TableAnswers.Dequeue() : null;
     }
 
     public bool ConfirmSameName(string file)
     {
         Confirms.Add(file);
+        WhileAsking?.Invoke();
         return ConfirmAnswers.Count > 0 && ConfirmAnswers.Dequeue();
     }
 

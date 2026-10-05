@@ -18,6 +18,8 @@ public sealed partial class AppTexts
     /// <param name="fileName">File name of the file that is deleted. Data, not a UI text.</param>
     public string OperationDeleteFile(string fileName) => F("operation.deleteFile", "Delete {0}", fileName);
 
+    public string OperationPrepareTables => T("operation.prepareTables", "Preparing the table list");
+
     public string FileProblemUnsafePath => T("file.problem.unsafePath",
         "This is not a plain file name below the pack folder of the project. Choose a different name.");
 

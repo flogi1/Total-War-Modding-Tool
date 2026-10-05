@@ -53,6 +53,16 @@ public sealed partial class NewTableWindow : Window
         TableList.Focus();
     }
 
+    // A table stays chosen: when the list lost its selection (a Ctrl+click on the chosen table) and the view model still has one that is listed,
+    // it is selected again. A new list clears the selection too; the view model has the new choice by then.
+    private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TableList.SelectedItem is null && _viewModel.SelectedTable is { } chosen && TableList.Items.Contains(chosen))
+        {
+            TableList.SelectedItem = chosen;
+        }
+    }
+
     // Enter in the list takes the chosen table and goes on to the name, instead of pressing OK.
     private void OnListKeyDown(object sender, KeyEventArgs e)
     {

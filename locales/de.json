@@ -315,6 +315,7 @@
   "operation.addFile": "{0} zum Projekt hinzufügen",
   "operation.renameFile": "{0} umbenennen",
   "operation.deleteFile": "{0} löschen",
+  "operation.prepareTables": "Tabellenliste vorbereiten",
   "file.problem.unsafePath": "Das ist kein einfacher Dateiname unterhalb des Pack-Ordners des Projekts. Wähle einen anderen Namen.",
   "file.problem.link": "Die Datei oder einer ihrer Ordner ist ein Link. Das Werkzeug schreibt nie durch Links.",
   "file.problem.targetExists": "Eine Datei oder ein Ordner mit diesem Namen gibt es schon. Es wurde nichts geändert. Wähle einen anderen Namen.",

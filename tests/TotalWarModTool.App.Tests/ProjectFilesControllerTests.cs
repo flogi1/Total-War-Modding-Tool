@@ -208,12 +208,74 @@ public class ProjectFilesControllerTests
         Assert.NotNull(Ok(await setup.Files.CreateLocAsync(setup.Id, "mine")));  // a loc file needs no schema
     }
 
-    [Fact] public async Task The_creatable_tables_are_those_of_the_schema()
+    [Fact] public async Task The_creatable_tables_are_prepared_through_the_runner_once_per_schema_instance()
+    {
+        using var setup = await CreateAsync();
+        var title = setup.Game.Texts.OperationPrepareTables;
+
+        Assert.Empty(setup.Files.CreatableTables);                               // the property never computes: nothing was prepared yet
+        Assert.Empty(setup.Game.Runner.Titles);
+
+        var first = await setup.Files.GetCreatableTablesAsync();
+
+        Assert.Equal(["x_tables"], first);
+        Assert.Equal([title], setup.Game.Runner.Titles);
+        Assert.Same(first, setup.Files.CreatableTables);
+
+        // The second dialog uses the answer: no run.
+        Assert.Same(first, await setup.Files.GetCreatableTablesAsync());
+        Assert.Equal([title], setup.Game.Runner.Titles);
+
+        // A schema that was loaded again is another instance: the list is prepared again, and not before it is asked for.
+        await setup.Workspace.ReloadSchemaAsync();
+        setup.Game.Runner.Titles.Clear();
+
+        Assert.Empty(setup.Files.CreatableTables);
+        var again = await setup.Files.GetCreatableTablesAsync();
+
+        Assert.Equal(["x_tables"], again);
+        Assert.NotSame(first, again);
+        Assert.Equal([title], setup.Game.Runner.Titles);
+    }
+
+    [Fact] public async Task Preparing_the_tables_gives_nothing_while_busy_or_after_a_cancel_and_keeps_no_list()
     {
         using var setup = await CreateAsync();
 
-        Assert.Equal(["x_tables"], setup.Files.CreatableTables);
-        Assert.Same(setup.Files.CreatableTables, setup.Files.CreatableTables);   // worked out once per schema
+        setup.Game.Runner.IsRunning = true;
+        Assert.Null(await setup.Files.GetCreatableTablesAsync());
+        setup.Game.Runner.IsRunning = false;
+        Assert.Empty(setup.Game.Runner.Titles);                                  // nothing was started
+
+        setup.Game.Runner.CancelNext = true;
+        Assert.Null(await setup.Files.GetCreatableTablesAsync());
+        Assert.Empty(setup.Files.CreatableTables);                               // a cancelled run leaves no list behind
+
+        Assert.Equal(["x_tables"], await setup.Files.GetCreatableTablesAsync());  // and the next try prepares it
+    }
+
+    [Fact] public async Task Without_a_schema_the_prepared_list_is_empty_and_nothing_runs()
+    {
+        using var setup = await CreateAsync(withSchema: false);
+
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(await setup.Files.GetCreatableTablesAsync()));
+        Assert.Empty(setup.Game.Runner.Titles);
+    }
+
+    [Fact] public async Task An_open_tab_with_unsaved_work_is_the_reason_not_to_rename_or_delete_the_file()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42), Table(TableB, 7));
+        var a = await OpenAsync(setup, TableA);
+        await OpenAsync(setup, TableB);
+
+        Assert.Null(setup.Files.OpenTabReason(setup.Id, TableA));                // open, but nothing to lose
+        Assert.Null(setup.Files.OpenTabReason(setup.Id, @"script\other.txt"));    // no tab at all
+
+        a.Rows[0][Value] = "50";
+
+        Assert.Equal(setup.Game.Texts.FileTabUnsaved(TableA.Replace('\\', '/')), setup.Files.OpenTabReason(setup.Id, TableA));
+        Assert.Equal(setup.Game.Texts.FileTabUnsaved(TableA.Replace('\\', '/')), setup.Files.OpenTabReason(setup.Id, TableA.Replace('\\', '/')));
+        Assert.Null(setup.Files.OpenTabReason(setup.Id, TableB));
     }
 
     // ---- adopting an entry of a pack ---------------------------------------------------------------------------------------------

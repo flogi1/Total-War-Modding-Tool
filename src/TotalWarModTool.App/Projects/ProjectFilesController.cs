@@ -82,24 +82,65 @@ public sealed class ProjectFilesController
     /// </summary>
     public event EventHandler<(Guid ProjectId, string RelativeFile)>? OpenRequested;
 
-    /// <summary>The tables a new file can be created for, sorted; empty while no schema is loaded.</summary>
-    public IReadOnlyList<string> CreatableTables
+    /// <summary>
+    /// The tables a new file can be created for, sorted, as <see cref="GetCreatableTablesAsync"/> worked them out for the schema that is
+    /// loaded now; empty while that has not run for this schema, and while no schema is loaded. Never computes anything.
+    /// </summary>
+    public IReadOnlyList<string> CreatableTables =>
+        _projects.Schema?.Schema is { } schema && ReferenceEquals(schema, _creatableFor) ? _creatable : [];
+
+    /// <summary>
+    /// The tables a new file can be created for, sorted. Working them out writes and reads every table of the schema once, so it runs through
+    /// the operation runner, once per schema instance (a schema that was loaded again is another instance); the answer is kept for
+    /// <see cref="CreatableTables"/>. Empty without a schema (nothing runs then). Null when nothing can be started right now or the run was
+    /// cancelled or failed.
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> GetCreatableTablesAsync()
     {
-        get
+        if (_projects.Schema?.Schema is not { } schema)
         {
-            if (_projects.Schema?.Schema is not { } schema)
-            {
-                return [];
-            }
+            return [];
+        }
 
-            if (!ReferenceEquals(schema, _creatableFor))
-            {
-                _creatable = NewFiles.CreatableTables(schema);
-                _creatableFor = schema;
-            }
-
+        if (ReferenceEquals(schema, _creatableFor))
+        {
             return _creatable;
         }
+
+        if (!_projects.CanStartOperation)
+        {
+            return null;
+        }
+
+        // Not through RunAsync: a cancelled run has no list, whatever the work returned.
+        var outcome = await _runner.RunAsync(_texts.OperationPrepareTables, (_, _) => NewFiles.CreatableTables(schema));
+        if (outcome.Status != OperationStatus.Completed || outcome.Value is not { } tables)
+        {
+            return null;
+        }
+
+        // Another schema was loaded meanwhile: this list is not the one that belongs to it.
+        if (!ReferenceEquals(_projects.Schema?.Schema, schema))
+        {
+            return null;
+        }
+
+        _creatable = tables;
+        _creatableFor = schema;
+        return tables;
+    }
+
+    /// <summary>
+    /// Null when no open tab of the file holds work that a rename or delete would lose; else the UI text that says to save or close the tab
+    /// first. Nothing is committed or asked.
+    /// </summary>
+    public string? OpenTabReason(Guid projectId, string relativeFile)
+    {
+        ArgumentNullException.ThrowIfNull(relativeFile);
+
+        return _documents.FirstTabWithUnsavedWork(_documents.TabsOfFile(projectId, relativeFile.Replace('/', '\\'))) is { } unsaved
+            ? _texts.FileTabUnsaved(Shown(unsaved.EntryPath))
+            : null;
     }
 
     /// <summary>
@@ -242,10 +283,9 @@ public sealed class ProjectFilesController
             return Fail(_texts.FileRenameChangesKind);
         }
 
-        var tabs = _documents.TabsOfFile(projectId, relativeFile);
-        if (_documents.FirstTabWithUnsavedWork(tabs) is { } unsaved)
+        if (OpenTabReason(projectId, relativeFile) is { } tabReason)
         {
-            return Fail(_texts.FileTabUnsaved(Shown(unsaved.EntryPath)));
+            return Fail(tabReason);
         }
 
         var projectFolder = state.Folder;
@@ -288,9 +328,9 @@ public sealed class ProjectFilesController
         }
 
         relativeFile = relativeFile.Replace('/', '\\');
-        if (_documents.FirstTabWithUnsavedWork(_documents.TabsOfFile(projectId, relativeFile)) is { } unsaved)
+        if (OpenTabReason(projectId, relativeFile) is { } tabReason)
         {
-            return Fail(_texts.FileTabUnsaved(Shown(unsaved.EntryPath)));
+            return Fail(tabReason);
         }
 
         var projectFolder = state.Folder;

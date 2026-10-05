@@ -315,6 +315,7 @@
   "operation.addFile": "Add {0} to the project",
   "operation.renameFile": "Rename {0}",
   "operation.deleteFile": "Delete {0}",
+  "operation.prepareTables": "Preparing the table list",
   "file.problem.unsafePath": "This is not a plain file name below the pack folder of the project. Choose a different name.",
   "file.problem.link": "The file or one of its folders is a link. The tool never writes through links.",
   "file.problem.targetExists": "A file or a folder with this name exists already. Nothing was changed. Choose a different name.",
