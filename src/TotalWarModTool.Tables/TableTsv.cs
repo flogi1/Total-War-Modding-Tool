@@ -450,8 +450,7 @@ public static class TableTsv
                 _ => throw new ArgumentException(ModelError(row, field, cells[channelField]), "rows"),
             };
 
-            // -0 is excluded: it would come back as +0.
-            if (!(d >= 0 && d <= 255 && d == Math.Floor(d)) || (d == 0 && double.IsNegative(d)))
+            if (!CellText.IsColourChannelValue(cells[channelField]))
             {
                 return $"the colour channel value {d.ToString("R", CultureInfo.InvariantCulture)} is not an integer from 0 to 255";
             }

@@ -113,6 +113,14 @@ public class CellTextTests
         {
             Assert.Null(reason);
             Assert.Equal(read.Table!.Rows[0][0], value);
+
+            // What TryParse accepts is written by TableTsv.Write and read back as the same value.
+            var written = TableTsv.Write("t_tables", 1, "p", read.Table.Definition, [[value, true]]);
+            Assert.Null(written.Detail);
+            var back = TableTsv.Read(written.Text!, schema);
+            Assert.Null(back.Problem);
+            Assert.Equal(value, back.Table!.Rows[0][0]);
+            Assert.Equal(true, back.Table.Rows[0][1]);
         }
         else
         {
@@ -256,6 +264,52 @@ public class CellTextTests
 
         var header = TableTsv.Write("t_tables", 1, "p", definition, []).Text!.Split('\n')[0].Split('\t');
         Assert.Equal(new[] { "key", "y_r", "x_hex", "unnamed colour group_1" }, header);
+    }
+
+    private static object Channel(FieldType type, double d) => type switch
+    {
+        FieldType.I16 => (short)d,
+        FieldType.I32 => (int)d,
+        FieldType.I64 => (long)d,
+        FieldType.F32 => (object)(float)d,
+        _ => (object)d,
+    };
+
+    [Fact] public void IsColourChannelValue_is_true_exactly_when_TableTsv_writes_the_value_in_a_colour_group()
+    {
+        foreach (var type in new[] { FieldType.I16, FieldType.I32, FieldType.I64, FieldType.F32, FieldType.F64 })
+        {
+            var isFloat = type is FieldType.F32 or FieldType.F64;
+            var definition = new TableDefinition(1, [F("r", type), F("g", type), F("b", type)]);
+            var values = new List<double> { 0, 255, 256, -1, 1, 254 };
+            if (isFloat)
+            {
+                values.AddRange([1.5, -0.0, 255.5, 0.5]);
+            }
+
+            foreach (var d in values)
+            {
+                var value = Channel(type, d);
+                foreach (var position in new[] { 0, 1, 2 })
+                {
+                    var row = new[] { Channel(type, 0), Channel(type, 0), Channel(type, 0) };
+                    row[position] = value;
+                    var written = TableTsv.Write("t_tables", 1, "p", definition, [row]).Text is not null;
+                    Assert.True(CellText.ColourChannelFields(definition).Contains(position));
+                    Assert.Equal(written, CellText.IsColourChannelValue(value));
+                }
+            }
+        }
+    }
+
+    [Fact] public void IsColourChannelValue_refuses_values_that_are_no_numbers_of_the_group_types()
+    {
+        Assert.False(CellText.IsColourChannelValue(null));
+        Assert.False(CellText.IsColourChannelValue("12"));
+        Assert.False(CellText.IsColourChannelValue(true));
+        Assert.False(CellText.IsColourChannelValue(double.NaN));
+        Assert.False(CellText.IsColourChannelValue(double.PositiveInfinity));
+        Assert.False(CellText.IsColourChannelValue(float.NaN));
     }
 
     [Fact] public void ColourChannelFields_is_empty_without_groups()

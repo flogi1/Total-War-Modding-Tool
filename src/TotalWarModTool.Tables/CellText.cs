@@ -22,7 +22,8 @@ public static class CellText
     /// The text of a cell as TableTsv writes it, before the escaping of tabs and line breaks: "true"/"false", integers and
     /// floats in the invariant culture (floats in the shortest exact form), a colour as at least 6 upper-case hex digits, text as it is.
     /// Throws ArgumentException when the value does not have the type of the field (see DecodedTable for the types), is not a
-    /// colour, or the type is <see cref="FieldType.Unsupported"/>.
+    /// colour, or the type is <see cref="FieldType.Unsupported"/>. A NaN with a payload is formatted as "NaN" although
+    /// TableTsv.Write refuses it (it would come back as the standard NaN); <see cref="TryParse"/> never produces one.
     /// </summary>
     public static string Format(FieldType type, object? value)
     {
@@ -81,8 +82,8 @@ public static class CellText
     };
 
     /// <summary>
-    /// The indexes of the fields that TableTsv writes as part of a colour group (r/g/b triple). Their values must be 0 to 255.
-    /// Decided by the very code that decides the columns for TableTsv.Write.
+    /// The indexes of the fields that TableTsv writes as part of a colour group (r/g/b triple). Their values must pass
+    /// <see cref="IsColourChannelValue"/>. Decided by the very code that decides the columns for TableTsv.Write.
     /// </summary>
     public static IReadOnlySet<int> ColourChannelFields(TableDefinition definition)
     {
@@ -102,9 +103,41 @@ public static class CellText
     }
 
     /// <summary>
-    /// Escapes a tab and a line feed the way the dialect does (two backslashes and a t or an n); <see cref="Unescape"/> is the exact
-    /// inverse for text Escape produced. A carriage return is left as it is: the dialect has no escape for it, and
-    /// <see cref="TryParse"/> and TableTsv.Write refuse text that contains one.
+    /// True exactly when TableTsv.Write accepts this value in a field of a colour group: a short, int, long, float or double that is
+    /// an integer from 0 to 255 (1.5 is not, and neither is -0, which would come back as +0). Any other value, including null, is false.
+    /// </summary>
+    public static bool IsColourChannelValue(object? value)
+    {
+        double d;
+        switch (value)
+        {
+            case short v:
+                d = v;
+                break;
+            case int v:
+                d = v;
+                break;
+            case long v:
+                d = v;
+                break;
+            case float v:
+                d = v;
+                break;
+            case double v:
+                d = v;
+                break;
+            default:
+                return false;
+        }
+
+        return d >= 0 && d <= 255 && d == Math.Floor(d) && !(d == 0 && double.IsNegative(d));
+    }
+
+    /// <summary>
+    /// Escapes a tab and a line feed the way the dialect does (two backslashes and a t or an n). For every text that
+    /// <see cref="TryParse"/> accepts, <see cref="Unescape"/> is the exact inverse (a text with a literal escape sequence is not
+    /// such a text). A carriage return is left as it is: the dialect has no escape for it, and <see cref="TryParse"/> and
+    /// TableTsv.Write refuse text that contains one.
     /// </summary>
     public static string Escape(string text)
     {
