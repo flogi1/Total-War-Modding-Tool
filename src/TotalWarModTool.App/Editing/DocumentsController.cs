@@ -202,10 +202,18 @@ public sealed partial class DocumentsController
                 _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" stays in the trash, the step that brings it back was removed: {DisplayText.Safe(trashed.TrashFile)}");
             }
 
+            // The disk is not what the steps of that file describe any more: the other steps of the file go too, and the message says so once.
+            var droppedStep = next as FileStep;
+            var furtherRemoved = droppedStep is not null && DropRelatedFileSteps(droppedStep);
+
             // A step that refused to trash a file it did not leave says that the file was left as it is; the generic text would not.
             var message = ex is FileStepChangedException changed
                 ? _texts.FileStepFileChanged(Shown(changed.RelativeFile))
                 : undo ? _texts.EditUndoFailedMessage(reason) : _texts.EditRedoFailedMessage(reason);
+            if (furtherRemoved && WorkingFileOf(droppedStep!, undo) is { } workingFile)
+            {
+                message += " " + _texts.FileFurtherStepsRemoved(Shown(workingFile));
+            }
             _dialogs.ShowMessage(undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle, message);
             return;
         }

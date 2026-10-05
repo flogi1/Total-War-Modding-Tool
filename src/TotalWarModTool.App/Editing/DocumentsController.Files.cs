@@ -78,6 +78,55 @@ public sealed partial class DocumentsController
         return new FileStepPlan(step, tabs, tabs.Count > 0 ? added : null);
     }
 
+    // The file a step was working on when it could not run: the file that should have been there before the run (the step of a delete that
+    // is undone has none in the project: it brings its file back). Shown to the user, so it is the one name that says what went wrong.
+    private static string? WorkingFileOf(FileStep step, bool undo)
+    {
+        var before = undo ? step.FilesAfterDo : step.FilesAfterUndo;
+        var other = undo ? step.FilesAfterUndo : step.FilesAfterDo;
+        return before.Concat(other).FirstOrDefault();
+    }
+
+    // A file step was dropped because it could not run: the disk is not what the steps of that file describe any more (another program wrote
+    // the file, the trash was emptied). The other file steps of the same project that deal with the same file, or with a name it had before
+    // or after (a rename chain), stay on the stacks otherwise; one of them could rename or trash a file of another program. They are removed
+    // too, and the files that they hold in the trash are logged, as nothing brings them back. True when at least one step was removed.
+    private bool DropRelatedFileSteps(FileStep dropped)
+    {
+        var files = dropped.FilesAfterDo.Concat(dropped.FilesAfterUndo).ToList();
+        var any = false;
+        while (true)
+        {
+            // The match runs once per step; the files it learns count from the next pass on, so a chain is followed pass by pass.
+            var round = new List<FileStep>();
+            _history.RemoveWhere(step =>
+            {
+                if (step is not FileStep related || related.ProjectId != dropped.ProjectId
+                    || !related.FilesAfterDo.Concat(related.FilesAfterUndo).Any(file => files.Any(known => SameFile(known, file))))
+                {
+                    return false;
+                }
+
+                round.Add(related);
+                return true;
+            });
+
+            if (round.Count == 0)
+            {
+                return any;
+            }
+
+            any = true;
+            foreach (var step in round)
+            {
+                files.AddRange(step.FilesAfterDo);
+                files.AddRange(step.FilesAfterUndo);
+                var where = step.InTrash is { } trashed ? $" Its file stays in the trash: {DisplayText.Safe(trashed.TrashFile)}" : string.Empty;
+                _log.Warn($"The step \"{DisplayText.Safe(step.Description)}\" was removed from the history, because a step of the same file could not run.{where}");
+            }
+        }
+    }
+
     // After the step ran: the tabs of the files it took away are closed (a file that still exists keeps its tabs), the project is announced,
     // and a file that was open under another name is asked for again.
     private void ApplyFileStep(FileStepPlan plan)

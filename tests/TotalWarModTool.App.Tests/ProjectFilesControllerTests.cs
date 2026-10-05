@@ -562,20 +562,120 @@ public class ProjectFilesControllerTests
         File.WriteAllText(setup.PathOf(file), "from another program");
 
         setup.Documents.UndoCommand.Execute(null);                              // the delete cannot be taken back: dropped, the old file is named
-        Assert.Contains(trashed, Assert.Single(setup.Dialogs.Messages).Message, StringComparison.Ordinal);
-        Assert.True(setup.History.CanUndo);                                     // the creation is next
 
-        setup.Documents.UndoCommand.Execute(null);
-
-        Assert.Equal(2, setup.Dialogs.Messages.Count);
-        Assert.Equal(setup.Game.Texts.FileStepFileChanged(file), setup.Dialogs.Messages[1].Message);
-        Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
-        Assert.Single(setup.TrashFiles());                                      // only the file the delete put there
+        // The creation below it deals with the same file: it is removed too, so no later undo can trash the foreign file.
+        var message = Assert.Single(setup.Dialogs.Messages).Message;
+        Assert.Contains(trashed, message, StringComparison.Ordinal);
+        Assert.EndsWith(setup.Game.Texts.FileFurtherStepsRemoved(file), message, StringComparison.Ordinal);
         Assert.False(setup.History.CanUndo);
         Assert.False(setup.History.CanRedo);
+        Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
+        Assert.Single(setup.TrashFiles());                                      // only the file the delete put there
+    }
+
+    // ---- steps that leave the history: the files they hold in the trash are named in the log ----------------------------------------------
+
+    [Fact] public async Task A_new_step_that_discards_a_file_in_the_trash_from_the_redo_stack_logs_where_it_is()
+    {
+        using var setup = await CreateAsync(("script\\b.txt", "world"));
+        Ok(await setup.Files.CreateLocAsync(setup.Id, "mine"));
+        setup.Documents.UndoCommand.Execute(null);                              // the new file is in the trash, its step waits for a redo
+        var trashed = Assert.Single(setup.TrashFiles());
+        Assert.True(setup.History.CanRedo);
+        var before = setup.Game.Log.Warnings.Count;
+
+        Ok(await setup.Files.CreateLocAsync(setup.Id, "other"));
+
+        Assert.False(setup.History.CanRedo);                                    // the step is gone
+        var line = Assert.Single(setup.Game.Log.Warnings.Skip(before));
+        Assert.Contains(trashed, line, StringComparison.Ordinal);               // the full trash path
+        Assert.Contains(@"text\db\mine.loc.tsv", line, StringComparison.Ordinal);
+        Assert.True(File.Exists(trashed));                                      // the file itself is untouched
+
+        // A step on the redo stack that holds no file in the trash leaves no line: the delete is undone, its file is back in the project.
+        Ok(await setup.Files.DeleteAsync(setup.Id, @"script\b.txt"));
+        setup.Documents.UndoCommand.Execute(null);
+        Assert.True(setup.History.CanRedo);
+        before = setup.Game.Log.Warnings.Count;
+
+        Ok(await setup.Files.CreateLocAsync(setup.Id, "third"));
+
+        Assert.False(setup.History.CanRedo);
+        Assert.Equal(before, setup.Game.Log.Warnings.Count);
+    }
+
+    [Fact] public async Task A_dropped_step_takes_the_other_steps_of_the_same_file_with_it_and_leaves_the_foreign_file_alone()
+    {
+        using var setup = await CreateAsync();
+        var beta = setup.Game.NewProject(setup.Projects, "Beta");
+        Ok(await setup.Files.CreateLocAsync(setup.Id, "other"));                // another file of the project: stays
+        Ok(await setup.Files.CreateLocAsync(beta.Id, "a"));                     // the same file name in another project: stays
+        var created = Ok(await setup.Files.CreateLocAsync(setup.Id, "a"));
+        var file = created.RelativeFile!;
+        var renamed = Ok(await setup.Files.RenameAsync(setup.Id, file, "b"));
+        setup.Documents.UndoCommand.Execute(null);                              // b -> a
+        setup.Documents.UndoCommand.Execute(null);                              // the file a goes to the trash
+        var trashed = Assert.Single(setup.TrashFiles());
+        Directory.CreateDirectory(Path.GetDirectoryName(setup.PathOf(file))!);
+        File.WriteAllText(setup.PathOf(file), "from another program");           // another program wrote a
+        Assert.True(setup.History.CanRedo);
+        var before = setup.Game.Log.Warnings.Count;
+
+        setup.Documents.RedoCommand.Execute(null);                              // the creation cannot be repeated: dropped
+
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.Contains(trashed, message.Message, StringComparison.Ordinal);    // the file that stays in the trash
+        Assert.EndsWith(setup.Game.Texts.FileFurtherStepsRemoved(file), message.Message, StringComparison.Ordinal);
+        Assert.False(setup.History.CanRedo);                                    // the rename a -> b is gone as well: it would rename the foreign file
+        Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
+        Assert.False(setup.Exists(renamed.RelativeFile!));
+        Assert.True(setup.History.CanUndo);
+        Assert.Equal(beta.Id, Assert.IsType<FileStep>(setup.History.NextUndo).ProjectId);
+
+        // One line for the step that was removed as well, one for the file the dropped step left in the trash.
+        var lines = setup.Game.Log.Warnings.Skip(before).ToList();
+        Assert.Single(lines, line => line.Contains("Rename", StringComparison.Ordinal) && line.Contains(@"text\db\b.loc.tsv", StringComparison.Ordinal));
+        Assert.Single(lines, line => line.Contains(trashed, StringComparison.Ordinal));
+
+        // The steps that stay still work.
+        setup.Documents.UndoCommand.Execute(null);
+        setup.Documents.UndoCommand.Execute(null);
+        Assert.Single(setup.Dialogs.Messages);
+        Assert.False(setup.History.CanUndo);
+    }
+
+    [Fact] public async Task A_dropped_step_also_takes_a_step_of_a_name_the_file_had_later_with_it()
+    {
+        using var setup = await CreateAsync();
+        var created = Ok(await setup.Files.CreateLocAsync(setup.Id, "a"));
+        var first = Ok(await setup.Files.RenameAsync(setup.Id, created.RelativeFile!, "b"));
+        Ok(await setup.Files.RenameAsync(setup.Id, first.RelativeFile!, "c"));  // a -> b -> c
+        setup.Documents.UndoCommand.Execute(null);
+        setup.Documents.UndoCommand.Execute(null);
+        setup.Documents.UndoCommand.Execute(null);                              // the file a is in the trash
+        Directory.CreateDirectory(Path.GetDirectoryName(setup.PathOf(created.RelativeFile!))!);
+        File.WriteAllText(setup.PathOf(created.RelativeFile!), "from another program");
+
+        setup.Documents.RedoCommand.Execute(null);
+
+        Assert.False(setup.History.CanRedo);                                    // both renames are gone
+        Assert.False(setup.History.CanUndo);
+        Assert.Equal("from another program", File.ReadAllText(setup.PathOf(created.RelativeFile!)));
+        Assert.Single(setup.Dialogs.Messages);
     }
 
     // ---- rename ------------------------------------------------------------------------------------------------------------------
+
+    [Fact] public async Task CheckNewName_takes_a_slash_in_the_folder_as_a_backslash()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42), Table(TableB, 7));
+
+        Assert.Equal(setup.Game.Texts.FileNameUnchanged, setup.Files.CheckNewName(setup.Id, "db/x_tables", "a", ".tsv", TableA));
+        Assert.Equal(setup.Game.Texts.FileNameUnchanged, setup.Files.CheckNewName(setup.Id, "db/x_tables/", "a", ".tsv", TableA));
+        Assert.Null(setup.Files.CheckNewName(setup.Id, "db/x_tables", "A", ".tsv", TableA));                         // only the case changes
+        Assert.Equal(setup.Game.Texts.FileProblemTargetExists, setup.Files.CheckNewName(setup.Id, "db/x_tables", "b", ".tsv", TableA));
+        Assert.Null(setup.Files.CheckNewName(setup.Id, "db/x_tables", "fresh", ".tsv"));
+    }
 
     [Fact] public async Task CheckNewName_knows_the_current_file_of_a_rename()
     {

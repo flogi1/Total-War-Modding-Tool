@@ -88,6 +88,10 @@ public sealed partial class AppTexts
         "The file {0} was changed or removed after this step left it, so the step was removed from the history and nothing was moved to the trash. A file that is still there was left as it is; delete it with Delete if you do not need it.",
         file);
 
+    /// <param name="file">The file, escaped. Data, not a UI text.</param>
+    public string FileFurtherStepsRemoved(string file) => F("file.furtherStepsRemoved",
+        "The other steps of the history for the file {0} were removed as well, because they no longer match the folder.", file);
+
     // ---- commands and dialogs of the file operations -----------------------------------------------------------------------------------
     // The name label reuses DialogName, "no project is active" ProjectNoneActive, and "another operation runs" ProjectBusy.
 

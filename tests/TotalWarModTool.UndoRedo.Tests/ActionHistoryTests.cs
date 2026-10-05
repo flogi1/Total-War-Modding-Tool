@@ -77,6 +77,61 @@ public sealed class ActionHistoryTests
     }
 
     [Fact]
+    public void RedoDiscarded_hands_over_the_steps_a_new_step_removed_from_the_redo_stack_before_Changed()
+    {
+        var history = new ActionHistory();
+        var first = new TestAction("a");
+        var second = new TestAction("b");
+        history.Execute(first);
+        history.Execute(second);
+        history.Undo();
+        history.Undo();
+        var order = new List<string>();
+        IReadOnlyList<IUndoableAction>? discarded = null;
+        (bool CanUndo, bool CanRedo) seen = default;
+        history.RedoDiscarded += steps =>
+        {
+            discarded = steps;
+            seen = (history.CanUndo, history.CanRedo);
+            order.Add("discarded");
+        };
+        history.Changed += () => order.Add("changed");
+
+        history.Record(new TestAction("c"));
+
+        Assert.NotNull(discarded);
+        Assert.Equal(2, discarded.Count);
+        Assert.Contains(first, discarded);
+        Assert.Contains(second, discarded);
+        Assert.Equal((true, false), seen);                                       // the stacks are final when the handler runs
+        Assert.Equal(["discarded", "changed"], order);
+    }
+
+    [Fact]
+    public void RedoDiscarded_is_raised_by_Execute_too_and_not_without_discarded_steps()
+    {
+        var history = new ActionHistory();
+        var raised = 0;
+        history.RedoDiscarded += _ => raised++;
+
+        history.Execute(new TestAction("a"));
+        history.Record(new TestAction("b"));
+        history.Undo();                                                          // undo and redo themselves discard nothing
+        history.Redo();
+        history.Undo();
+        history.RemoveWhere(_ => false);
+        history.Clear();
+
+        Assert.Equal(0, raised);
+
+        history.Execute(new TestAction("c"));
+        history.Undo();
+        history.Execute(new TestAction("d"));
+
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
     public void Undo_on_an_empty_history_throws_InvalidOperationException()
     {
         var history = new ActionHistory();

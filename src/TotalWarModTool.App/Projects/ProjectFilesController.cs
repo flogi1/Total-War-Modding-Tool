@@ -69,6 +69,7 @@ public sealed class ProjectFilesController
         _time = time;
 
         projects.Changed += (_, _) => DropStepsOfGoneProjects();
+        history.RedoDiscarded += LogDiscardedSteps;
         documents.FileStepApplied += (_, projectId) => FilesChanged?.Invoke(this, projectId);
         documents.FileReopenRequested += (_, request) => OpenRequested?.Invoke(this, request);
     }
@@ -473,12 +474,27 @@ public sealed class ProjectFilesController
         }
     }
 
+    // A new step clears the redo stack without asking. A file step that was undone holds its file in the trash and waits there for its redo;
+    // with the step gone nothing brings the file back, so its place is logged (the user can fetch it by hand).
+    private void LogDiscardedSteps(IReadOnlyList<IUndoableAction> steps)
+    {
+        foreach (var step in steps)
+        {
+            if (step is FileStep { InTrash: { } trashed })
+            {
+                _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" stays in the trash, the step that brings it back was discarded by a new step: {DisplayText.Safe(trashed.TrashFile)}");
+            }
+        }
+    }
+
     // ---- names -----------------------------------------------------------------------------------------------------------------------
 
     // The check behind CheckNewName. ownFile is the file that is renamed, if one is: the name it has already is "unchanged", and a name that
     // differs from it only in case is no collision with itself.
     private string? NameCheck(string projectFolder, string relativeFolder, string name, string extension, string? ownFile)
     {
+        // Callers may give either separator (the entry path of a tab uses '/'): the candidate is compared with the current file as '\' text.
+        relativeFolder = relativeFolder.Replace('/', '\\');
         var candidate = JoinFile(relativeFolder, name + extension);
         if (ownFile is not null && string.Equals(candidate, ownFile.Replace('/', '\\'), StringComparison.Ordinal))
         {
