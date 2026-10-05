@@ -5,7 +5,7 @@ using TotalWarModTool.UndoRedo;
 
 namespace TotalWarModTool.Editing.Tests;
 
-public class RowsDocumentTests
+public partial class RowsDocumentTests
 {
     private const string Pack = @"db\test_tables\data__";
     private const string TableName = "test_tables";

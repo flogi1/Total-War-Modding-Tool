@@ -24,6 +24,9 @@ public sealed class RowsDocument
     private readonly List<object?[]> _rows;
     private readonly ReadOnlyCollection<object?[]> _rowsView;
 
+    // The row arrays of the document by reference, kept up to date by InsertAt and RemoveAt: a new row is checked in O(1).
+    private readonly HashSet<object?[]> _rowSet;
+
     // The steps that are applied now, in order. A step leaves the list when it is undone.
     private readonly List<DocumentEdit> _applied = [];
 
@@ -31,7 +34,7 @@ public sealed class RowsDocument
     private DocumentEdit? _savedStep;
 
     private RowsDocument(DocumentKind kind, string tableName, int version, string packPath, TableDefinition? definition,
-        IReadOnlyList<FieldDefinition> columns, IReadOnlySet<int> channelColumns, List<object?[]> rows)
+        IReadOnlyList<FieldDefinition> columns, IReadOnlySet<int> channelColumns, List<object?[]> rows, HashSet<object?[]> rowSet)
     {
         Kind = kind;
         TableName = tableName;
@@ -42,6 +45,7 @@ public sealed class RowsDocument
         _channelColumns = channelColumns;
         _rows = rows;
         _rowsView = new ReadOnlyCollection<object?[]>(rows);
+        _rowSet = rowSet;
     }
 
     /// <summary>The kind of file.</summary>
@@ -96,6 +100,7 @@ public sealed class RowsDocument
         }
 
         var list = new List<object?[]>(rows.Count);
+        var rowSet = new HashSet<object?[]>(rows.Count, ReferenceEqualityComparer.Instance);
         for (var i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
@@ -106,11 +111,16 @@ public sealed class RowsDocument
                     $"the definition has {definition.Fields.Count.ToString(CultureInfo.InvariantCulture)} fields", nameof(rows));
             }
 
+            if (!rowSet.Add(row))
+            {
+                throw new ArgumentException($"Row {i.ToString(CultureInfo.InvariantCulture)} is the same array as an earlier row", nameof(rows));
+            }
+
             list.Add(row);
         }
 
         return new RowsDocument(DocumentKind.Table, tableName, version, packPath, definition, definition.Fields,
-            CellText.ColourChannelFields(definition), list);
+            CellText.ColourChannelFields(definition), list, rowSet);
     }
 
     /// <summary>A loc file: three columns "key" (StringU16), "text" (StringU16), "tooltip" (Boolean).</summary>
@@ -126,13 +136,16 @@ public sealed class RowsDocument
             new("tooltip", FieldType.Boolean, nameof(FieldType.Boolean), false, null),
         ];
         var list = new List<object?[]>(rows.Count);
+        var rowSet = new HashSet<object?[]>(rows.Count, ReferenceEqualityComparer.Instance);
         for (var i = 0; i < rows.Count; i++)
         {
             var row = rows[i] ?? throw new ArgumentException($"Row {i.ToString(CultureInfo.InvariantCulture)} is null", nameof(rows));
-            list.Add([row.Key, row.Text, row.Tooltip]);
+            object?[] cells = [row.Key, row.Text, row.Tooltip];
+            rowSet.Add(cells);
+            list.Add(cells);
         }
 
-        return new RowsDocument(DocumentKind.Loc, LocTableName, LocVersion, packPath, null, columns, new HashSet<int>(), list);
+        return new RowsDocument(DocumentKind.Loc, LocTableName, LocVersion, packPath, null, columns, new HashSet<int>(), list, rowSet);
     }
 
     /// <summary>
@@ -171,7 +184,8 @@ public sealed class RowsDocument
 
     /// <summary>
     /// Sets one cell. The value must have the cell type of the column, be a text the dialect can carry and, in a colour channel, an
-    /// integer from 0 to 255; ArgumentException otherwise. Setting the value the cell already has still gives a step.
+    /// integer from 0 to 255, a float must be bitwise what the writer reads back (so no NaN with a payload); ArgumentException otherwise.
+    /// The value is checked when the step is created, not when it runs. Setting the value the cell already has still gives a step.
     /// </summary>
     public DocumentEdit SetCell(int row, int column, object? value)
     {
@@ -187,7 +201,9 @@ public sealed class RowsDocument
 
     /// <summary>
     /// Inserts rows so that the first gets <paramref name="index"/> (0 to the row count). The row arrays are taken over by the document:
-    /// each needs one cell per column, writable values, and no array may occur twice. The list itself is copied.
+    /// each needs one cell per column and writable values (checked now, as for <see cref="SetCell"/>), and no array may be a row of the
+    /// document already or occur twice in the argument (ArgumentException). The caller must not change a row array after handing it over.
+    /// The list itself is copied.
     /// </summary>
     public DocumentEdit InsertRows(int index, IReadOnlyList<object?[]> rows)
     {
@@ -199,7 +215,10 @@ public sealed class RowsDocument
         return DocumentEdit.ForInsert(this, "insert rows", index, CopyOfNewRows(rows));
     }
 
-    /// <summary>Deletes rows. The indexes may be unsorted and may repeat; a repeated index counts once. ArgumentException for none.</summary>
+    /// <summary>
+    /// Deletes rows. The indexes may be unsorted and may repeat; a repeated index counts once. ArgumentException for none. The rows
+    /// are looked up now: the step must run in the state it was made for (the history guarantees that).
+    /// </summary>
     public DocumentEdit DeleteRows(IReadOnlyList<int> rowIndexes)
     {
         var indexes = DistinctRowIndexes(rowIndexes);
@@ -214,7 +233,8 @@ public sealed class RowsDocument
 
     /// <summary>
     /// Inserts a copy of each given row (in the order of the indexes, repeated indexes once) as one block after the last given row.
-    /// The copies are made now and are independent of the originals. ArgumentException for no index.
+    /// The copies are made now and are independent of the originals. ArgumentException for no index. The step holds the rows it was
+    /// made for: nothing may change them (other than through a step) between creating and running it.
     /// </summary>
     public DocumentEdit DuplicateRows(IReadOnlyList<int> rowIndexes)
     {
@@ -271,6 +291,14 @@ public sealed class RowsDocument
             throw new InvalidOperationException("The rows no longer fit the document");
         }
 
+        foreach (var row in rows)
+        {
+            if (_rowSet.Contains(row))
+            {
+                throw new InvalidOperationException("A row of the step is already a row of the document");
+            }
+        }
+
         for (var i = 0; i < count; i++)
         {
             _rows.Add(null!);
@@ -293,6 +321,11 @@ public sealed class RowsDocument
             }
 
             target--;
+        }
+
+        foreach (var row in rows)
+        {
+            _rowSet.Add(row);
         }
     }
 
@@ -322,6 +355,10 @@ public sealed class RowsDocument
         }
 
         _rows.RemoveRange(target, _rows.Count - target);
+        foreach (var row in rows)
+        {
+            _rowSet.Remove(row);
+        }
     }
 
     internal void RequireLastApplied(DocumentEdit edit)
@@ -332,11 +369,25 @@ public sealed class RowsDocument
         }
     }
 
-    internal void StepApplied(DocumentEdit edit, DocumentChange change)
+    // When a handler throws, the step leaves the applied list and rollBack undoes the change without an event; the exception goes on.
+    internal void StepApplied(DocumentEdit edit, DocumentChange change, Action rollBack)
     {
         var before = IsModified;
         _applied.Add(edit);
-        Raise(change, before);
+        var raised = false;
+        try
+        {
+            Raise(change, before);
+            raised = true;
+        }
+        finally
+        {
+            if (!raised)
+            {
+                _applied.RemoveAt(_applied.Count - 1);
+                rollBack();
+            }
+        }
     }
 
     internal void StepReverted(DocumentEdit edit, DocumentChange change)
@@ -373,9 +424,15 @@ public sealed class RowsDocument
         try
         {
             var text = CellText.Format(field.Type, value);
-            if (!CellText.TryParse(field.Type, text, out _, out var reason))
+            if (!CellText.TryParse(field.Type, text, out var parsed, out var reason))
             {
                 throw new ArgumentException(reason, parameter);
+            }
+
+            // A NaN with a payload formats as "NaN" and parses as the standard NaN; the writer refuses it.
+            if (!SameBits(value, parsed))
+            {
+                throw new ArgumentException("The value would not come back as the same number, a NaN with a payload", parameter);
             }
 
             if (_channelColumns.Contains(column) && !CellText.IsColourChannelValue(value))
@@ -388,6 +445,14 @@ public sealed class RowsDocument
             throw new ArgumentException($"Column '{field.Name}': {ex.Message}", parameter, ex);
         }
     }
+
+    // Only floats can differ: a value and what TryParse reads from its text must have the same bits.
+    private static bool SameBits(object? value, object? parsed) => (value, parsed) switch
+    {
+        (float a, float b) => BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b),
+        (double a, double b) => BitConverter.DoubleToInt64Bits(a) == BitConverter.DoubleToInt64Bits(b),
+        _ => true,
+    };
 
     private object?[][] CopyOfNewRows(IReadOnlyList<object?[]> rows)
     {
@@ -407,6 +472,11 @@ public sealed class RowsDocument
                 throw new ArgumentException(
                     $"Row {i.ToString(CultureInfo.InvariantCulture)} has {row?.Length.ToString(CultureInfo.InvariantCulture) ?? "no"} cells, " +
                     $"the document has {Columns.Count.ToString(CultureInfo.InvariantCulture)} columns", nameof(rows));
+            }
+
+            if (_rowSet.Contains(row))
+            {
+                throw new ArgumentException($"Row {i.ToString(CultureInfo.InvariantCulture)} is a row of the document already", nameof(rows));
             }
 
             if (!seen.Add(row))

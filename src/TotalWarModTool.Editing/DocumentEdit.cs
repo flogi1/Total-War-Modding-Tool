@@ -19,6 +19,9 @@ public sealed class DocumentEdit : IUndoableAction
     // SetCell: the row index. Insert: the indexes the rows get. Delete: the indexes the rows have. Always ascending.
     private readonly int[] _indexes;
 
+    // What DocumentChange hands out: a wrapper made once, so that no handler can change the indexes of the step.
+    private readonly IReadOnlyList<int> _indexesView;
+
     private readonly int _column;
     private readonly object? _value;
     private object? _oldValue;
@@ -31,6 +34,7 @@ public sealed class DocumentEdit : IUndoableAction
         _operation = operation;
         _rows = rows;
         _indexes = indexes;
+        _indexesView = Array.AsReadOnly(indexes);
         _column = column;
         _value = value;
     }
@@ -58,7 +62,12 @@ public sealed class DocumentEdit : IUndoableAction
     internal static DocumentEdit ForDelete(RowsDocument document, int[] indexes, object?[][] rows) =>
         new(document, "delete rows", Operation.Delete, rows, indexes, -1, null);
 
-    /// <summary>Performs the step. Throws InvalidOperationException when it has already run, or when the document no longer is in the state the step was made for.</summary>
+    /// <summary>
+    /// Performs the step. Throws InvalidOperationException when it has already run, or when the document no longer is in the state the
+    /// step was made for. When a handler of <see cref="RowsDocument.Changed"/> or <see cref="RowsDocument.ModifiedChanged"/> throws, the
+    /// document is rolled back to the state before the call (without another event, the step can run again) and the exception of the
+    /// handler is rethrown; handlers that ran before the failing one have seen the change and do not see the rollback.
+    /// </summary>
     public void Do()
     {
         if (_done)
@@ -71,23 +80,26 @@ public sealed class DocumentEdit : IUndoableAction
         {
             case Operation.SetCell:
                 _oldValue = SetCellValue(_value);
-                change = new DocumentChange(DocumentChangeKind.CellsChanged, _indexes, _column);
+                change = new DocumentChange(DocumentChangeKind.CellsChanged, _indexesView, _column);
                 break;
             case Operation.Insert:
                 Document.InsertAt(_indexes, _rows);
-                change = new DocumentChange(DocumentChangeKind.RowsInserted, _indexes, -1);
+                change = new DocumentChange(DocumentChangeKind.RowsInserted, _indexesView, -1);
                 break;
             default:
                 Document.RemoveAt(_indexes, _rows);
-                change = new DocumentChange(DocumentChangeKind.RowsRemoved, _indexes, -1);
+                change = new DocumentChange(DocumentChangeKind.RowsRemoved, _indexesView, -1);
                 break;
         }
 
         _done = true;
-        Document.StepApplied(this, change);
+        Document.StepApplied(this, change, RollBack);
     }
 
-    /// <summary>Reverts the step. Throws InvalidOperationException when it has not run, or when it is not the step the document applied last.</summary>
+    /// <summary>
+    /// Reverts the step. Throws InvalidOperationException when it has not run, or when it is not the step the document applied last.
+    /// When a handler throws, the step stays undone and the exception of the handler is rethrown.
+    /// </summary>
     public void Undo()
     {
         if (!_done)
@@ -101,21 +113,41 @@ public sealed class DocumentEdit : IUndoableAction
         {
             case Operation.SetCell:
                 SetCellValue(_oldValue);
-                change = new DocumentChange(DocumentChangeKind.CellsChanged, _indexes, _column);
+                change = new DocumentChange(DocumentChangeKind.CellsChanged, _indexesView, _column);
                 break;
             case Operation.Insert:
                 Document.RemoveAt(_indexes, _rows);
-                change = new DocumentChange(DocumentChangeKind.RowsRemoved, _indexes, -1);
+                change = new DocumentChange(DocumentChangeKind.RowsRemoved, _indexesView, -1);
                 break;
             default:
                 Document.InsertAt(_indexes, _rows);
-                change = new DocumentChange(DocumentChangeKind.RowsInserted, _indexes, -1);
+                change = new DocumentChange(DocumentChangeKind.RowsInserted, _indexesView, -1);
                 break;
         }
 
         _done = false;
         _oldValue = null;
         Document.StepReverted(this, change);
+    }
+
+    // Takes back a Do whose events failed: the inverse change without an event, and the step is ready to run again.
+    private void RollBack()
+    {
+        switch (_operation)
+        {
+            case Operation.SetCell:
+                SetCellValue(_oldValue);
+                break;
+            case Operation.Insert:
+                Document.RemoveAt(_indexes, _rows);
+                break;
+            default:
+                Document.InsertAt(_indexes, _rows);
+                break;
+        }
+
+        _done = false;
+        _oldValue = null;
     }
 
     // Writes the value into the cell and returns the value that was there. The row must still be at its index.
