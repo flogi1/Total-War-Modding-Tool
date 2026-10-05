@@ -390,6 +390,27 @@ public class SessionCoordinatorTests
         }
     }
 
+    [Fact] public async Task Project_tabs_restored_with_a_documents_controller_are_editable()
+    {
+        var (game, c, _, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));
+        using (game)
+        {
+            var main = game.NewMain(c, withDocuments: true);
+            var def = new TotalWarModTool.Schema.TableDefinition(0, [new TotalWarModTool.Schema.FieldDefinition("value", TotalWarModTool.Schema.FieldType.I32, nameof(TotalWarModTool.Schema.FieldType.I32), false, null)]);
+            var text = TotalWarModTool.Tables.TableTsv.Write("x_tables", 0, "db/x_tables/a", def, [[42]]).Text!;
+            var state = game.NewProject(main.Projects, "Alpha", (@"db\x_tables\a.tsv", text), ("readme.txt", "hello"));
+            store.Save(new SessionState([new(KeyOf(state.Id), "db/x_tables/a.tsv"), new(KeyOf(state.Id), "readme.txt")], 0, []));
+            var session = CoordinatorWithProjects(game, c, main, store);
+
+            await session.RestoreAsync();
+
+            Assert.Equal(["a.tsv", "readme.txt"], main.Main.Tabs.Tabs.Select(t => t.Title));
+            var editable = Assert.IsType<EditableRowsTabViewModel>(main.Main.Tabs.Tabs[0]);
+            Assert.Same(editable, Assert.Single(main.Documents!.EditableTabs));
+            Assert.IsType<TextTabViewModel>(main.Main.Tabs.Tabs[1]);
+        }
+    }
+
     [Fact] public async Task Without_a_projects_controller_project_entries_are_ignored()
     {
         var (game, c, main, store) = await CreateWithProjects(g => g.AddPack("a.pack", ("a.txt", [1])));

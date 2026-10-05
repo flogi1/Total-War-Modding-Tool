@@ -377,6 +377,60 @@ public class MainViewModelWorkspaceTests
         Assert.Empty(m.Main.Tabs.Tabs);
     }
 
+    // A tab of the entry that appears while the entry is being read (a session restore) wins: what was read is dropped, there is no second tab.
+    private static OpenedEntry HandBuiltEntry(string entryPath) =>
+        new(entryPath, EntryKind.Other, 1, 1, TotalWarModTool.PackFiles.CompressionFormat.None, TotalWarModTool.PackFiles.EntryProblem.None, null, false, null, null, null);
+
+    [Fact] public async Task A_project_file_that_got_a_tab_while_it_was_read_gets_no_second_tab()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var runner = new ManualOperationRunner(); var m = game.NewMain(c, runner);
+        await c.LoadAsync();
+        var state = game.NewProject(m.Projects, "Alpha", ("readme.txt", "hello"));
+        var source = TabSource.ForProject(state.Id, "Alpha");
+
+        var opening = m.Main.OpenProjectFileAsync(state.Id, @"readme.txt");
+        await runner.WaitForRun();
+        m.Main.Tabs.Add(source, HandBuiltEntry("readme.txt"), null);               // the restore was faster
+        var existing = m.Main.Tabs.Tabs[0];
+        m.Main.Tabs.Add(source, HandBuiltEntry("other.txt"), null);                // another tab is selected meanwhile
+        runner.Complete();
+        await opening.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(["readme.txt", "other.txt"], m.Main.Tabs.Tabs.Select(t => t.EntryPath));
+        Assert.Same(existing, m.Main.Tabs.SelectedTab);                             // the existing tab is shown
+    }
+
+    [Fact] public async Task A_pack_entry_that_got_a_tab_while_it_was_read_gets_no_second_tab()
+    {
+        using var game = new TestGame(); game.AddPack("a.pack", ("a.txt", "one"u8.ToArray()));
+        var runner = new ManualOperationRunner(); var c = game.NewController(runner: runner);
+        var vm = new MainViewModel(game.Texts, game.Paths, _ => { }, runner, () => { }, c);
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+
+        var opening = vm.OpenEntryAsync(pack, "a.txt");
+        while (!opening.IsCompleted)
+        {
+            await Task.WhenAny(opening, runner.WaitForRun());
+            if (opening.IsCompleted)
+            {
+                break;
+            }
+
+            if (vm.Tabs.Tabs.Count == 0)
+            {
+                vm.Tabs.Add(pack, HandBuiltEntry("a.txt"), null);                    // the restore was faster
+            }
+
+            runner.Complete();
+        }
+
+        await opening;
+        Assert.Equal(["a.txt"], vm.Tabs.Tabs.Select(t => t.EntryPath));
+        Assert.IsType<InfoTabViewModel>(vm.Tabs.Tabs[0]);                           // the one that was there first
+    }
+
     [Fact] public async Task Refresh_reloads_the_projects()
     {
         using var game = new TestGame();

@@ -1,8 +1,10 @@
 using TotalWarModTool.Editing;
+using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
 using TotalWarModTool.UndoRedo;
+using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App.Tests;
 
@@ -293,6 +295,66 @@ public class DocumentsControllerTests
 
         public void Undo()
         {
+        }
+    }
+
+    [Fact] public async Task A_table_that_the_document_refuses_opens_as_the_default_tab_and_logs_a_warning()
+    {
+        using var setup = await CreateAsync();
+        // The reader cannot deliver this (a row with two cells for one field), so the entry is built by hand.
+        var table = new DecodedTable(TableDecodeStatus.Ok, "x_tables", 0, false, Def, [[1, 2]], null);
+        var entry = new OpenedEntry("db/x_tables/bad.tsv", EntryKind.Table, 10, 10, CompressionFormat.None, EntryProblem.None, null, false, table, null, null);
+        var before = setup.Game.Log.Warnings.Count;
+
+        setup.Tabs.Add(setup.Source, entry, setup.Workspace.Schema);
+
+        Assert.IsType<TableTabViewModel>(setup.Tabs.Tabs[^1]);
+        Assert.Empty(setup.Controller.EditableTabs);
+        Assert.Equal(before + 1, setup.Game.Log.Warnings.Count);
+        Assert.Contains("db/x_tables/bad.tsv", setup.Game.Log.Warnings[^1]);
+    }
+
+    [Fact] public async Task Clearing_the_tab_list_removes_the_steps_of_all_editable_tabs()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            a.Rows[0][Value] = "50";
+            b.Rows[0][Value] = "8";
+            Assert.True(setup.History.CanUndo);
+
+            setup.Tabs.Tabs.Clear();
+
+            Assert.Empty(setup.Controller.EditableTabs);
+            Assert.False(setup.History.CanUndo);
+            Assert.False(setup.History.CanRedo);
+            Assert.False(setup.Controller.HasModifiedTabs);
+        }
+    }
+
+    [Fact] public async Task A_failure_to_select_the_tab_after_a_step_is_no_failed_step()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            a.Rows[0][Value] = "50";
+            setup.Tabs.SelectedTab = b;
+            setup.Tabs.Changed += (_, _) =>
+            {
+                if (ReferenceEquals(setup.Tabs.SelectedTab, a))
+                {
+                    throw new InvalidOperationException("selecting failed");
+                }
+            };
+            var errors = setup.Game.Log.Errors.Count;
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => setup.Controller.UndoCommand.Execute(null));
+
+            Assert.Equal("selecting failed", thrown.Message);
+            Assert.Empty(setup.Dialogs.Messages);                       // not reported as a failed undo
+            Assert.Equal(errors, setup.Game.Log.Errors.Count);
+            Assert.Equal("42", a.Rows[0][Value]);                       // the step itself was undone
+            Assert.True(setup.History.CanRedo);
         }
     }
 

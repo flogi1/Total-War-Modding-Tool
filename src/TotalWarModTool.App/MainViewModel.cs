@@ -213,7 +213,11 @@ public sealed class MainViewModel : ObservableObject
 
         if (await _workspace.OpenEntryAsync(pack, entryPath) is { } opened)
         {
-            Tabs.Add(pack, opened, _workspace.Schema);
+            // A tab for the entry may have come meanwhile (a session restore): then that one is shown and what was read is dropped.
+            if (!Tabs.TryActivate(pack.Path, entryPath))
+            {
+                Tabs.Add(pack, opened, _workspace.Schema);
+            }
         }
     }
 
@@ -237,7 +241,11 @@ public sealed class MainViewModel : ObservableObject
 
         if (await _projects.OpenFileAsync(projectId, relativeFile) is { } opened)
         {
-            Tabs.Add(source, opened, _workspace.Schema);
+            // A tab for the file may have come meanwhile (a session restore): two editable tabs of one file would hold separate documents.
+            if (!Tabs.TryActivate(source.Key, relativeFile.Replace('\\', '/')))
+            {
+                Tabs.Add(source, opened, _workspace.Schema);
+            }
         }
     }
 

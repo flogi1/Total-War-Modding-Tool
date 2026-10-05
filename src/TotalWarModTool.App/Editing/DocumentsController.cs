@@ -131,10 +131,10 @@ public sealed partial class DocumentsController
         }
 
         var next = undo ? _history.NextUndo : _history.NextRedo;
+        IUndoableAction step;
         try
         {
-            var step = undo ? _history.Undo() : _history.Redo();
-            SelectTabOf(step);
+            step = undo ? _history.Undo() : _history.Redo();
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
@@ -145,7 +145,11 @@ public sealed partial class DocumentsController
             _dialogs.ShowMessage(
                 undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle,
                 undo ? _texts.EditUndoFailedMessage(reason) : _texts.EditRedoFailedMessage(reason));
+            return;
         }
+
+        // Outside the try: the step has worked, so a failure to select its tab is no failed step.
+        SelectTabOf(step);
     }
 
     // After the step ran: the tab of its document is shown, so the user sees what changed. A document without a tab (closed) selects nothing.

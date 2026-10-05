@@ -118,14 +118,20 @@ internal sealed class TestGame : IDisposable
         return new ProjectsController(store, store.Load(), workspace, runner ?? Runner, Log, Texts, TimeProvider.System);
     }
 
-    /// <summary>The main view model of the app with projects: the controller of <see cref="NewProjects"/>, the commands over a fake dialog.</summary>
-    public MainSetup NewMain(WorkspaceController workspace, IOperationRunner? runner = null)
+    /// <summary>
+    /// The main view model of the app with projects: the controller of <see cref="NewProjects"/>, the commands over a fake dialog.
+    /// <paramref name="withDocuments"/> adds the <see cref="DocumentsController"/> (editable tabs) the way the app wires it.
+    /// </summary>
+    public MainSetup NewMain(WorkspaceController workspace, IOperationRunner? runner = null, bool withDocuments = false)
     {
         var projects = NewProjects(workspace, runner);
         var dialogs = new FakeProjectDialogs();
         var commands = new ProjectsViewModel(projects, dialogs, Texts);
-        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands);
-        return new MainSetup(main, projects, dialogs);
+        DocumentsController? documents = withDocuments
+            ? new DocumentsController(new TabsViewModel(Texts), projects, new TotalWarModTool.UndoRedo.ActionHistory(), runner ?? Runner, new FakeEditDialogs(), Log, Texts)
+            : null;
+        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents);
+        return new MainSetup(main, projects, dialogs, documents);
     }
 
     /// <summary>Creates a project (it becomes the active one when it is the first) and writes the given files below its pack folder.</summary>
@@ -164,7 +170,7 @@ internal sealed class TestGame : IDisposable
 }
 
 /// <summary>What <see cref="TestGame.NewMain"/> built.</summary>
-internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs);
+internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs, DocumentsController? Documents = null);
 
 /// <summary>A Steam source that finds no Steam installation.</summary>
 internal sealed class NoSteam : ISteamLocationSource
