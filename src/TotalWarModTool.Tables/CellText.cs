@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text;
 using TotalWarModTool.Schema;
 
 namespace TotalWarModTool.Tables;
@@ -14,6 +15,7 @@ public static class CellText
 {
     private const string TabEscape = "\\\\t";
     private const string LineFeedEscape = "\\\\n";
+    private const int MaxDetailValueLength = 50;
 
     /// <summary>The outcome of <see cref="TryFormat"/>.</summary>
     internal enum FormatResult { Ok, WrongType, NotAColour }
@@ -150,6 +152,41 @@ public static class CellText
     {
         ArgumentNullException.ThrowIfNull(text);
         return text.Replace(TabEscape, "\t", StringComparison.Ordinal).Replace(LineFeedEscape, "\n", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A cell value, column name or model text for a message: at most 50 characters, never cut inside a surrogate pair, control
+    /// characters and unpaired surrogates written as \uXXXX, "..." when it was cut. The one rule for every Detail of the tables and the
+    /// editing libraries.
+    /// </summary>
+    public static string ShortenForDetail(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var length = Math.Min(value.Length, MaxDetailValueLength);
+        if (length < value.Length && char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
+        {
+            length--;
+        }
+
+        var sb = new StringBuilder(length + 3);
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            if (char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(value[i + 1]))
+            {
+                sb.Append(c).Append(value[++i]);
+            }
+            else if (char.IsControl(c) || char.IsSurrogate(c))
+            {
+                sb.Append("\\u").Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return length < value.Length ? sb.Append("...").ToString() : sb.ToString();
     }
 
     // ----- For TableTsv -----

@@ -342,4 +342,23 @@ public class CellTextTests
         Assert.Equal("a\rb", CellText.Escape("a\rb"));
         Assert.False(CellText.TryParse(FieldType.StringU16, "a\rb", out _, out _));
     }
+
+    [Fact] public void ShortenForDetail_cuts_at_50_characters_and_never_inside_a_surrogate_pair()
+    {
+        Assert.Equal("", CellText.ShortenForDetail(""));
+        Assert.Equal(new string('a', 50), CellText.ShortenForDetail(new string('a', 50)));
+        Assert.Equal(new string('a', 50) + "...", CellText.ShortenForDetail(new string('a', 51)));
+
+        var pair = new string([(char)0xD83D, (char)0xDE00]);
+        var cutInside = new string('a', 49) + pair;
+        Assert.Equal(new string('a', 49) + "...", CellText.ShortenForDetail(cutInside));
+        Assert.Equal(new string('a', 48) + pair, CellText.ShortenForDetail(new string('a', 48) + pair));
+        Assert.Throws<ArgumentNullException>(() => CellText.ShortenForDetail(null!));
+    }
+
+    [Fact] public void ShortenForDetail_writes_control_characters_and_lone_surrogates_as_escapes()
+    {
+        Assert.Equal("a\\u0009b\\u000A\\u000D\\u0000", CellText.ShortenForDetail("a\tb\n\r\0"));
+        Assert.Equal("x\\uD800y\\uDC00", CellText.ShortenForDetail("x" + (char)0xD800 + "y" + (char)0xDC00));
+    }
 }

@@ -17,7 +17,6 @@ public static class TableTsv
 {
     private const char Tab = '\t';
     private const int GroupColourDigits = 6;
-    private const int MaxDetailValueLength = 50;
     private const string LocName = "Loc";
     private const string LocKey = "key";
     private const string LocText = "text";
@@ -606,36 +605,8 @@ public static class TableTsv
     private static string InvalidValueDetail(string column, string cell, string reason) =>
         $"Column '{Shorten(column)}', value '{Shorten(cell)}': {reason}";
 
-    // A cell value or model text for a Detail: at most MaxDetailValueLength characters, never cut inside a surrogate pair, control
-    // characters and unpaired surrogates written as \uXXXX, "..." when it was cut.
-    private static string Shorten(string value)
-    {
-        var length = Math.Min(value.Length, MaxDetailValueLength);
-        if (length < value.Length && char.IsHighSurrogate(value[length - 1]) && char.IsLowSurrogate(value[length]))
-        {
-            length--;
-        }
-
-        var sb = new StringBuilder(length + 3);
-        for (var i = 0; i < length; i++)
-        {
-            var c = value[i];
-            if (char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(value[i + 1]))
-            {
-                sb.Append(c).Append(value[++i]);
-            }
-            else if (char.IsControl(c) || char.IsSurrogate(c))
-            {
-                sb.Append("\\u").Append(((int)c).ToString("X4", CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                sb.Append(c);
-            }
-        }
-
-        return length < value.Length ? sb.Append("...").ToString() : sb.ToString();
-    }
+    // A cell value or model text for a Detail; the one rule for all details is CellText.ShortenForDetail.
+    private static string Shorten(string value) => CellText.ShortenForDetail(value);
 
     private static bool TryParseGroup(string cell, out uint rgb)
     {
