@@ -264,6 +264,81 @@ public class MainWindowTests
         Assert.Same(documents.RedoCommand, Assert.Single(bindings, b => b.Key == Key.Y && b.Modifiers == ModifierKeys.Control).Command);
     });
 
+    // The toolbar under the menu: the document commands and the row commands as buttons, so they are found without a right click.
+    [Fact] public void The_toolbar_has_nine_buttons_in_groups_directly_under_the_menu() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var viewModel = setup.Setup.ViewModel;
+        var documents = viewModel.Documents!; var rows = viewModel.RowCommands;
+        var toolbar = (Border)window.FindName("Toolbar");
+        Assert.Equal(Visibility.Visible, toolbar.Visibility);
+
+        // Directly under the menu and above the explorer and the tabs.
+        var dock = Assert.IsType<DockPanel>(toolbar.Parent);
+        var menu = Assert.Single(Descendants<Menu>(window));
+        Assert.Equal(Dock.Top, DockPanel.GetDock(toolbar));
+        Assert.Equal(dock.Children.IndexOf(menu) + 1, dock.Children.IndexOf(toolbar));
+        Assert.True(dock.Children.IndexOf(toolbar) < dock.Children.IndexOf((UIElement)window.FindName("Layout")));
+
+        // Buttons and separators in one line: groups of save, undo, rows, copy.
+        var line = Assert.IsType<WrapPanel>(Assert.Single(Descendants<WrapPanel>(toolbar)));
+        var kinds = line.Children.Cast<UIElement>().Select(child => child is Button ? "B" : child is Separator ? "|" : "?").ToList();
+        Assert.Equal("BB|BB|BBB|BB", string.Concat(kinds));
+
+        var buttons = line.Children.OfType<Button>().ToList();
+        Assert.Equal([texts.MenuProjectSave, texts.MenuProjectSaveAll, texts.MenuEditUndo, texts.MenuEditRedo, texts.GridInsertRow,
+            texts.GridDuplicateRows, texts.GridDeleteRows, texts.GridCopy, texts.GridPaste], buttons.Select(b => b.Content));
+        Assert.Equal<ICommand>([documents.SaveCommand, documents.SaveAllCommand, documents.UndoCommand, documents.RedoCommand, rows.InsertRowCommand,
+            rows.DuplicateRowsCommand, rows.DeleteRowsCommand, rows.CopyCommand, rows.PasteCommand], buttons.Select(b => b.Command));
+        Assert.Equal([texts.ToolbarSaveToolTip, texts.ToolbarSaveAllToolTip, texts.ToolbarUndoToolTip, texts.ToolbarRedoToolTip, rows.InsertRowToolTip,
+            rows.DuplicateRowsToolTip, rows.DeleteRowsToolTip, rows.CopyToolTip, rows.PasteToolTip], buttons.Select(b => b.ToolTip));
+        Assert.All(buttons, b => Assert.True(ToolTipService.GetShowOnDisabled(b)));
+        Assert.Equal("Save (Ctrl+S)", buttons[0].ToolTip);
+        Assert.Equal(texts.ToolbarOpenTable, buttons[4].ToolTip);                              // no tab: the row buttons say why they are off
+    });
+
+    [Fact] public void The_toolbar_buttons_cannot_take_the_focus_so_the_grid_keeps_its_selection() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var toolbar = (Border)setup.Setup.Window.FindName("Toolbar");
+        var buttons = Descendants<Button>(toolbar).ToList();
+
+        Assert.Equal(9, buttons.Count);
+        Assert.All(buttons, b => Assert.False(b.Focusable));
+        Assert.All(buttons, b => Assert.False(b.IsTabStop && b.Focusable));
+    });
+
+    [Fact] public void The_toolbar_is_hidden_without_documents() => Sta.RunAsync(async () =>
+    {
+        using var without = await Create();
+        Assert.Equal(Visibility.Collapsed, ((Border)without.Window.FindName("Toolbar")).Visibility);
+
+        using var noDocuments = await CreateWithProjects(withDocuments: false);
+        Assert.Equal(Visibility.Collapsed, ((Border)noDocuments.Setup.Window.FindName("Toolbar")).Visibility);
+    });
+
+    [Fact] public void A_row_button_follows_the_selected_tab_and_its_tool_tip_names_the_reason() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithProjects();
+        var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var viewModel = setup.Setup.ViewModel;
+        var delete = Descendants<Button>((Border)window.FindName("Toolbar")).Single(b => Equals(b.Content, texts.GridDeleteRows));
+        Assert.False(delete.IsEnabled);
+
+        var document = TotalWarModTool.Editing.RowsDocument.ForLoc(@"text\a.loc.tsv", [new TotalWarModTool.Tables.LocRow("k", "t", false)]);
+        var tab = new EditableRowsTabViewModel(TabSource.ForProject(Guid.NewGuid(), "Mod"), "text/a.loc.tsv", texts, _ => { }, document,
+            new TotalWarModTool.UndoRedo.ActionHistory(), new FakeClipboard());
+        viewModel.Tabs.Tabs.Add(tab);
+        viewModel.Tabs.SelectedTab = tab;
+        Pump(window);
+        Assert.False(delete.IsEnabled);
+        Assert.Equal(texts.ToolbarSelectRows, delete.ToolTip);
+
+        tab.SelectedRows = [0];
+        Pump(window);
+        Assert.True(delete.IsEnabled);
+        Assert.Equal("Delete rows (Del)", delete.ToolTip);
+    });
+
     [Fact] public void The_status_bar_shows_the_last_project_message() => Sta.RunAsync(async () =>
     {
         using var setup = await CreateWithProjects();

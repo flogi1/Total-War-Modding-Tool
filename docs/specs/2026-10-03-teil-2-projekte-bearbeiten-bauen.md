@@ -564,6 +564,17 @@ Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5.
 27. Einfügen läuft im UI-Thread und ist auf 20.000.000 Zeichen und 100.000 Zeilen begrenzt (die Zeilenzahl
     des Kopierens). Beides wird geprüft, bevor der Text gelesen wird; die Zeilen werden dafür nur gezählt.
     Ein größerer Text wird mit einer Meldung abgelehnt und ändert nichts.
+28. Werkzeugleiste: Unter dem Hauptmenü steht, nur wenn die App Dokumente hat, eine Leiste mit
+    Textknöpfen in dieser Reihenfolge: Speichern, Alle speichern | Rückgängig, Wiederholen | Zeile
+    einfügen, Zeilen duplizieren, Zeilen löschen | Kopieren, Einfügen. Speichern und Rückgängig
+    nutzen die Befehle des Menüs. Die Zeilenknöpfe wirken auf den gewählten Tab (`RowCommandsViewModel`):
+    in einem bearbeitbaren Tab alle fünf, in einer Nur-Lese-Tabelle nur Kopieren, sonst keiner. Ein
+    gesperrter Zeilenknopf nennt den Grund in seinem Tooltip („Wähle mindestens eine Zeile“, „Diese
+    Tabelle ist nur lesbar“ oder „Öffne zuerst eine Tabelle“); ein freigegebener nennt die Aktion mit ihrer
+    Taste. Die Knöpfe nehmen den Fokus nicht an, damit das Raster seine Auswahl und seine Tasten
+    behält; deshalb bestätigt ein Zeilenknopf eine noch offene Zelle selbst, bevor er den Befehl
+    ausführt (wie das Kontextmenü, Punkt 19), und ein ungültiger Wert hält den Befehl an. Die Leiste
+    bricht in eine zweite Zeile um, wenn das Fenster schmal ist.
 
 ### 5.5 Import
 

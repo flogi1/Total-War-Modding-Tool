@@ -25,6 +25,7 @@
 - Änderungen von außen: Wird eine geöffnete Projektdatei in einem anderen Programm geändert oder gelöscht, markiert der Tab das, sobald das Fenster wieder aktiv wird oder nach `F5`. Ein unveränderter Tab zeigt „Neu laden“. Speichern über eine Änderung von außen fragt vorher: Überschreiben, Neu laden oder Abbrechen; die App überschreibt nie still. Eine Datei, die sich zwischen Frage und Schreiben noch einmal ändert, wird nicht geschrieben.
 - Ein Wert, den du in eine Zelle getippt hast, geht nie still verloren: Wechselst du den Tab (Klick, `Strg+Tab`, auch mit Umschalt, Rückgängig oder das Öffnen einer Datei), schaltest du auf die Textansicht um oder klickst „Neu laden“, wird ein gültiger Wert vorher übernommen. Ein ungültiger Wert hält dich im Tab, die Zelle bleibt offen, und eine Meldung nennt den Grund. Wurde die Datei von außen geändert und du hast in eine Zelle getippt, lädt „Neu laden“ nicht neu, sondern übernimmt deinen Wert; beim Speichern kommt dann die Rückfrage.
 - Einfügen ist auf 100.000 Zeilen und 20 Mio. Zeichen begrenzt, genau wie Kopieren auf 100.000 Zeilen; ein größerer Text wird mit einer Meldung abgelehnt und ändert nichts.
+- Werkzeugleiste unter dem Menü mit Speichern, Alle speichern, Rückgängig, Wiederholen und den Zeilenbefehlen (Einfügen, Duplizieren, Löschen, Kopieren, Einfügen), sodass sie ohne Rechtsklick zu finden sind. Ein gesperrter Zeilenknopf nennt im Tooltip den Grund, ein freier die Taste.
 
 ### Geändert
 

@@ -67,6 +67,39 @@
             </MenuItem>
         </Menu>
 
+        <!--
+            The commands of the menu and of the grid as buttons, so that they are found without a right click; only when the app has documents.
+            A plain row of buttons, no ToolBar (no overflow menu): it wraps when the window is narrow. The buttons cannot take the focus, so the
+            grid keeps its selection and its keys after a click. The row buttons act on the selected tab and say in their tool tip why they are off.
+        -->
+        <Border x:Name="Toolbar" DockPanel.Dock="Top" Padding="4,2" BorderThickness="0,0,0,1"
+                Background="{DynamicResource Theme.WindowBackground}" BorderBrush="{DynamicResource Theme.Separator}"
+                Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}">
+            <WrapPanel Orientation="Horizontal">
+                <Button Content="{Binding Texts.MenuProjectSave}" Command="{Binding Documents.SaveCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding Texts.ToolbarSaveToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Button Content="{Binding Texts.MenuProjectSaveAll}" Command="{Binding Documents.SaveAllCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding Texts.ToolbarSaveAllToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Separator Margin="4,0" Width="1" Height="16" VerticalAlignment="Center" />
+                <Button Content="{Binding Texts.MenuEditUndo}" Command="{Binding Documents.UndoCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding Texts.ToolbarUndoToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Button Content="{Binding Texts.MenuEditRedo}" Command="{Binding Documents.RedoCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding Texts.ToolbarRedoToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Separator Margin="4,0" Width="1" Height="16" VerticalAlignment="Center" />
+                <Button Content="{Binding Texts.GridInsertRow}" Command="{Binding RowCommands.InsertRowCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding RowCommands.InsertRowToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Button Content="{Binding Texts.GridDuplicateRows}" Command="{Binding RowCommands.DuplicateRowsCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding RowCommands.DuplicateRowsToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Button Content="{Binding Texts.GridDeleteRows}" Command="{Binding RowCommands.DeleteRowsCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding RowCommands.DeleteRowsToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Separator Margin="4,0" Width="1" Height="16" VerticalAlignment="Center" />
+                <Button Content="{Binding Texts.GridCopy}" Command="{Binding RowCommands.CopyCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding RowCommands.CopyToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Button Content="{Binding Texts.GridPaste}" Command="{Binding RowCommands.PasteCommand}" Padding="8,2" Margin="0,0,2,0"
+                        Focusable="False" ToolTip="{Binding RowCommands.PasteToolTip}" ToolTipService.ShowOnDisabled="True" />
+            </WrapPanel>
+        </Border>
+
         <!-- Game, schema and the first hint. The hint is in the colour of a warning and hidden when there is none. -->
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem>

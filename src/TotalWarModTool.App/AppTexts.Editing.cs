@@ -126,6 +126,54 @@ public sealed partial class AppTexts
     /// <summary>The shortcut shown next to "Redo" in the menu; the shortcut itself is bound in the window.</summary>
     public string MenuEditRedoGesture => T("menu.edit.redoGesture", "Ctrl+Y");
 
+    // ---- the toolbar under the menu: tool tips with the key, and why a row button is disabled ------------------------------------------
+
+    /// <summary>The shortcut of "Insert row" in the grid, for the tool tip of the toolbar; the grid handles the key itself.</summary>
+    public string GridInsertRowGesture => T("grid.row.insertGesture", "Ins");
+
+    /// <summary>The shortcut of "Duplicate rows" in the grid, for the tool tip of the toolbar.</summary>
+    public string GridDuplicateRowsGesture => T("grid.row.duplicateGesture", "Ctrl+D");
+
+    /// <summary>The shortcut of "Delete rows" in the grid, for the tool tip of the toolbar.</summary>
+    public string GridDeleteRowsGesture => T("grid.row.deleteGesture", "Del");
+
+    /// <summary>The shortcut of "Copy" in the grid, for the tool tip of the toolbar.</summary>
+    public string GridCopyGesture => T("grid.copyGesture", "Ctrl+C");
+
+    /// <summary>The shortcut of "Paste" in the grid, for the tool tip of the toolbar.</summary>
+    public string GridPasteGesture => T("grid.pasteGesture", "Ctrl+V");
+
+    /// <param name="action">The name of the action, for example "Insert row".</param>
+    /// <param name="gesture">The shortcut of the action, for example "Ins".</param>
+    public string ToolbarToolTip(string action, string gesture) => F("toolbar.toolTip", "{0} ({1})", action, gesture);
+
+    public string ToolbarSaveToolTip => ToolbarToolTip(MenuProjectSave, MenuProjectSaveGesture);
+
+    public string ToolbarSaveAllToolTip => ToolbarToolTip(MenuProjectSaveAll, MenuProjectSaveAllGesture);
+
+    public string ToolbarUndoToolTip => ToolbarToolTip(MenuEditUndo, MenuEditUndoGesture);
+
+    public string ToolbarRedoToolTip => ToolbarToolTip(MenuEditRedo, MenuEditRedoGesture);
+
+    public string ToolbarInsertRowToolTip => ToolbarToolTip(GridInsertRow, GridInsertRowGesture);
+
+    public string ToolbarDuplicateRowsToolTip => ToolbarToolTip(GridDuplicateRows, GridDuplicateRowsGesture);
+
+    public string ToolbarDeleteRowsToolTip => ToolbarToolTip(GridDeleteRows, GridDeleteRowsGesture);
+
+    public string ToolbarCopyToolTip => ToolbarToolTip(GridCopy, GridCopyGesture);
+
+    public string ToolbarPasteToolTip => ToolbarToolTip(GridPaste, GridPasteGesture);
+
+    /// <summary>Why a row button of the toolbar is disabled: the selected table has no selected row.</summary>
+    public string ToolbarSelectRows => T("toolbar.selectRows", "Select at least one row.");
+
+    /// <summary>Why a row button of the toolbar is disabled: the selected tab is a table or loc file that cannot be edited.</summary>
+    public string ToolbarReadOnly => T("toolbar.readOnly", "This table is read-only. Only tables of a project (.tsv) can be edited.");
+
+    /// <summary>Why a row button of the toolbar is disabled: no table is selected.</summary>
+    public string ToolbarOpenTable => T("toolbar.openTable", "Open a table first.");
+
     public string EditUndoFailedTitle => T("edit.undoFailed.title", "Undo failed");
 
     /// <param name="reason">Why the step failed; technical text of the exception, escaped. Data, not a UI text.</param>

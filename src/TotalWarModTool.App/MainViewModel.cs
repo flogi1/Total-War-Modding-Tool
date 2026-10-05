@@ -43,6 +43,7 @@ public sealed class MainViewModel : ObservableObject
         // The controller works on the tab list, so the window must show that very list.
         Tabs = documents?.Tabs ?? new TabsViewModel(texts);
         Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync);
+        RowCommands = new RowCommandsViewModel(Tabs, texts);
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.
         // After the packs, the projects are read again (their files may have changed outside), and the open ones are listed again silently.
@@ -125,6 +126,9 @@ public sealed class MainViewModel : ObservableObject
     public ExplorerViewModel Explorer { get; }
 
     public TabsViewModel Tabs { get; }
+
+    /// <summary>The row commands of the toolbar; they act on the selected tab and say why they are disabled.</summary>
+    public RowCommandsViewModel RowCommands { get; }
 
     /// <summary>The project commands; null when the app has no projects.</summary>
     public ProjectsViewModel? Projects { get; }
