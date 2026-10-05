@@ -10,6 +10,8 @@
     <Window.InputBindings>
         <KeyBinding Key="F5" Command="{Binding RefreshCommand}" />
         <KeyBinding Key="W" Modifiers="Control" Command="{Binding Tabs.CloseSelectedCommand}" />
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding Documents.UndoCommand}" />
+        <KeyBinding Key="Y" Modifiers="Control" Command="{Binding Documents.RedoCommand}" />
         <KeyBinding Key="B" Modifiers="Control" Command="{Binding Projects.BuildActiveCommand}" />
         <KeyBinding Key="B" Modifiers="Control+Shift" Command="{Binding Projects.BuildAndInstallActiveCommand}" />
     </Window.InputBindings>
@@ -22,6 +24,13 @@
                 <MenuItem Header="{Binding Texts.OperationRefreshPacks}" Command="{Binding RefreshCommand}" />
                 <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
                 <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
+            </MenuItem>
+            <!-- Undo and redo across the editable tabs; only when the app has documents. A text box with the focus keeps its own Ctrl+Z. -->
+            <MenuItem Header="{Binding Texts.MenuEdit}" Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}">
+                <MenuItem Header="{Binding Texts.MenuEditUndo}" Command="{Binding Documents.UndoCommand}"
+                          InputGestureText="{Binding Texts.MenuEditUndoGesture}" />
+                <MenuItem Header="{Binding Texts.MenuEditRedo}" Command="{Binding Documents.RedoCommand}"
+                          InputGestureText="{Binding Texts.MenuEditRedoGesture}" />
             </MenuItem>
             <!-- The mod projects; only when the app has projects. A disabled entry says why in its tool tip. -->
             <MenuItem Header="{Binding Texts.ProjectMessageTitle}" Visibility="{Binding HasProjects, Converter={StaticResource BoolToVisibility}}">

@@ -230,5 +230,14 @@
   "edit.expected.colour": "Expected a colour as hex digits, for example FF8800.",
   "edit.expected.text": "Expected text that the file can store. Carriage returns and NUL characters are not allowed.",
   "edit.expected.channel": "Expected a whole number from 0 to 255, because this column is a colour channel.",
-  "edit.check.message": "{0} Reason: {1}"
+  "edit.check.message": "{0} Reason: {1}",
+  "menu.edit": "Edit",
+  "menu.edit.undo": "Undo",
+  "menu.edit.redo": "Redo",
+  "menu.edit.undoGesture": "Ctrl+Z",
+  "menu.edit.redoGesture": "Ctrl+Y",
+  "edit.undoFailed.title": "Undo failed",
+  "edit.undoFailed.message": "The step could not be undone and was removed from the history. Reason: {0}",
+  "edit.redoFailed.title": "Redo failed",
+  "edit.redoFailed.message": "The step could not be repeated and was removed from the history. Reason: {0}"
 }

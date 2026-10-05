@@ -21,4 +21,30 @@ public sealed partial class AppTexts
     /// <param name="expected">What the column expects, one of the <c>EditExpected</c> texts.</param>
     /// <param name="reason">Why the text was refused; English text of the library. Data, not a UI text.</param>
     public string EditCheckMessage(string expected, string reason) => F("edit.check.message", "{0} Reason: {1}", expected, reason);
+
+    // ---- menu "Edit" and the messages of undo and redo ----------------------------------------------------------------------------
+
+    public string MenuEdit => T("menu.edit", "Edit");
+
+    public string MenuEditUndo => T("menu.edit.undo", "Undo");
+
+    public string MenuEditRedo => T("menu.edit.redo", "Redo");
+
+    /// <summary>The shortcut shown next to "Undo" in the menu; the shortcut itself is bound in the window.</summary>
+    public string MenuEditUndoGesture => T("menu.edit.undoGesture", "Ctrl+Z");
+
+    /// <summary>The shortcut shown next to "Redo" in the menu; the shortcut itself is bound in the window.</summary>
+    public string MenuEditRedoGesture => T("menu.edit.redoGesture", "Ctrl+Y");
+
+    public string EditUndoFailedTitle => T("edit.undoFailed.title", "Undo failed");
+
+    /// <param name="reason">Why the step failed; technical text of the exception, escaped. Data, not a UI text.</param>
+    public string EditUndoFailedMessage(string reason) =>
+        F("edit.undoFailed.message", "The step could not be undone and was removed from the history. Reason: {0}", reason);
+
+    public string EditRedoFailedTitle => T("edit.redoFailed.title", "Redo failed");
+
+    /// <param name="reason">Why the step failed; technical text of the exception, escaped. Data, not a UI text.</param>
+    public string EditRedoFailedMessage(string reason) =>
+        F("edit.redoFailed.message", "The step could not be repeated and was removed from the history. Reason: {0}", reason);
 }

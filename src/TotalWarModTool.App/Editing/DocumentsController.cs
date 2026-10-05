@@ -1,0 +1,211 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Windows.Input;
+using TotalWarModTool.Editing;
+using TotalWarModTool.Logging;
+using TotalWarModTool.PackFiles;
+using TotalWarModTool.Projects;
+using TotalWarModTool.Tables;
+using TotalWarModTool.UndoRedo;
+using TotalWarModTool.Workspace;
+
+namespace TotalWarModTool.App;
+
+/// <summary>
+/// The editable documents of the open tabs: decides which project files open as an <see cref="EditableRowsTabViewModel"/>, runs the global
+/// undo and redo across the tabs, forgets the steps of a tab that is closed and follows which tabs are modified. Lives on the UI thread.
+/// Sets <see cref="TabsViewModel.SpecialTab"/> of its tabs.
+/// </summary>
+public sealed partial class DocumentsController
+{
+    // A technical message in a UI message shows at most this many characters.
+    private const int MaxDetailChars = 300;
+
+    private readonly TabsViewModel _tabs;
+    private readonly ActionHistory _history;
+    private readonly IOperationRunner _runner;
+    private readonly IEditDialogs _dialogs;
+    private readonly IAppLog _log;
+    private readonly AppTexts _texts;
+    private readonly RelayCommand _undoCommand;
+    private readonly RelayCommand _redoCommand;
+
+    // The editable tabs this controller listens to (to their IsModified) and the ones that were modified at the last check.
+    private readonly List<EditableRowsTabViewModel> _tracked = [];
+    private HashSet<EditableRowsTabViewModel> _modified = [];
+
+    /// <param name="projects">Raises <see cref="ProjectsController.OperationStateChanged"/>, which tells the commands to ask again.</param>
+    /// <param name="runner">While it runs an operation, undo and redo are disabled.</param>
+    public DocumentsController(TabsViewModel tabs, ProjectsController projects, ActionHistory history, IOperationRunner runner,
+        IEditDialogs dialogs, IAppLog log, AppTexts texts)
+    {
+        ArgumentNullException.ThrowIfNull(tabs);
+        ArgumentNullException.ThrowIfNull(projects);
+        ArgumentNullException.ThrowIfNull(history);
+        ArgumentNullException.ThrowIfNull(runner);
+        ArgumentNullException.ThrowIfNull(dialogs);
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(texts);
+
+        _tabs = tabs;
+        _history = history;
+        _runner = runner;
+        _dialogs = dialogs;
+        _log = log;
+        _texts = texts;
+        _undoCommand = new RelayCommand(() => Step(undo: true), () => CanStep(undo: true));
+        _redoCommand = new RelayCommand(() => Step(undo: false), () => CanStep(undo: false));
+
+        tabs.SpecialTab = CreateEditableTab;
+        tabs.Tabs.CollectionChanged += OnTabsCollectionChanged;
+        history.Changed += RaiseCommandsChanged;
+        projects.OperationStateChanged += (_, _) => RaiseCommandsChanged();
+        SyncTabs();
+    }
+
+    /// <summary>The tabs the controller works on. <see cref="MainViewModel"/> takes them from here, so that both use the same list.</summary>
+    public TabsViewModel Tabs => _tabs;
+
+    /// <summary>Reverts the latest step of the history and selects the tab it belongs to. Disabled while an operation runs and when there is no step.</summary>
+    public ICommand UndoCommand => _undoCommand;
+
+    /// <summary>Repeats the latest undone step and selects the tab it belongs to. Disabled while an operation runs and when there is no step.</summary>
+    public ICommand RedoCommand => _redoCommand;
+
+    /// <summary>The open editable tabs, in the order of the tab list.</summary>
+    public IReadOnlyList<EditableRowsTabViewModel> EditableTabs => _tabs.Tabs.OfType<EditableRowsTabViewModel>().ToList();
+
+    /// <summary>True when at least one editable tab differs from its last save.</summary>
+    public bool HasModifiedTabs => _tracked.Any(tab => tab.IsModified);
+
+    /// <summary>Raised when the set of modified tabs changed: a tab was modified or saved, or a modified tab left.</summary>
+    public event EventHandler? ModifiedChanged;
+
+    // ---- opening ---------------------------------------------------------------------------------------------------------------------
+
+    // An entry of a project that is a table or loc file in text form and was read without a problem gets an editable tab; everything else
+    // keeps the tab the factory makes (null).
+    private TabViewModel? CreateEditableTab(TabSource source, OpenedEntry entry, Action<TabViewModel> close)
+    {
+        if (!TabSource.TryGetProjectId(source.Key, out _) || entry.ReadProblem != EntryProblem.None)
+        {
+            return null;
+        }
+
+        var (packPath, kind) = ProjectLayout.FromRelativeFile(entry.EntryPath.Replace('/', '\\'));
+        try
+        {
+            RowsDocument document;
+            switch (kind)
+            {
+                case ProjectFileKind.Table when entry.Table is { Status: TableDecodeStatus.Ok, Definition: { } definition } table:
+                    document = RowsDocument.ForTable(table.TableName, table.Version, packPath, definition, table.Rows);
+                    break;
+                case ProjectFileKind.Loc when entry.Loc is { Status: LocDecodeStatus.Ok } loc:
+                    document = RowsDocument.ForLoc(packPath, loc.Rows);
+                    break;
+                default:
+                    return null;
+            }
+
+            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history);
+        }
+        catch (ArgumentException ex)
+        {
+            // An unsupported field type or a row with a wrong cell count: the file is shown read-only instead.
+            _log.Warn($"The file \"{DisplayText.Safe(entry.EntryPath)}\" cannot be edited and is shown read-only: {DisplayText.Safe(ex.Message)}");
+            return null;
+        }
+    }
+
+    // ---- undo and redo ---------------------------------------------------------------------------------------------------------------
+
+    private bool CanStep(bool undo) => !_runner.IsRunning && (undo ? _history.CanUndo : _history.CanRedo);
+
+    private void Step(bool undo)
+    {
+        // Also guarded here: a direct call must not reach the history with an empty stack (that throws) or during an operation.
+        if (!CanStep(undo))
+        {
+            return;
+        }
+
+        var next = undo ? _history.NextUndo : _history.NextRedo;
+        try
+        {
+            var step = undo ? _history.Undo() : _history.Redo();
+            SelectTabOf(step);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // ActionHistory has dropped the step and raised Changed; what it left stays as it is.
+            var what = undo ? "Undo" : "Redo";
+            _log.Error($"{what} of \"{DisplayText.Safe(next?.Description ?? string.Empty)}\" failed.", ex);
+            var reason = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
+            _dialogs.ShowMessage(
+                undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle,
+                undo ? _texts.EditUndoFailedMessage(reason) : _texts.EditRedoFailedMessage(reason));
+        }
+    }
+
+    // After the step ran: the tab of its document is shown, so the user sees what changed. A document without a tab (closed) selects nothing.
+    private void SelectTabOf(IUndoableAction step)
+    {
+        if (step is DocumentEdit edit && _tabs.Tabs.OfType<EditableRowsTabViewModel>().FirstOrDefault(tab => ReferenceEquals(tab.Document, edit.Document)) is { } tab)
+        {
+            _tabs.SelectedTab = tab;
+        }
+    }
+
+    private void RaiseCommandsChanged()
+    {
+        _undoCommand.RaiseCanExecuteChanged();
+        _redoCommand.RaiseCanExecuteChanged();
+    }
+
+    // ---- tabs and modified state -----------------------------------------------------------------------------------------------------
+
+    private void OnTabsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => SyncTabs();
+
+    // Compares the editable tabs of the list with the ones listened to, so that every kind of change of the list (a Reset has no old items)
+    // is handled the same way.
+    private void SyncTabs()
+    {
+        var current = _tabs.Tabs.OfType<EditableRowsTabViewModel>().ToList();
+        foreach (var gone in _tracked.Where(tab => !current.Contains(tab)).ToList())
+        {
+            _tracked.Remove(gone);
+            gone.PropertyChanged -= OnTabPropertyChanged;
+
+            // A closed document no longer exists, so its steps are gone, whichever way the tab was closed.
+            var document = gone.Document;
+            _history.RemoveWhere(step => step is DocumentEdit edit && ReferenceEquals(edit.Document, document));
+        }
+
+        foreach (var added in current.Where(tab => !_tracked.Contains(tab)))
+        {
+            _tracked.Add(added);
+            added.PropertyChanged += OnTabPropertyChanged;
+        }
+
+        UpdateModified();
+    }
+
+    private void OnTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(EditableRowsTabViewModel.IsModified) or null)
+        {
+            UpdateModified();
+        }
+    }
+
+    private void UpdateModified()
+    {
+        var modified = _tracked.Where(tab => tab.IsModified).ToHashSet();
+        if (!modified.SetEquals(_modified))
+        {
+            _modified = modified;
+            ModifiedChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+}

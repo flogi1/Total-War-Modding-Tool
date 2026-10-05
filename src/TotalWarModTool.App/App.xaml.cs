@@ -9,6 +9,7 @@ using TotalWarModTool.Projects;
 using TotalWarModTool.Session;
 using TotalWarModTool.Settings;
 using TotalWarModTool.Storage;
+using TotalWarModTool.UndoRedo;
 
 namespace TotalWarModTool.App;
 
@@ -163,12 +164,16 @@ public partial class App : Application
         var projects = new ProjectsController(projectListStore, projectListLoaded, workspace, progressRunner, log, texts, TimeProvider.System);
         var projectCommands = new ProjectsViewModel(projects, new ProjectDialogs(texts, () => mainWindow), texts);
 
+        // The editable tabs of the project files and the global undo history. The controller owns the list of tabs the main view model shows.
+        var documents = new DocumentsController(new TabsViewModel(texts), projects, new ActionHistory(), progressRunner,
+            new EditDialogs(() => mainWindow), log, texts);
+
         // The button of the explorer ("game not found") leads to the page "Game"; the menu entry keeps the page that was shown last.
         var viewModel = new MainViewModel(texts, paths, OpenFolder, progressRunner, settingsWindows.ShowOrActivate, workspace, () =>
         {
             settingsViewModel.SelectedCategory = SettingsViewModel.GameCategory;
             settingsWindows.ShowOrActivate();
-        }, projects, projectCommands);
+        }, projects, projectCommands, documents);
 
         SessionCoordinator? session = null;
         if (sessionStore is not null)

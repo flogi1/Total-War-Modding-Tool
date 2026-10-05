@@ -26,18 +26,22 @@ public sealed class MainViewModel : ObservableObject
     /// <param name="openGameSettings">Opens the settings window on the page "Game". The explorer uses it for its button; null: the explorer uses <paramref name="openSettings"/>.</param>
     /// <param name="projects">The mod projects of the game; null: the app has no projects (no menu, no group in the explorer).</param>
     /// <param name="projectCommands">The project commands the menu, the hotkeys and the context menus use; null without projects.</param>
+    /// <param name="documents">The editable documents, undo and redo; null: no menu "Edit". The window shows its tab list (<see cref="DocumentsController.Tabs"/>).</param>
     public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings,
-        WorkspaceController workspace, Action? openGameSettings = null, ProjectsController? projects = null, ProjectsViewModel? projectCommands = null)
+        WorkspaceController workspace, Action? openGameSettings = null, ProjectsController? projects = null, ProjectsViewModel? projectCommands = null,
+        DocumentsController? documents = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         Texts = texts;
         _workspace = workspace;
         _projects = projects;
         Projects = projectCommands;
+        Documents = documents;
         OpenSettingsCommand = new RelayCommand(openSettings);
         OpenLogFolderCommand = new RelayCommand(() => openFolder(paths.LogDirectory));
 
-        Tabs = new TabsViewModel(texts);
+        // The controller works on the tab list, so the window must show that very list.
+        Tabs = documents?.Tabs ?? new TabsViewModel(texts);
         Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync);
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.
@@ -112,6 +116,12 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>The menu "Project" is shown.</summary>
     public bool HasProjects => Projects is not null;
+
+    /// <summary>The editable documents with undo and redo; null when the app has no projects.</summary>
+    public DocumentsController? Documents { get; }
+
+    /// <summary>The menu "Edit" is shown.</summary>
+    public bool HasDocuments => Documents is not null;
 
     /// <summary>The first line of the result of the last project command, for the status bar; null when there is none.</summary>
     public string? ProjectStatusLine

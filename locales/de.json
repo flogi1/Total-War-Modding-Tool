@@ -230,5 +230,14 @@
   "edit.expected.colour": "Erwartet wird eine Farbe aus Hex-Ziffern, zum Beispiel FF8800.",
   "edit.expected.text": "Erwartet wird ein Text, den die Datei speichern kann. Zeilenrückläufe (CR) und NUL-Zeichen sind nicht erlaubt.",
   "edit.expected.channel": "Erwartet wird eine ganze Zahl von 0 bis 255, denn diese Spalte ist ein Farbkanal.",
-  "edit.check.message": "{0} Grund: {1}"
+  "edit.check.message": "{0} Grund: {1}",
+  "menu.edit": "Bearbeiten",
+  "menu.edit.undo": "Rückgängig",
+  "menu.edit.redo": "Wiederholen",
+  "menu.edit.undoGesture": "Strg+Z",
+  "menu.edit.redoGesture": "Strg+Y",
+  "edit.undoFailed.title": "Rückgängig fehlgeschlagen",
+  "edit.undoFailed.message": "Der Schritt konnte nicht rückgängig gemacht werden und wurde aus dem Verlauf entfernt. Grund: {0}",
+  "edit.redoFailed.title": "Wiederholen fehlgeschlagen",
+  "edit.redoFailed.message": "Der Schritt konnte nicht wiederholt werden und wurde aus dem Verlauf entfernt. Grund: {0}"
 }

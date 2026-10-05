@@ -137,8 +137,8 @@ public class MainWindowTests
         using var setup = await CreateWithProjects();
         var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var projects = setup.Setup.ViewModel.Projects!;
         var menus = Descendants<MenuItem>(window).ToList();
-        Assert.Equal([texts.MenuTools, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
-        var project = menus[1];
+        Assert.Equal([texts.MenuTools, texts.MenuEdit, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
+        var project = menus[2];
         Assert.Equal(Visibility.Visible, project.Visibility);
 
         var entries = project.Items.Cast<object>().ToList();
@@ -169,8 +169,47 @@ public class MainWindowTests
     {
         using var setup = await Create();
         var menus = Descendants<MenuItem>(setup.Window).ToList();
-        Assert.Equal(Visibility.Collapsed, menus[1].Visibility);
         Assert.Equal(setup.Game.Texts.MenuTools, menus[0].Header);
+        Assert.Equal(setup.Game.Texts.MenuEdit, menus[1].Header);
+        Assert.Equal(Visibility.Collapsed, menus[1].Visibility);               // no documents: no edit menu either
+        Assert.Equal(setup.Game.Texts.ProjectMessageTitle, menus[2].Header);
+        Assert.Equal(Visibility.Collapsed, menus[2].Visibility);
+    });
+
+    [Fact] public void The_edit_menu_has_undo_and_redo_with_their_gestures() => Sta.RunAsync(async () =>
+    {
+        using var game = new TestGame();
+        var controller = game.NewController();
+        var projects = game.NewProjects(controller);
+        var commands = new ProjectsViewModel(projects, new FakeProjectDialogs(), game.Texts);
+        var documents = new DocumentsController(new TabsViewModel(game.Texts), projects, new TotalWarModTool.UndoRedo.ActionHistory(),
+            game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
+        var viewModel = new MainViewModel(game.Texts, game.Paths, _ => { }, game.Runner, () => { }, controller, null, projects, commands, documents);
+        await controller.LoadAsync();
+        var window = new MainWindow(viewModel);
+        window.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
+            File.ReadAllText(Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml"))));
+        window.Show();
+        Pump(window);
+        var texts = game.Texts;
+
+        Assert.Same(documents, viewModel.Documents);
+        Assert.Same(documents.Tabs, viewModel.Tabs);
+        var menus = Descendants<MenuItem>(window).ToList();
+        Assert.Equal([texts.MenuTools, texts.MenuEdit, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
+        var edit = menus[1];
+        Assert.Equal(Visibility.Visible, edit.Visibility);
+        var items = edit.Items.OfType<MenuItem>().ToList();
+        Assert.Equal(2, edit.Items.Count);
+        Assert.Equal([texts.MenuEditUndo, texts.MenuEditRedo], items.Select(i => i.Header));
+        Assert.Equal([documents.UndoCommand, documents.RedoCommand], items.Select(i => i.Command));
+        Assert.Equal([texts.MenuEditUndoGesture, texts.MenuEditRedoGesture], items.Select(i => i.InputGestureText));
+        Assert.Equal("Ctrl+Z", texts.MenuEditUndoGesture);
+        Assert.Equal("Ctrl+Y", texts.MenuEditRedoGesture);
+
+        var bindings = window.InputBindings.OfType<KeyBinding>().ToList();
+        Assert.Same(documents.UndoCommand, Assert.Single(bindings, b => b.Key == Key.Z && b.Modifiers == ModifierKeys.Control).Command);
+        Assert.Same(documents.RedoCommand, Assert.Single(bindings, b => b.Key == Key.Y && b.Modifiers == ModifierKeys.Control).Command);
     });
 
     [Fact] public void The_status_bar_shows_the_last_project_message() => Sta.RunAsync(async () =>
