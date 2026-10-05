@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace TotalWarModTool.UndoRedo;
 
 /// <summary>
@@ -5,6 +7,11 @@ namespace TotalWarModTool.UndoRedo;
 /// has no upper limit. Every state of the stacks is final before <see cref="Changed"/> is raised, so
 /// a throwing handler never leaves the history half updated.
 /// </summary>
+/// <remarks>
+/// Actions must not call back into the history from <see cref="IUndoableAction.Do"/> or
+/// <see cref="IUndoableAction.Undo"/> (the stacks are in the middle of a step then).
+/// <see cref="Changed"/> handlers may call back, because the state is final when they run.
+/// </remarks>
 public sealed class ActionHistory
 {
     private readonly List<IUndoableAction> _undoStack = new();
@@ -34,6 +41,8 @@ public sealed class ActionHistory
     /// </summary>
     public void Execute(IUndoableAction action)
     {
+        ArgumentNullException.ThrowIfNull(action);
+
         action.Do();
         Record(action);
     }
@@ -44,6 +53,8 @@ public sealed class ActionHistory
     /// </summary>
     public void Record(IUndoableAction action)
     {
+        ArgumentNullException.ThrowIfNull(action);
+
         _undoStack.Add(action);
         _redoStack.Clear();
         Changed?.Invoke();
@@ -51,7 +62,7 @@ public sealed class ActionHistory
 
     /// <summary>
     /// Reverts the latest step and returns it. When the step's <c>Undo</c> throws, the step is dropped
-    /// from both stacks, <see cref="Changed"/> is raised and the exception goes to the caller.
+    /// from both stacks, <see cref="Changed"/> is raised and the exception of the step goes to the caller.
     /// </summary>
     /// <exception cref="InvalidOperationException">The undo stack is empty.</exception>
     public IUndoableAction Undo()
@@ -61,30 +72,12 @@ public sealed class ActionHistory
             throw new InvalidOperationException("There is nothing to undo.");
         }
 
-        var action = _undoStack[^1];
-        _undoStack.RemoveAt(_undoStack.Count - 1);
-        var succeeded = false;
-        try
-        {
-            action.Undo();
-            succeeded = true;
-        }
-        finally
-        {
-            if (succeeded)
-            {
-                _redoStack.Add(action);
-            }
-
-            Changed?.Invoke();
-        }
-
-        return action;
+        return MoveStep(_undoStack, _redoStack, a => a.Undo());
     }
 
     /// <summary>
     /// Repeats the latest undone step and returns it. When the step's <c>Do</c> throws, the step is
-    /// dropped from both stacks, <see cref="Changed"/> is raised and the exception goes to the caller.
+    /// dropped from both stacks, <see cref="Changed"/> is raised and the exception of the step goes to the caller.
     /// </summary>
     /// <exception cref="InvalidOperationException">The redo stack is empty.</exception>
     public IUndoableAction Redo()
@@ -94,25 +87,7 @@ public sealed class ActionHistory
             throw new InvalidOperationException("There is nothing to redo.");
         }
 
-        var action = _redoStack[^1];
-        _redoStack.RemoveAt(_redoStack.Count - 1);
-        var succeeded = false;
-        try
-        {
-            action.Do();
-            succeeded = true;
-        }
-        finally
-        {
-            if (succeeded)
-            {
-                _undoStack.Add(action);
-            }
-
-            Changed?.Invoke();
-        }
-
-        return action;
+        return MoveStep(_redoStack, _undoStack, a => a.Do());
     }
 
     /// <summary>Empties both stacks.</summary>
@@ -126,17 +101,69 @@ public sealed class ActionHistory
     /// <summary>
     /// Removes every matching step from both stacks; the order of the remaining steps is kept.
     /// Returns the number of removed steps. <see cref="Changed"/> is raised only when something was removed.
+    /// <paramref name="match"/> is evaluated for every step first: when it throws, both stacks stay unchanged.
     /// </summary>
     public int RemoveWhere(Func<IUndoableAction, bool> match)
     {
         ArgumentNullException.ThrowIfNull(match);
 
-        var removed = _undoStack.RemoveAll(a => match(a)) + _redoStack.RemoveAll(a => match(a));
-        if (removed > 0)
+        var undoKeep = _undoStack.Where(a => !match(a)).ToList();
+        var redoKeep = _redoStack.Where(a => !match(a)).ToList();
+        var removed = (_undoStack.Count - undoKeep.Count) + (_redoStack.Count - redoKeep.Count);
+        if (removed == 0)
+        {
+            return 0;
+        }
+
+        _undoStack.Clear();
+        _undoStack.AddRange(undoKeep);
+        _redoStack.Clear();
+        _redoStack.AddRange(redoKeep);
+        Changed?.Invoke();
+        return removed;
+    }
+
+    /// <summary>
+    /// Takes the top step of <paramref name="source"/>, performs it and puts it on <paramref name="target"/>.
+    /// When the step throws, it is dropped, <see cref="Changed"/> is raised and the step's own exception
+    /// is rethrown; an exception of a <see cref="Changed"/> handler is dropped in that one case.
+    /// </summary>
+    private IUndoableAction MoveStep(
+        List<IUndoableAction> source,
+        List<IUndoableAction> target,
+        Action<IUndoableAction> perform)
+    {
+        var action = source[^1];
+        source.RemoveAt(source.Count - 1);
+
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            perform(action);
+            target.Add(action);
+        }
+        catch (Exception ex)
+        {
+            // Not swallowed: captured here and rethrown below, after Changed was raised.
+            failure = ExceptionDispatchInfo.Capture(ex);
+        }
+
+        if (failure is null)
+        {
+            Changed?.Invoke();
+            return action;
+        }
+
+        try
         {
             Changed?.Invoke();
         }
+        catch (Exception)
+        {
+            // The caller must see the original failure of the step, not the one of the handler.
+        }
 
-        return removed;
+        failure.Throw();
+        return action;
     }
 }

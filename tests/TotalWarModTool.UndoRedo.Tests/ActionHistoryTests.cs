@@ -206,6 +206,140 @@ public sealed class ActionHistoryTests
         Assert.False(history.CanRedo);
     }
 
+    [Fact]
+    public void A_failing_Undo_leaves_the_redo_stack_unchanged()
+    {
+        var history = new ActionHistory();
+        var first = new TestAction("a");
+        var failing = new TestAction("b");
+        var last = new TestAction("c");
+        history.Execute(first);
+        history.Execute(failing);
+        history.Execute(last);
+        history.Undo(); // c waits on the redo stack
+        failing.FailOnUndo = true;
+
+        Assert.Throws<InvalidOperationException>(() => history.Undo());
+
+        Assert.Same(last, history.NextRedo);
+        Assert.Same(first, history.NextUndo);
+        Assert.Same(last, history.Redo());
+        Assert.False(history.CanRedo);
+        Assert.Same(last, history.NextUndo);
+    }
+
+    [Fact]
+    public void A_failing_Redo_leaves_the_undo_stack_unchanged()
+    {
+        var history = new ActionHistory();
+        var first = new TestAction("a");
+        var second = new TestAction("b");
+        var failing = new TestAction("c");
+        history.Execute(first);
+        history.Execute(second);
+        history.Execute(failing);
+        history.Undo();
+        failing.FailOnDo = true;
+
+        Assert.Throws<InvalidOperationException>(() => history.Redo());
+
+        Assert.False(history.CanRedo);
+        Assert.Same(second, history.NextUndo);
+        Assert.Same(second, history.Undo());
+        Assert.Same(first, history.Undo());
+        Assert.False(history.CanUndo);
+    }
+
+    [Fact]
+    public void Changed_handlers_see_the_final_stacks()
+    {
+        var history = new ActionHistory();
+        var seen = new List<(bool CanUndo, bool CanRedo)>();
+        history.Changed += () => seen.Add((history.CanUndo, history.CanRedo));
+
+        history.Execute(new TestAction("a"));
+        history.Undo();
+        history.Redo();
+
+        Assert.Equal(new[] { (true, false), (false, true), (true, false) }, seen);
+    }
+
+    [Fact]
+    public void A_failing_Undo_with_a_throwing_handler_rethrows_the_original_exception()
+    {
+        var history = new ActionHistory();
+        history.Execute(new TestAction("a") { FailOnUndo = true });
+        history.Changed += () => throw new FormatException("handler");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => history.Undo());
+
+        Assert.Equal("Undo failed.", ex.Message);
+        Assert.False(history.CanUndo);
+        Assert.False(history.CanRedo);
+    }
+
+    [Fact]
+    public void A_failing_Redo_with_a_throwing_handler_rethrows_the_original_exception()
+    {
+        var history = new ActionHistory();
+        var action = new TestAction("a");
+        history.Execute(action);
+        history.Undo();
+        action.FailOnDo = true;
+        history.Changed += () => throw new FormatException("handler");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => history.Redo());
+
+        Assert.Equal("Do failed.", ex.Message);
+        Assert.False(history.CanUndo);
+        Assert.False(history.CanRedo);
+    }
+
+    [Fact]
+    public void A_throwing_handler_propagates_in_the_normal_path()
+    {
+        var history = new ActionHistory();
+        history.Execute(new TestAction("a"));
+        history.Changed += () => throw new FormatException("handler");
+
+        Assert.Throws<FormatException>(() => history.Undo());
+
+        Assert.True(history.CanRedo);
+        Assert.False(history.CanUndo);
+    }
+
+    [Fact]
+    public void A_throwing_match_changes_nothing()
+    {
+        var history = new ActionHistory();
+        foreach (var name in new[] { "a", "b", "c" })
+        {
+            history.Execute(new TestAction(name));
+        }
+
+        history.Undo();
+        var changed = 0;
+        history.Changed += () => changed++;
+
+        Assert.Throws<FormatException>(() => history.RemoveWhere(a =>
+            a.Description == "c" ? throw new FormatException("match") : a.Description == "a"));
+
+        Assert.Equal(0, changed);
+        Assert.Equal("c", history.NextRedo!.Description);
+        Assert.Equal("b", history.Undo().Description);
+        Assert.Equal("a", history.Undo().Description);
+    }
+
+    [Fact]
+    public void A_null_action_throws()
+    {
+        var history = new ActionHistory();
+
+        Assert.Throws<ArgumentNullException>(() => history.Execute(null!));
+        Assert.Throws<ArgumentNullException>(() => history.Record(null!));
+        Assert.False(history.CanUndo);
+    }
+
     private sealed class TestAction : IUndoableAction
     {
         public TestAction(string description)
