@@ -307,6 +307,24 @@ public partial class RowsDocumentTests
     }
 
     [Fact]
+    public void IsColourChannelColumn_names_the_columns_of_a_colour_group()
+    {
+        var document = NewTable(1);
+
+        Assert.True(document.IsColourChannelColumn(ChannelRed));
+        Assert.True(document.IsColourChannelColumn(ChannelGreen));
+        Assert.True(document.IsColourChannelColumn(ChannelBlue));
+        Assert.False(document.IsColourChannelColumn(Num));
+        Assert.False(document.IsColourChannelColumn(Colour));
+        Assert.Throws<ArgumentOutOfRangeException>(() => document.IsColourChannelColumn(-1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => document.IsColourChannelColumn(document.Columns.Count));
+
+        var loc = NewLoc();
+        Assert.All(Enumerable.Range(0, 3), column => Assert.False(loc.IsColourChannelColumn(column)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => loc.IsColourChannelColumn(3));
+    }
+
+    [Fact]
     public void Check_uses_the_cell_rules_and_the_channel_range()
     {
         var document = NewTable(1);

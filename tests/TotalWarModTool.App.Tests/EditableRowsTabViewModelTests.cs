@@ -106,6 +106,50 @@ public class EditableRowsTabViewModelTests
         Assert.False(tab.IsModified);
     }
 
+    [Fact] public void A_different_spelling_of_the_same_value_records_nothing()
+    {
+        var (tab, document, history) = Make();
+        tab.Rows[0][Ratio] = "1";                                      // 1.5 becomes 1: one step
+        Assert.True(history.CanUndo);
+
+        tab.Rows[0][Ratio] = "1.0";                                    // 1.0 is the double 1 that is there
+        tab.Rows[0][Colour] = "ff0000";                                // the colour is stored as FF0000
+        tab.Rows[0][Single] = "5e-1";                                  // 0.5f is there
+
+        history.Undo();                                                // exactly the one step
+        Assert.False(history.CanUndo);
+        Assert.Equal(1.5, document.Rows[0][Ratio]);
+        Assert.False(tab.IsModified);
+    }
+
+    [Fact] public void A_valid_set_is_exactly_one_history_step()
+    {
+        var (tab, document, history) = Make();
+
+        tab.Rows[1][Cost] = "42";
+        history.Undo();
+
+        Assert.Equal(10, document.Rows[1][Cost]);
+        Assert.Equal("10", tab.Rows[1][Cost]);
+        Assert.False(history.CanUndo);
+        Assert.True(history.CanRedo);
+        Assert.False(tab.IsModified);
+    }
+
+    [Fact] public void A_set_whose_change_event_fails_leaves_cell_rows_and_modified_state_as_before()
+    {
+        var (tab, document, history) = Make();
+        document.Changed += (_, _) => throw new InvalidOperationException("subscriber failed");     // runs after the tab's handler
+
+        Assert.Throws<InvalidOperationException>(() => tab.Rows[1][Cost] = "42");
+
+        Assert.Equal(10, document.Rows[1][Cost]);
+        Assert.Equal("10", tab.Rows[1][Cost]);
+        Assert.Equal(3, tab.Rows.Count);
+        Assert.False(tab.IsModified);
+        Assert.False(history.CanUndo);
+    }
+
     [Fact] public void Setting_an_invalid_text_throws_FormatException_with_the_message_and_changes_nothing()
     {
         var (tab, document, history) = Make();
@@ -145,14 +189,21 @@ public class EditableRowsTabViewModelTests
         Assert.Null(tab.CheckCell(ChannelR, "255"));
     }
 
-    [Fact] public void A_technical_detail_with_control_characters_is_made_safe()
+    // No Detail of RowsDocument.Check (that is: of CellText) embeds the input: the reasons are fixed English phrases. So DisplayText.Safe
+    // cannot be made to fail by a cell text; the test pins what the message is made of and that the input does not reach it.
+    [Fact] public void The_message_is_the_expected_text_plus_the_detail_and_never_the_input()
     {
-        var (tab, _, _) = Make();
+        var (tab, document, _) = Make();
+        var input = "a\u0001b";
 
-        var message = tab.CheckCell(Cost, "a\u0001b");
+        var message = tab.CheckCell(Cost, input);
 
-        Assert.NotNull(message);
-        Assert.DoesNotContain('\u0001', message);
+        var detail = document.Check(Cost, input).Detail!;
+        Assert.Equal(Texts.EditCheckMessage(Texts.EditExpectedInteger("-2147483648", "2147483647"), DisplayText.Safe(detail)), message);
+        Assert.DoesNotContain('\u0001', message!);
+        Assert.DoesNotContain("a\u0001b", message!);
+        var unpaired = tab.CheckCell(Name, "x" + (char)0xD800);                  // a lone surrogate in a text column
+        Assert.Equal(Texts.EditCheckMessage(Texts.EditExpectedText, DisplayText.Safe(document.Check(Name, "x" + (char)0xD800).Detail!)), unpaired);
     }
 
     [Fact] public void Undo_and_redo_update_the_rows_without_a_reset()
@@ -184,6 +235,153 @@ public class EditableRowsTabViewModelTests
         Assert.All(actions, a => Assert.True(a is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Remove, a.ToString()));
         Assert.NotEmpty(actions);
         Assert.Equal(["k0", "k1", "k2", "k3"], tab.Rows.Select(r => r[Key]));
+    }
+
+    // What the grid sees: the action and the index of every collection event, in order.
+    private static List<string> Record(EditableRowsTabViewModel tab)
+    {
+        var events = new List<string>();
+        ((INotifyCollectionChanged)tab.Rows).CollectionChanged += (_, e) => events.Add(e.Action switch
+        {
+            NotifyCollectionChangedAction.Add => "Add@" + e.NewStartingIndex,
+            NotifyCollectionChangedAction.Remove => "Remove@" + e.OldStartingIndex,
+            _ => e.Action.ToString(),
+        });
+        return events;
+    }
+
+    private static void AssertKeys(EditableRowsTabViewModel tab, params string[] keys)
+    {
+        Assert.Equal(keys, tab.Rows.Select(r => (string)r[Key]!));
+        Assert.Equal(keys, tab.Document.Rows.Select(r => (string)r[Key]!));
+    }
+
+    [Fact] public void A_delete_with_a_gap_in_the_selection_removes_from_the_highest_index_down_and_undo_and_redo_follow()
+    {
+        var (tab, _, history) = Make(7);
+        var before = tab.Rows.ToList();
+        var events = Record(tab);
+
+        tab.SelectedRows = [5, 0, 2];
+        tab.DeleteRowsCommand.Execute(null);
+
+        AssertKeys(tab, "k1", "k3", "k4", "k6");
+        Assert.Equal(["Remove@5", "Remove@2", "Remove@0"], events);
+        Assert.Equal([before[1], before[3], before[4], before[6]], tab.Rows);          // the untouched rows keep their instances
+
+        events.Clear();
+        history.Undo();
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k6");
+        Assert.Equal(["Add@0", "Add@2", "Add@5"], events);
+        Assert.Same(before[1], tab.Rows[1]); Assert.Same(before[3], tab.Rows[3]);
+        Assert.Same(before[4], tab.Rows[4]); Assert.Same(before[6], tab.Rows[6]);
+
+        events.Clear();
+        history.Redo();
+        AssertKeys(tab, "k1", "k3", "k4", "k6");
+        Assert.Equal(["Remove@5", "Remove@2", "Remove@0"], events);
+        Assert.Same(before[1], tab.Rows[0]); Assert.Same(before[6], tab.Rows[3]);
+    }
+
+    [Fact] public void A_duplicate_with_a_gap_in_the_selection_inserts_one_block_after_the_last_selected_row()
+    {
+        var (tab, _, history) = Make(7);
+        var before = tab.Rows.ToList();
+        var events = Record(tab);
+
+        tab.SelectedRows = [4, 1, 5];
+        tab.DuplicateRowsCommand.Execute(null);
+
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k1", "k4", "k5", "k6");
+        Assert.Equal(["Add@6", "Add@7", "Add@8"], events);
+        for (var i = 0; i < 6; i++)
+        {
+            Assert.Same(before[i], tab.Rows[i]);
+        }
+
+        Assert.Same(before[6], tab.Rows[9]);
+
+        events.Clear();
+        history.Undo();
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k6");
+        Assert.Equal(["Remove@8", "Remove@7", "Remove@6"], events);
+        Assert.Equal(before, tab.Rows);
+
+        events.Clear();
+        history.Redo();
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k1", "k4", "k5", "k6");
+        Assert.Equal(["Add@6", "Add@7", "Add@8"], events);
+        Assert.Same(before[6], tab.Rows[9]);
+    }
+
+    [Fact] public void An_insert_in_the_middle_adds_one_row_there_and_undo_and_redo_follow()
+    {
+        var (tab, _, history) = Make(7);
+        var before = tab.Rows.ToList();
+        var events = Record(tab);
+
+        tab.SelectedRows = [2];
+        tab.InsertRowCommand.Execute(null);
+
+        AssertKeys(tab, "k0", "k1", "k2", "", "k3", "k4", "k5", "k6");
+        Assert.Equal(["Add@3"], events);
+        Assert.Equal(before.Take(3), tab.Rows.Take(3));
+        Assert.Equal(before.Skip(3), tab.Rows.Skip(4));
+
+        events.Clear();
+        history.Undo();
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k6");
+        Assert.Equal(["Remove@3"], events);
+        Assert.Equal(before, tab.Rows);
+
+        events.Clear();
+        history.Redo();
+        AssertKeys(tab, "k0", "k1", "k2", "", "k3", "k4", "k5", "k6");
+        Assert.Equal(["Add@3"], events);
+        Assert.Equal(before.Skip(3), tab.Rows.Skip(4));
+    }
+
+    [Fact] public void A_change_of_up_to_the_threshold_is_followed_row_by_row_and_a_larger_one_with_one_reset()
+    {
+        var (tab, _, history) = Make(8);
+        Assert.Equal(EditableRowsTabViewModel.DefaultLargeChangeRows, tab.LargeChangeRows);
+        tab.LargeChangeRows = 3;
+        var before = tab.Rows.ToList();
+        var events = Record(tab);
+
+        tab.SelectedRows = [0, 1, 2];                                   // 3 rows: not more than the threshold
+        tab.DeleteRowsCommand.Execute(null);
+        Assert.Equal(["Remove@2", "Remove@1", "Remove@0"], events);
+        history.Undo();
+        Assert.Equal(["Remove@2", "Remove@1", "Remove@0", "Add@0", "Add@1", "Add@2"], events);
+        Assert.Equal(before.Skip(3), tab.Rows.Skip(3));
+
+        events.Clear();
+        tab.SelectedRows = [0, 1, 2, 3];                                // 4 rows: more
+        tab.DeleteRowsCommand.Execute(null);
+        Assert.Equal(["Reset"], events);
+        AssertKeys(tab, "k4", "k5", "k6", "k7");
+        Assert.Equal(before.Skip(4), tab.Rows);                         // every row that stays keeps its instance
+
+        events.Clear();
+        history.Undo();
+        Assert.Equal(["Reset"], events);
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7");
+        Assert.Equal(before.Skip(4), tab.Rows.Skip(4));
+        Assert.Equal("units_tables, version 3, 8 row(s)", tab.Header);
+
+        events.Clear();
+        tab.SelectedRows = [4, 5, 6, 7];                                // an insert of 4 rows
+        tab.DuplicateRowsCommand.Execute(null);
+        Assert.Equal(["Reset"], events);
+        AssertKeys(tab, "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7", "k4", "k5", "k6", "k7");
+        Assert.Equal(before.Skip(4), tab.Rows.Skip(4).Take(4));
+        Assert.Equal(12, tab.Rows.Count);
+
+        events.Clear();
+        tab.SelectedRows = [8, 9, 10];                                  // and 3 duplicates are row by row again
+        tab.DuplicateRowsCommand.Execute(null);
+        Assert.Equal(["Add@11", "Add@12", "Add@13"], events);
     }
 
     [Fact] public void Undo_of_a_cell_edit_tells_the_row()
@@ -272,6 +470,31 @@ public class EditableRowsTabViewModelTests
         Assert.False(tab.DeleteRowsCommand.CanExecute(null));
     }
 
+    [Fact] public void The_row_commands_re_evaluate_when_the_row_count_changes()
+    {
+        var (tab, _, history) = Make(2);
+        var delete = 0; var duplicate = 0;
+        tab.DeleteRowsCommand.CanExecuteChanged += (_, _) => delete++;
+        tab.DuplicateRowsCommand.CanExecuteChanged += (_, _) => duplicate++;
+        tab.SelectedRows = [1];
+        Assert.True(tab.DeleteRowsCommand.CanExecute(null));
+        var (d, u) = (delete, duplicate);
+
+        tab.DeleteRowsCommand.Execute(null);                            // the selection is stale now: nothing valid is left selected
+        Assert.True(delete > d && duplicate > u);
+        Assert.False(tab.DeleteRowsCommand.CanExecute(null));
+        Assert.False(tab.DuplicateRowsCommand.CanExecute(null));
+
+        (d, u) = (delete, duplicate);
+        history.Undo();                                                 // the row is back: the stale index is valid again
+        Assert.True(delete > d && duplicate > u);
+        Assert.True(tab.DeleteRowsCommand.CanExecute(null));
+
+        (d, u) = (delete, duplicate);
+        tab.Rows[0][Cost] = "9";                                        // a cell change does not change what a command can act on
+        Assert.Equal((d, u), (delete, duplicate));
+    }
+
     [Fact] public void The_header_follows_the_row_count_and_the_language()
     {
         var ui = new UiText(System.IO.Path.Combine(RepoRoot.Find(), "locales")); var texts = new AppTexts(ui);
@@ -312,36 +535,62 @@ public class EditableRowsTabViewModelTests
         var (tab, document, _) = Make();
         Assert.Null(tab.Text);
 
-        // Not showing: the text is built on the next switch to "Text", from the state at that time.
         tab.ShowText = true;
         Assert.Equal(document.ToText().Text, tab.Text);
         tab.ShowText = false;
 
+        // A change drops the text; it is built again on the next switch to "Text", from the state at that time.
         tab.Rows[0][Key] = "edited";
         Assert.Null(tab.Text);
         tab.ShowText = true;
         Assert.Contains("edited", tab.Text);
         Assert.Equal(document.ToText().Text, tab.Text);
-
-        // Showing: a change from outside (an undo of the global history) shows at once.
-        tab.Rows[1][Key] = "second";
-        Assert.Contains("second", tab.Text);
-        Assert.DoesNotContain("k1", tab.Text);
     }
 
-    [Fact] public void A_cut_text_shows_a_notice_that_goes_with_the_next_rebuild()
+    [Fact] public void A_change_while_the_text_shows_switches_to_the_grid_without_building_the_text()
+    {
+        var (tab, document, history) = Make();
+        tab.ShowText = true;
+        Assert.NotNull(tab.Text);
+        var raised = new List<string?>(); tab.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        tab.Rows[1][Key] = "second";                                    // or an undo or redo: any change of the document
+
+        Assert.True(tab.ShowGrid);
+        Assert.False(tab.ShowText);
+        Assert.Null(tab.Text);                                          // not built by the change: ToText ran in no event handler
+        Assert.Null(tab.TextNotice);
+        Assert.Contains(nameof(RowsTabViewModel.ShowText), raised);
+        Assert.Contains(nameof(RowsTabViewModel.ShowGrid), raised);
+        Assert.Contains(nameof(RowsTabViewModel.Text), raised);
+
+        tab.ShowText = true;
+        Assert.Contains("second", tab.Text);
+        Assert.DoesNotContain("k1", tab.Text);
+
+        history.Undo();                                                 // an undo from the text view: back to the grid, the state is shown there
+        Assert.True(tab.ShowGrid);
+        Assert.Equal("k1", tab.Rows[1][Key]);
+        tab.ShowText = true;
+        Assert.Equal(document.ToText().Text, tab.Text);
+        Assert.Contains("k1", tab.Text);
+    }
+
+    [Fact] public void A_cut_text_keeps_its_notice_until_the_next_change()
     {
         var (tab, _, history) = Make();
-        tab.ShowText = true;
-        Assert.Null(tab.TextNotice);
         tab.MaxChars = 10;
-
-        tab.Rows[0][Cost] = "1";                                        // rebuilt with the small limit
-
+        tab.ShowText = true;
         Assert.Equal(Texts.TabTextViewTruncated, tab.TextNotice);
+
+        tab.Rows[0][Cost] = "1";                                        // the change drops text and notice
+
+        Assert.Null(tab.TextNotice);
         tab.MaxChars = RowsTabViewModel.MaxTextChars;
         history.Undo();
+        tab.ShowText = true;
         Assert.Null(tab.TextNotice);
+        Assert.NotNull(tab.Text);
     }
 
     [Fact] public void IsModified_follows_the_document()
@@ -413,6 +662,22 @@ public class EditableRowsTabViewModelTests
 
         Assert.Equal(3, tab.Rows.Count);
         Assert.Equal("units_tables, version 3, 3 row(s)", tab.Header);
+    }
+
+    [Fact] public void ReplaceDocument_after_Dispose_does_nothing()
+    {
+        var (tab, document, _) = Make();
+        var other = RowsDocument.ForTable("units_tables", 3, "p", Def, [Row("z", 99)]);
+        tab.Dispose();
+        var actions = new List<NotifyCollectionChangedAction>();
+        ((INotifyCollectionChanged)tab.Rows).CollectionChanged += (_, e) => actions.Add(e.Action);
+
+        tab.ReplaceDocument(other);
+        other.InsertRows(0, [other.NewRow()]).Do();                     // the new document was not subscribed to
+
+        Assert.Empty(actions);
+        Assert.Same(document, tab.Document);
+        Assert.Equal(3, tab.Rows.Count);
     }
 
     [Fact] public void An_edit_of_a_row_that_left_the_tab_does_nothing()

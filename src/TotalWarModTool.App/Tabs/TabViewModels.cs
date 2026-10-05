@@ -193,8 +193,9 @@ public abstract class RowsTabViewModel : TabViewModel
     }
 
     /// <summary>
-    /// The content changed: the text built so far is out of date. It is built again on the next switch to the text view, or at once
-    /// when the text view is showing.
+    /// The content changed: the text built so far is out of date and is dropped. It is built again on the next switch to the text view.
+    /// When the text view is showing, the tab goes back to the grid, where the change is visible; the text is never built here, so
+    /// this is cheap and cannot throw (it runs inside the change events of the document).
     /// </summary>
     protected void InvalidateText()
     {
@@ -203,11 +204,8 @@ public abstract class RowsTabViewModel : TabViewModel
         _text = null;
         _notice = null;
         _textNotice = null;
-        if (_showText)
-        {
-            BuildText();
-        }
-        else if (hadText)
+        ShowText = false;
+        if (hadText)
         {
             OnPropertyChanged(nameof(Text));
             OnPropertyChanged(nameof(TextNotice));

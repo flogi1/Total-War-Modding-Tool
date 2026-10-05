@@ -170,6 +170,16 @@ public sealed class RowsDocument
         return new CellCheck(value, CellProblem.None, null);
     }
 
+    /// <summary>
+    /// True when the column is part of a colour group (r/g/b triple): its values must be integers from 0 to 255. Always false for a loc
+    /// document. ArgumentOutOfRangeException for a column that does not exist.
+    /// </summary>
+    public bool IsColourChannelColumn(int column)
+    {
+        RequireColumn(column);
+        return _channelColumns.Contains(column);
+    }
+
     /// <summary>A new row with <see cref="CellText.DefaultValue"/> in every column. Not part of the document until it is inserted.</summary>
     public object?[] NewRow()
     {

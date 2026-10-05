@@ -26,6 +26,10 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     private RowsDocument _document;
     private string _header;
     private IReadOnlyList<int> _selectedRows = [];
+    private bool _disposed;
+
+    /// <summary>The number of rows from which a change of the document rebuilds <see cref="Rows"/> in one pass (see <see cref="LargeChangeRows"/>).</summary>
+    internal const int DefaultLargeChangeRows = 2_000;
 
     public EditableRowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close,
         RowsDocument document, ActionHistory history)
@@ -87,6 +91,12 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     /// <summary>Duplicates the selected rows as one block after the last of them. Disabled without a selection.</summary>
     public ICommand DuplicateRowsCommand => _duplicateRowsCommand;
 
+    /// <summary>
+    /// A change of more than this many rows (an insert, a removal) rebuilds <see cref="Rows"/> in one pass with a single reset, instead
+    /// of one collection operation per row (which costs the number of changed rows times the number of rows). Settable for tests.
+    /// </summary>
+    internal int LargeChangeRows { get; set; } = DefaultLargeChangeRows;
+
     internal override bool IsTableEntry => _document.Kind == DocumentKind.Table;
 
     /// <summary>Null when the text is a valid value of the column, else the UI message: what the column expects, plus the technical reason.</summary>
@@ -103,6 +113,11 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     internal void ReplaceDocument(RowsDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
+        if (_disposed)
+        {
+            return;
+        }
+
         Unsubscribe(_document);
         _document = document;
         Subscribe(document);
@@ -153,7 +168,11 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
     protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
 
-    protected override void OnDispose() => Unsubscribe(_document);
+    protected override void OnDispose()
+    {
+        _disposed = true;
+        Unsubscribe(_document);
+    }
 
     private static TabSource RequireProject(TabSource source)
     {
@@ -203,6 +222,10 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
                 }
 
                 break;
+            case DocumentChangeKind.RowsInserted when change.RowIndexes.Count > LargeChangeRows:
+            case DocumentChangeKind.RowsRemoved when change.RowIndexes.Count > LargeChangeRows:
+                RebuildRows();
+                break;
             case DocumentChangeKind.RowsInserted:
                 foreach (var index in change.RowIndexes)
                 {
@@ -222,9 +245,31 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         if (change.Kind != DocumentChangeKind.CellsChanged)
         {
             SetProperty(ref _header, HeaderText(), nameof(Header));
+
+            // The selection may point at other rows now, and the row count decides whether a command has a row to act on.
+            RaiseSelectionCommandsChanged();
         }
 
         InvalidateText();
+    }
+
+    // One pass for a large change: every row array that is still in the document keeps its EditRow (found by reference in O(n)),
+    // the others get one, and the collection is replaced with a single reset.
+    private void RebuildRows()
+    {
+        var known = new Dictionary<object?[], EditRow>(_rows.Count, ReferenceEqualityComparer.Instance);
+        foreach (var row in _rows)
+        {
+            known[row.Cells] = row;
+        }
+
+        var rows = new List<EditRow>(_document.Rows.Count);
+        foreach (var cells in _document.Rows)
+        {
+            rows.Add(known.TryGetValue(cells, out var existing) ? existing : new EditRow(cells, _document.Columns, this));
+        }
+
+        _rows.ReplaceAll(rows);
     }
 
     private void OnModifiedChanged(object? sender, EventArgs e) => OnPropertyChanged(nameof(IsModified));
@@ -278,7 +323,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     private string MessageFor(int column, CellCheck check)
     {
         var field = _document.Columns[column];
-        var expected = check.Problem == CellProblem.ColourChannelOutOfRange || IsColourChannel(column, field.Type)
+        var expected = check.Problem == CellProblem.ColourChannelOutOfRange || _document.IsColourChannelColumn(column)
             ? Texts.EditExpectedChannel
             : field.Type switch
             {
@@ -293,11 +338,6 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
             };
         return Texts.EditCheckMessage(expected, DisplayText.Safe(check.Detail ?? string.Empty));
     }
-
-    // The document does not name its colour channel columns. A number column is one when the document refuses 256 there for the range.
-    private bool IsColourChannel(int column, FieldType type) =>
-        type is FieldType.I16 or FieldType.I32 or FieldType.I64 or FieldType.F32 or FieldType.F64
-        && _document.Check(column, "256").Problem == CellProblem.ColourChannelOutOfRange;
 
     private static string Invariant(long value) => value.ToString(CultureInfo.InvariantCulture);
 
