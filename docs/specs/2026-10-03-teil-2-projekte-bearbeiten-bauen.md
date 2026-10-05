@@ -722,18 +722,29 @@ die Umsetzung genauer oder anders entschieden hat.
     zuerst; ein Befehl, der nicht startet (beschäftigt, Dialog abgebrochen), lässt sie stehen.
 29. Ein Dateischritt, der an einer Sperre oder an einem nicht erreichbaren Projektordner scheitert, bleibt in der
     History: Er wirft `StepDeferredException`, `ActionHistory` lässt ihn oben auf seinem Stapel, ändert nichts und
-    meldet kein `Changed`. Die App meldet „nichts geändert, versuche es erneut“, entfernt keine weiteren Schritte und
-    lässt die Tabs offen. Vor jedem Lauf prüft `FileStep` den Projektordner und `pack\` (fehlt oder nicht lesbar);
-    `FileOpProblem.Locked` zählt nur, wenn die Bibliothek alles zurückgenommen hat. Bleibt dabei etwas liegen (ein
-    Ordner, eine Kopie im Papierkorb, `LeftBehind`), ist der Fehler dauerhaft. Nur dauerhafte Fehler lassen den
+    meldet kein `Changed`. Die App entfernt keine weiteren Schritte und lässt die Tabs offen. Vor jedem Lauf prüft
+    `FileStep` den Projektordner: Er fehlt, oder er oder `pack\` lässt sich nicht lesen (ein fehlendes `pack\` hält den
+    Schritt nicht zurück, das behandelt die Bibliothek). `FileOpProblem.Locked` (ein anderes Programm hält die Datei,
+    oder das Dateisystem lehnt ab) zählt nur, wenn die Bibliothek alles zurückgenommen hat. Bleibt dabei etwas liegen
+    (ein Ordner, eine Kopie im Papierkorb, `LeftBehind`), ist der Fehler dauerhaft. Nur dauerhafte Fehler lassen den
     Schritt und die weiteren Schritte derselben Datei entfallen (Punkt 20); die Meldung nennt dann jeden
-    Papierkorb-Pfad, den die entfernten Schritte hinterlassen, je auf einer eigenen Zeile und ungekürzt (höchstens
-    10, dann ihre Zahl; das Log nennt alle).
+    Papierkorb-Pfad, den die entfernten Schritte hinterlassen, und eine Kopie, die ein gescheitertes Verschieben im
+    Papierkorb liegen ließ (`TrashResult.LeftCopy`), je auf einer eigenen Zeile und ungekürzt (höchstens 10, dann
+    ihre Zahl; das Log nennt alle).
+    Die beiden Ursachen haben eigene Meldungen. Bei einer Sperre: Nichts wurde geändert; das andere Programm
+    schließen oder die Berechtigungen prüfen und es erneut versuchen. Bei einem nicht erreichbaren Projektordner
+    (`ProjectUnreachableException`): Ist der Ordner nur getrennt, ihn wieder verbinden und es erneut versuchen; ein
+    dauerhaft fehlender Projektordner (verschoben oder gelöscht) hält sonst die ganze History an, weil sein Schritt
+    oben liegen bleibt. Der Ausweg ist, das Projekt aus der Liste zu entfernen: Seine Dateischritte verlassen dann
+    die History (Punkt 9), Dateien, die es im Papierkorb hält, bleiben dort und stehen im Log, und die Schritte
+    darunter lassen sich wieder rückgängig machen.
 30. Gründe für abgelehnte Namen sind übersetzte Texte: `NewFiles.NameIssueOf` liefert die Art des Problems
-    (`NameIssue`), die App zeigt pro Art einen eigenen Text aus `locales`. Dasselbe gilt für die Regeln anderer
-    Dateien (leer, Schrägstrich, ein Name, den das Projekt ignoriert). Lehnt die Schreibgrenze den Pfad ab (zum
-    Beispiel zu lang), steht der übersetzte Satz vorn und die englische Angabe der Bibliothek als technisches
-    Detail dahinter. Ob ein Name vergeben ist, entscheidet die App über `FileActionResult.Problem`, nie über den Text.
+    (`NameIssue`), die App zeigt pro Art einen eigenen Text aus `locales`. Namen anderer Dateien prüft
+    `NewFiles.PlainNameIssueOf` mit denselben Arten vor der Schreibgrenze: leer, Schrägstrich, Leerzeichen am Anfang
+    oder Ende, defektes Zeichen, Zeichen, die Windows nicht erlaubt, zu lang für einen Dateinamen samt Endung,
+    Gerätename (`NUL`, `CON`, …) und ein Name, den das Projekt ignoriert; ein Punkt ist dort erlaubt. Lehnt danach
+    noch die Schreibgrenze den Pfad ab (zum Beispiel ist der ganze Pfad zu lang), steht der übersetzte Satz vorn und
+    die englische Angabe der Bibliothek als technisches Detail dahinter. Ob ein Name vergeben ist, entscheidet die App über `FileActionResult.Problem`, nie über den Text.
 31. Läuft Rückgängig oder Wiederholen einer Umbenennung, während eine stille Operation des Arbeitsbereichs läuft
     (Laden beim Start, Wiederherstellen der Sitzung), kann die Datei nicht sofort wieder geöffnet werden: Der
     Tab des alten Namens wird trotzdem geschlossen, die Anfrage zum Öffnen geht trotzdem hinaus, und das Log nennt
@@ -935,7 +946,8 @@ Projekt kopiert, mit denselben Regeln pro Eintrag wie beim Import.
 | `packName` gleicht einem Vanilla-Pack | Beim Anlegen, Umbenennen und Installieren abgelehnt. |
 | Spiel sperrt das Pack in `data` | Meldung, alte Datei bleibt. |
 | Undo oder Redo einer Dateioperation scheitert dauerhaft (Papierkorb-Datei fehlt, Ziel belegt) | Meldung, der Schritt fällt aus der History, kein Teilzustand. Die übrigen Schritte derselben Datei fallen mit weg; die Meldung sagt einmal, wie viele, und nennt jeden Papierkorb-Pfad, den die entfernten Schritte hinterlassen, auf einer eigenen Zeile (höchstens 10, das Log nennt alle). |
-| Undo oder Redo einer Dateioperation trifft auf eine gesperrte Datei oder einen nicht erreichbaren Projektordner | Meldung „nichts geändert, versuche es erneut“. Der Schritt bleibt in der History, keine weiteren Schritte fallen weg, die Tabs bleiben offen. |
+| Undo oder Redo einer Dateioperation trifft auf eine gesperrte Datei (oder das Dateisystem lehnt ab) | Meldung „nichts geändert, versuche es erneut“. Der Schritt bleibt in der History, keine weiteren Schritte fallen weg, die Tabs bleiben offen. |
+| Undo oder Redo einer Dateioperation findet den Projektordner nicht (fehlt oder nicht lesbar) | Eigene Meldung: Ordner wieder verbinden und erneut versuchen; ist er verschoben oder gelöscht, das Projekt aus der Liste entfernen, dann verlassen seine Dateischritte die History. Bis dahin bleibt der Schritt oben in der History. |
 | Datei seit dem Schritt geändert (von außen oder durch Speichern), Rückgängig von Anlegen oder Übernehmen, Wiederholen von Löschen | Nichts wird in den Papierkorb verschoben, die Datei bleibt, der Schritt fällt aus der History. Die Meldung nennt die Datei und „Löschen“ als Weg. |
 | Ziel einer neuen, übernommenen oder umbenannten Datei existiert schon | Abbruch mit Meldung, nichts wird geändert. Der Dialog lehnt den Namen schon bei der Eingabe ab. |
 | Löschen oder Umbenennen einer Datei mit ungespeichertem Tab | Abgelehnt mit Meldung, die Datei und Tab nennt. Der Eintrag im Explorer ist gesperrt und nennt den Grund. |

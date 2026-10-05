@@ -219,6 +219,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Eine Aktion, die nach dem Namensdialog abgelehnt wird (zum Beispiel weil das Ziel inzwischen belegt ist), fragt den Namen nicht erneut; die Eingabe geht verloren
 - Welche Schritte nach einem dauerhaft gescheiterten Dateischritt mit entfernt werden, entscheidet der Dateiname (Umbenennungsketten werden verfolgt): Ein Schritt einer anderen Datei, die später denselben Namen bekam, kann mit aus der History fallen; auf der Platte wird dabei nichts angefasst
 - Die Meldung eines dauerhaft gescheiterten Dateischritts kann mit vielen Papierkorb-Pfaden lang werden (bis zu 10 Pfade und die Zahl der übrigen)
+- Beim Übernehmen eines Eintrags, der seinen Pfad behält (kein Namensdialog, zum Beispiel ein Skript), erscheinen Ablehnungsgründe der Library noch auf Englisch
 
 == Wartet auf ein öffentliches Remote ==
 
