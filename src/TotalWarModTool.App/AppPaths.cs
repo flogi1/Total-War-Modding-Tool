@@ -19,6 +19,9 @@ public sealed record AppPaths(string RoamingRoot, string LocalRoot, string Progr
 
     public string LogDirectory => Path.Combine(LocalRoot, "logs");
 
+    /// <summary>The trash of the files that were deleted from a project (<c>&lt;project id&gt;\&lt;entry&gt;\&lt;file&gt;</c> below it).</summary>
+    public string TrashDirectory => Path.Combine(LocalRoot, "trash");
+
     public string LocalesDirectory => Path.Combine(ProgramRoot, "locales");
 
     public string ProfilesDirectory => Path.Combine(ProgramRoot, "profiles");

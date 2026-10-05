@@ -307,7 +307,45 @@ public sealed class WorkspaceController
         return opened;
     }
 
-    private async Task<OpenedEntry?> OpenEntryCore(PackSource pack, string entryPath)
+    private Task<OpenedEntry?> OpenEntryCore(PackSource pack, string entryPath)
+    {
+        var schema = Schema?.Schema;
+        return RunEntryAsync(pack, entryPath,
+            (index, missing, ct) => OpenFrom(index, entryPath, schema, missing, ct),
+            opened => opened.ReadProblem,
+            read => IndexProblemEntry(entryPath, read),
+            opened => LogEntryProblem(pack, opened));
+    }
+
+    /// <summary>
+    /// Reads the uncompressed bytes of one entry through the runner, with the cached index of the pack when it is open (the index handling is
+    /// that of <see cref="OpenEntryAsync"/>: a pack that changed on disk is read again and <see cref="PackChanged"/> is raised after the run).
+    /// The size limit is the one of <see cref="PackReader.ReadEntry"/> (<see cref="PackReader.DefaultMaxEntryBytes"/> uncompressed); a larger
+    /// entry comes back as <see cref="EntryProblem.TooLarge"/>. A read problem comes back inside the result, with no bytes. Null when nothing
+    /// can be started right now or the run was cancelled or failed.
+    /// </summary>
+    public async Task<EntryContent?> ReadEntryBytesAsync(PackSource pack, string entryPath)
+    {
+        ArgumentNullException.ThrowIfNull(pack);
+        ArgumentNullException.ThrowIfNull(entryPath);
+        var content = await RunEntryAsync(pack, entryPath,
+            (index, missing, ct) => index.Find(entryPath) is { } entry
+                ? PackReader.ReadEntry(index, entry, ct)
+                : ProblemContent(missing, EntryMissingDetail),
+            read => read.Problem,
+            read => ProblemContent(EntryProblemOf(read), read.Detail),
+            read => LogContentProblem(pack, entryPath, read));
+        await RunPending();
+        return content;
+    }
+
+    // One run through the runner that does something with one entry of a pack: the index is the cached one, or read inside the run; an entry
+    // that cannot be read because the pack changed gets one second try with a fresh index. What happens to the cache, the fingerprints and
+    // the log afterwards is the same for every kind of result.
+    private async Task<T?> RunEntryAsync<T>(PackSource pack, string entryPath,
+        Func<PackIndex, EntryProblem, CancellationToken, T> read, Func<T, EntryProblem> problemOf,
+        Func<PackIndexResult, T> fromIndexProblem, Action<T> logResult)
+        where T : class
     {
         if (!CanStartOperation)
         {
@@ -315,10 +353,9 @@ public sealed class WorkspaceController
         }
 
         var cached = _cache.GetValueOrDefault(pack.Path);
-        var schema = Schema?.Schema;
         var entryName = entryPath[(entryPath.LastIndexOfAny(['/', '\\']) + 1)..];
         var outcome = await _runner.RunAsync(_texts.OperationOpenEntry(entryName),
-            (_, ct) => RunOpenEntry(pack.Path, entryPath, cached, schema, ct));
+            (_, ct) => RunWithIndex(pack.Path, cached, read, problemOf, fromIndexProblem, ct));
         if (outcome.Status != OperationStatus.Completed || outcome.Value is not { } run)
         {
             return null;
@@ -350,7 +387,7 @@ public sealed class WorkspaceController
         }
         else
         {
-            LogEntryProblem(pack, run.Opened);
+            logResult(run.Result);
         }
 
         if (run.PackChanged)
@@ -362,7 +399,7 @@ public sealed class WorkspaceController
             RaisePackChanged(pack, "its file differs from the last state seen");
         }
 
-        return run.Opened;
+        return run.Result;
     }
 
     /// <summary>
@@ -678,6 +715,15 @@ public sealed class WorkspaceController
         _log.Warn($"Entry \"{opened.EntryPath}\" of pack \"{pack.Name}\" has a problem ({what}): {detail}");
     }
 
+    // A read problem of an entry that was read for its bytes (adopting it into a project): there is no tab with a hint, so the log is the record.
+    private void LogContentProblem(PackSource pack, string entryPath, EntryContent content)
+    {
+        if (content.Problem != EntryProblem.None)
+        {
+            _log.Warn($"Entry \"{entryPath}\" of pack \"{pack.Name}\" cannot be read ({content.Problem}): {content.Detail}");
+        }
+    }
+
     private void LogSchema(ResolvedSchema? schema)
     {
         if (schema is null)
@@ -714,7 +760,7 @@ public sealed class WorkspaceController
     private sealed record IndexRead(PackIndexResult Result, PackContent? Content);
 
     // Fingerprint: the file state of the index this run read (a fresh one or the re-read one); null when it used the cached index unchanged.
-    private sealed record EntryRun(OpenedEntry Opened, bool PackChanged, PackContent? Replacement, PackIndexResult? IndexProblem = null,
+    private sealed record EntryRun<T>(T Result, bool PackChanged, PackContent? Replacement, PackIndexResult? IndexProblem = null,
         FileFingerprint? Fingerprint = null);
 
     private sealed record RestoreRun(RestoreResult Result, IReadOnlyList<(bool IsWarning, string Text)> Notes,
@@ -764,38 +810,39 @@ public sealed class WorkspaceController
             : new IndexRead(result, null);
     }
 
-    private static EntryRun RunOpenEntry(string packPath, string entryPath, PackContent? cached, GameSchema? schema,
-        CancellationToken cancellationToken)
+    // The work of RunEntryAsync: finds the index (cached, or read here) and hands it to read; read gets the problem to report for an entry that
+    // is not in the index (Corrupt for the first try, PackChanged after the index was read again).
+    private static EntryRun<T> RunWithIndex<T>(string packPath, PackContent? cached, Func<PackIndex, EntryProblem, CancellationToken, T> read,
+        Func<T, EntryProblem> problemOf, Func<PackIndexResult, T> fromIndexProblem, CancellationToken cancellationToken)
     {
         var index = cached?.Index;
         if (index is null)
         {
-            var read = PackAccess.ReadIndex(packPath, cancellationToken);
-            if (read.Index is null)
+            var indexRead = PackAccess.ReadIndex(packPath, cancellationToken);
+            if (indexRead.Index is null)
             {
-                return new EntryRun(IndexProblemEntry(entryPath, read), false, null, read);
+                return new EntryRun<T>(fromIndexProblem(indexRead), false, null, indexRead);
             }
 
-            index = read.Index;
+            index = indexRead.Index;
         }
 
         var freshFingerprint = cached is null ? index.Fingerprint : null;
-        var first = OpenFrom(index, entryPath, schema, EntryProblem.Corrupt, cancellationToken);
-        if (first.ReadProblem != EntryProblem.PackChanged)
+        var first = read(index, EntryProblem.Corrupt, cancellationToken);
+        if (problemOf(first) != EntryProblem.PackChanged)
         {
-            return new EntryRun(first, false, null, Fingerprint: freshFingerprint);
+            return new EntryRun<T>(first, false, null, Fingerprint: freshFingerprint);
         }
 
         // The pack changed under the cached index. Read the index again; if that fails the first result stands.
         var reread = PackAccess.ReadIndex(packPath, cancellationToken);
         if (reread.Index is not { } newIndex)
         {
-            return new EntryRun(first, true, null);
+            return new EntryRun<T>(first, true, null);
         }
 
         var replacement = cached is null ? null : new PackContent(newIndex, PackTree.Build(newIndex.Entries, cancellationToken));
-        return new EntryRun(OpenFrom(newIndex, entryPath, schema, EntryProblem.PackChanged, cancellationToken), true, replacement,
-            Fingerprint: newIndex.Fingerprint);
+        return new EntryRun<T>(read(newIndex, EntryProblem.PackChanged, cancellationToken), true, replacement, Fingerprint: newIndex.Fingerprint);
     }
 
     // An entry that is not in the index is damaged, unless the index was read again because the pack changed: then the pack changed under it.
@@ -806,13 +853,17 @@ public sealed class WorkspaceController
 
     // The index of a pack that is not open could not be read: the entry shows it as the matching entry problem.
     private static OpenedEntry IndexProblemEntry(string entryPath, PackIndexResult read) =>
-        ProblemEntry(entryPath, read.Problem switch
-        {
-            PackProblem.NotFound => EntryProblem.PackChanged,
-            PackProblem.Unreadable => EntryProblem.Unreadable,
-            PackProblem.EncryptedIndex => EntryProblem.Encrypted,
-            _ => EntryProblem.Corrupt,
-        }, read.Detail);
+        ProblemEntry(entryPath, EntryProblemOf(read), read.Detail);
+
+    private static EntryProblem EntryProblemOf(PackIndexResult read) => read.Problem switch
+    {
+        PackProblem.NotFound => EntryProblem.PackChanged,
+        PackProblem.Unreadable => EntryProblem.Unreadable,
+        PackProblem.EncryptedIndex => EntryProblem.Encrypted,
+        _ => EntryProblem.Corrupt,
+    };
+
+    private static EntryContent ProblemContent(EntryProblem problem, string? detail) => new(null, CompressionFormat.None, 0, problem, detail);
 
     private static OpenedEntry ProblemEntry(string entryPath, EntryProblem problem, string? detail) =>
         new(entryPath, EntryOpener.KindOf(entryPath), 0, 0, CompressionFormat.None, problem, detail,

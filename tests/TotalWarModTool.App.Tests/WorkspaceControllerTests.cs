@@ -607,6 +607,70 @@ public class WorkspaceControllerTests
         Assert.Equal(pack, Assert.Single(changed));
     }
 
+    // ---- the bytes of an entry ---------------------------------------------------------------------------------------------------
+
+    [Fact] public async Task ReadEntryBytesAsync_returns_the_uncompressed_bytes_and_reports_a_read_problem()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", "hello"u8.ToArray()), ("db/x_tables/data__", TestGame.TableBytes));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+
+        var text = await c.ReadEntryBytesAsync(pack, "a.txt");
+        Assert.Equal(EntryProblem.None, text!.Problem);
+        Assert.Equal("hello"u8.ToArray(), text.Bytes);
+
+        // The raw bytes, also of a table: nothing is decoded.
+        var table = await c.ReadEntryBytesAsync(pack, "db/x_tables/data__");
+        Assert.Equal(TestGame.TableBytes, table!.Bytes);
+
+        var missing = await c.ReadEntryBytesAsync(pack, "gone.txt");
+        Assert.Equal((EntryProblem.Corrupt, (byte[]?)null), (missing!.Problem, missing.Bytes));
+        Assert.Equal(["Open a.txt", "Open data__", "Open gone.txt"], game.Runner.Titles);
+        Assert.Contains(game.Log.Warnings, line => line.Contains("gone.txt", StringComparison.Ordinal));
+    }
+
+    [Fact] public async Task ReadEntryBytesAsync_uses_the_cached_index_and_handles_a_changed_pack_like_OpenEntryAsync()
+    {
+        using var game = new TestGame();
+        var path = game.AddPack("a.pack", ("a.txt", "old"u8.ToArray()));
+        var c = game.NewController();
+        await c.LoadAsync();
+        var pack = Pack(c, "a.pack");
+        var before = await c.OpenPackAsync(pack);
+        var changed = new List<PackSource>(); c.PackChanged += (_, p) => changed.Add(p);
+        new PackBuilder().AddEntry("a.txt", "newer text"u8.ToArray()).WriteTo(path);
+
+        var content = await c.ReadEntryBytesAsync(pack, "a.txt");
+
+        Assert.Equal("newer text"u8.ToArray(), content!.Bytes);             // the pack changed under the cached index: read again, second try
+        Assert.Equal(pack, Assert.Single(changed));
+        Assert.NotSame(before, await c.OpenPackAsync(pack));                // the cached index was replaced
+
+        // A pack that is gone: a problem inside the result, and the cache is dropped.
+        File.Delete(path);
+        var gone = await c.ReadEntryBytesAsync(pack, "a.txt");
+        Assert.Equal(EntryProblem.PackChanged, gone!.Problem);
+        Assert.Null(gone.Bytes);
+    }
+
+    [Fact] public async Task ReadEntryBytesAsync_does_nothing_while_the_runner_is_busy()
+    {
+        using var game = new TestGame();
+        game.AddPack("a.pack", ("a.txt", [1]));
+        var c = game.NewController();
+        await c.LoadAsync();
+        game.Runner.IsRunning = true;
+
+        Assert.Null(await c.ReadEntryBytesAsync(Pack(c, "a.pack"), "a.txt"));
+        Assert.Empty(game.Runner.Titles);
+
+        game.Runner.IsRunning = false;
+        game.Runner.CancelNext = true;
+        Assert.Null(await c.ReadEntryBytesAsync(Pack(c, "a.pack"), "a.txt"));   // a cancelled run has no result
+    }
+
     // ---- a restore that did not happen -------------------------------------------------------------------------------------------
 
     [Fact] public async Task A_restore_that_fails_returns_null_and_logs_the_error()

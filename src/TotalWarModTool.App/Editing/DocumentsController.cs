@@ -176,6 +176,14 @@ public sealed partial class DocumentsController
         }
 
         var next = undo ? _history.NextUndo : _history.NextRedo;
+
+        // A file step that would take away the file of a tab with unsaved work does not run and stays in the history.
+        FileStepPlan? plan = null;
+        if (next is FileStep fileStep && (plan = PlanFileStep(fileStep, undo)) is null)
+        {
+            return;
+        }
+
         IUndoableAction step;
         try
         {
@@ -194,6 +202,11 @@ public sealed partial class DocumentsController
         }
 
         // Outside the try: the step has worked, so a failure to select its tab is no failed step.
+        if (plan is not null)
+        {
+            ApplyFileStep(plan);
+        }
+
         SelectTabOf(step);
     }
 

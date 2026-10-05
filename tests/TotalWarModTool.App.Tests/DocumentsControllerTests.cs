@@ -421,4 +421,175 @@ public class DocumentsControllerTests
             Assert.Same(b, Assert.Single(setup.Controller.EditableTabs));
         }
     }
+
+    // ---- file steps: the tabs of the files that a step takes away ----------------------------------------------------------------
+
+    private const string FileA = @"db\x_tables\a.tsv";
+    private const string FileB = @"db\x_tables\b.tsv";
+
+    // A step that only counts its runs: what happens to the tabs is the controller's work, not the step's.
+    private sealed class StepProbe
+    {
+        public int Dos { get; private set; }
+
+        public int Undos { get; private set; }
+
+        public Exception? Failure { get; set; }
+
+        public FileStep Step(Guid projectId, string[] afterDo, string[] afterUndo) =>
+            new(projectId, "probe", afterDo, afterUndo, FileStepState.Empty,
+                state => Run(state, () => Dos++), state => Run(state, () => Undos++));
+
+        private FileStepResult Run(FileStepState state, Action count)
+        {
+            if (Failure is { } failure)
+            {
+                throw failure;
+            }
+
+            count();
+            return new FileStepResult(FileOpProblem.None, null, state);
+        }
+    }
+
+    [Fact] public async Task Undo_of_a_file_step_closes_the_tabs_of_the_files_it_removes_and_keeps_the_others_and_raises_FileStepApplied()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var probe = new StepProbe();
+            var applied = new List<Guid>();
+            setup.Controller.FileStepApplied += (_, id) => applied.Add(id);
+            // The comparison ignores case and takes '\' and '/' as the same separator (a tab's entry path uses '/').
+            setup.History.Record(probe.Step(setup.Project.Id, [@"DB\X_Tables\A.tsv"], []));
+
+            setup.Controller.UndoCommand.Execute(null);
+
+            Assert.Equal(1, probe.Undos);
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+            Assert.Contains(b, setup.Tabs.Tabs);
+            Assert.Equal([setup.Project.Id], applied);
+            Assert.True(setup.History.CanRedo);
+
+            // Redo: the file exists again, no tab is open for it, nothing else is closed.
+            setup.Controller.RedoCommand.Execute(null);
+            Assert.Equal(1, probe.Dos);
+            Assert.Contains(b, setup.Tabs.Tabs);
+            Assert.Equal([setup.Project.Id, setup.Project.Id], applied);
+            Assert.Empty(setup.Dialogs.Messages);
+        }
+    }
+
+    [Fact] public async Task A_file_step_whose_file_has_a_modified_tab_is_refused_and_stays_in_the_history()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var probe = new StepProbe();
+            var applied = 0;
+            setup.Controller.FileStepApplied += (_, _) => applied++;
+            a.Rows[0][Value] = "50";
+            setup.History.Record(probe.Step(setup.Project.Id, [FileA], []));    // a step that created the file: its undo takes the file of the modified tab away
+            setup.Tabs.SelectedTab = b;
+
+            setup.Controller.UndoCommand.Execute(null);
+
+            Assert.Equal(0, probe.Undos);
+            var message = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.EditUndoBlockedTitle, message.Title);
+            Assert.Equal(setup.Game.Texts.FileTabUnsaved(FileA.Replace('\\', '/')), message.Message);
+            Assert.Same(a, setup.Tabs.SelectedTab);                             // the tab that needs saving is shown
+            Assert.Contains(a, setup.Tabs.Tabs);
+            Assert.True(setup.History.CanUndo);                                 // the step stays
+            Assert.False(setup.History.CanRedo);
+            Assert.Equal(0, applied);
+            Assert.Empty(setup.Game.Log.Errors);
+
+            // Saved, the step runs.
+            Assert.True(await setup.Controller.SaveAsync([a]));
+            setup.Controller.UndoCommand.Execute(null);
+            Assert.Equal(1, probe.Undos);
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+            Assert.Equal(1, applied);
+        }
+    }
+
+    [Fact] public async Task A_redo_of_a_file_step_is_checked_like_an_undo()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var probe = new StepProbe();
+            setup.History.Record(probe.Step(setup.Project.Id, [], [FileA]));    // a step that deleted the file
+            setup.Controller.UndoCommand.Execute(null);                         // the file exists again; the tab of a stays
+            Assert.Equal(1, probe.Undos);
+            Assert.Contains(a, setup.Tabs.Tabs);
+
+            // A cell that is being edited counts as unsaved work (a typed value would make the redo take the file away under it).
+            a.CommitPendingEdit = () => true;
+            a.SetPendingEdit(true);
+            setup.Controller.RedoCommand.Execute(null);
+
+            Assert.Equal(0, probe.Dos);
+            var message = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.EditRedoBlockedTitle, message.Title);
+            Assert.True(setup.History.CanRedo);                                 // the step stays on the redo stack
+            Assert.Contains(a, setup.Tabs.Tabs);
+
+            a.SetPendingEdit(false);
+            setup.Controller.RedoCommand.Execute(null);
+            Assert.Equal(1, probe.Dos);
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+        }
+    }
+
+    [Fact] public async Task A_file_step_that_throws_leaves_the_tabs_open_and_shows_the_failure()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var probe = new StepProbe { Failure = new InvalidOperationException("TargetExists: something is there") };
+            var applied = 0;
+            setup.Controller.FileStepApplied += (_, _) => applied++;
+            setup.History.Record(probe.Step(setup.Project.Id, [FileA], []));
+
+            setup.Controller.UndoCommand.Execute(null);
+
+            Assert.Contains(a, setup.Tabs.Tabs);
+            Assert.Equal(0, applied);
+            var message = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.EditUndoFailedTitle, message.Title);
+            Assert.Contains("TargetExists: something is there", message.Message);
+            Assert.False(setup.History.CanUndo);
+            Assert.False(setup.History.CanRedo);                                // dropped from both stacks
+        }
+    }
+
+    [Fact] public async Task The_undo_of_a_rename_step_closes_the_tab_of_the_new_name_and_asks_for_the_old_one()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var probe = new StepProbe();
+            var reopen = new List<(Guid ProjectId, string RelativeFile)>();
+            setup.Controller.FileReopenRequested += (_, request) => reopen.Add(request);
+            // A step that renamed a to b: b is the file after Do.
+            setup.History.Record(probe.Step(setup.Project.Id, [FileB], [FileA]));
+
+            setup.Controller.UndoCommand.Execute(null);
+
+            Assert.DoesNotContain(b, setup.Tabs.Tabs);                          // the tab of the file that is gone
+            Assert.Contains(a, setup.Tabs.Tabs);                                // the other name exists after the undo: left alone
+            Assert.Equal((setup.Project.Id, FileA), Assert.Single(reopen));
+
+            // The redo goes the other way: a is the file that is gone now, so its tab closes and b is asked for.
+            setup.Controller.RedoCommand.Execute(null);
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+            Assert.Equal([(setup.Project.Id, FileA), (setup.Project.Id, FileB)], reopen);
+
+            // Without a tab of the file that goes away, nothing is asked for.
+            setup.Controller.UndoCommand.Execute(null);
+            Assert.Equal(2, reopen.Count);
+        }
+    }
 }
