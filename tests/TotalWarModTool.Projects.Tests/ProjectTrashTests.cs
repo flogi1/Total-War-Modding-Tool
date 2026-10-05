@@ -237,7 +237,7 @@ public class ProjectTrashTests
         var source = Put(project, @"db\a.tsv", [1, 2, 3, 4]);
         var file = Trash(trash, project, @"db\a.tsv", new FakeTimeProvider(Start));
 
-        var result = ProjectTrash.Restore(file, project);
+        var result = ProjectTrash.Restore(file, project, trash);
 
         Assert.Equal(FileOpProblem.None, result.Problem);
         Assert.Null(result.Detail);
@@ -249,7 +249,7 @@ public class ProjectTrashTests
         Assert.True(Directory.Exists(trash));
     }
 
-    [Fact] public void Restore_with_the_trash_root_does_the_same_and_keeps_other_entries_of_the_project()
+    [Fact] public void Restore_keeps_the_other_entries_of_the_project()
     {
         using var dir = new TempDir();
         var project = NewProject(dir);
@@ -280,10 +280,10 @@ public class ProjectTrashTests
 
         // A file is at the old place.
         var taken = Put(project, "a.tsv", [8, 8]);
-        var viaFile = ProjectTrash.Restore(file, project);
+        var viaFile = ProjectTrash.Restore(file, project, trash);
         File.Delete(taken);
         Directory.CreateDirectory(taken);
-        var viaFolder = ProjectTrash.Restore(file, project);
+        var viaFolder = ProjectTrash.Restore(file, project, trash);
         Directory.Delete(taken);
         Put(project, "a.tsv", [8, 8]);
 
@@ -298,7 +298,7 @@ public class ProjectTrashTests
         File.Delete(file.TrashFile);
         File.Delete(taken);
         var before = Snapshot(dir.Path);
-        var missing = ProjectTrash.Restore(file, project);
+        var missing = ProjectTrash.Restore(file, project, trash);
 
         Assert.Equal(FileOpProblem.SourceMissing, missing.Problem);
         Assert.Equal(before, Snapshot(dir.Path));
@@ -320,15 +320,15 @@ public class ProjectTrashTests
         var inOtherTrash = Trash(otherTrash, project, "a.tsv", time);
         var before = Snapshot(dir.Path);
 
-        var elsewhere = ProjectTrash.Restore(new TrashedFile(Id, victim, "victim.tsv"), project);
-        var wrongProject = ProjectTrash.Restore(real with { ProjectId = Guid.NewGuid() }, project);
-        var wrongName = ProjectTrash.Restore(real with { RelativeFile = "b.tsv" }, project);
-        var wrongEntry = ProjectTrash.Restore(new TrashedFile(Id, Path.Combine(GuidFolder(real), "not-an-entry", "a.tsv"), "a.tsv"), project);
-        var relativePath = ProjectTrash.Restore(real with { TrashFile = "a.tsv" }, project);
+        var elsewhere = ProjectTrash.Restore(new TrashedFile(Id, victim, "victim.tsv"), project, trash);
+        var wrongProject = ProjectTrash.Restore(real with { ProjectId = Guid.NewGuid() }, project, trash);
+        var wrongName = ProjectTrash.Restore(real with { RelativeFile = "b.tsv" }, project, trash);
+        var wrongEntry = ProjectTrash.Restore(new TrashedFile(Id, Path.Combine(GuidFolder(real), "not-an-entry", "a.tsv"), "a.tsv"), project, trash);
+        var relativePath = ProjectTrash.Restore(real with { TrashFile = "a.tsv" }, project, trash);
         var other = ProjectTrash.Restore(inOtherTrash, project, trash);
-        var otherViaTwo = ProjectTrash.Restore(inOtherTrash with { RelativeFile = @"..\a.tsv" }, project);
+        var upwards = ProjectTrash.Restore(real with { RelativeFile = @"..\a.tsv" }, project, trash);
 
-        Assert.All(new[] { elsewhere, wrongProject, wrongName, wrongEntry, relativePath, other, otherViaTwo },
+        Assert.All(new[] { elsewhere, wrongProject, wrongName, wrongEntry, relativePath, other, upwards },
             r => Assert.Equal(FileOpProblem.UnsafePath, r.Problem));
         Assert.Equal(before, Snapshot(dir.Path));
         Assert.Equal([6, 6], File.ReadAllBytes(victim));
@@ -343,7 +343,7 @@ public class ProjectTrashTests
         var file = Trash(trash, project, @"db\sub\a.tsv", new FakeTimeProvider(Start));
         Directory.Delete(Path.Combine(project, "pack"), recursive: true);   // even the pack folder is gone
 
-        var result = ProjectTrash.Restore(file, project);
+        var result = ProjectTrash.Restore(file, project, trash);
 
         Assert.Equal(FileOpProblem.None, result.Problem);
         Assert.Equal(["db", @"db\sub"], result.CreatedFolders);
@@ -362,7 +362,7 @@ public class ProjectTrashTests
 
         using (new FileStream(file.TrashFile, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            var result = ProjectTrash.Restore(file, project);
+            var result = ProjectTrash.Restore(file, project, trash);
 
             Assert.Equal(FileOpProblem.Locked, result.Problem);
             Assert.Empty(result.CreatedFolders);
@@ -396,7 +396,7 @@ public class ProjectTrashTests
         {
             var forged = new TrashedFile(Id, Path.Combine(guidLink, entryName, "a.tsv"), "a.tsv");
             var outsideBefore = Snapshot(outside);
-            var viaGuidLink = ProjectTrash.Restore(forged, project);
+            var viaGuidLink = ProjectTrash.Restore(forged, project, trash);
             Assert.Equal(FileOpProblem.UnsafePath, viaGuidLink.Problem);
             Assert.Equal(outsideBefore, Snapshot(outside));
             Assert.False(File.Exists(PackFile(project, "a.tsv")));
@@ -418,8 +418,8 @@ public class ProjectTrashTests
         try
         {
             var outsideBefore = Snapshot(outside);
-            var viaTarget = ProjectTrash.Restore(file with { RelativeFile = @"linked\own.tsv" }, project);
-            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.Restore(file with { RelativeFile = @"linked\x.tsv" }, project).Problem);   // the name differs
+            var viaTarget = ProjectTrash.Restore(file with { RelativeFile = @"linked\own.tsv" }, project, trash);
+            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.Restore(file with { RelativeFile = @"linked\x.tsv" }, project, trash).Problem);   // the name differs
             Assert.Equal(FileOpProblem.Link, viaTarget.Problem);
             Assert.Equal(outsideBefore, Snapshot(outside));
             Assert.True(File.Exists(file.TrashFile));
@@ -445,12 +445,15 @@ public class ProjectTrashTests
 
         try
         {
-            var result = ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start), () =>
+            var result = ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
             {
-                var entry = Directory.GetDirectories(Path.Combine(trash, Id.ToString("D"))).Single();
-                Directory.Delete(entry);   // empty: the entry folder of this call
-                link = entry;
-                swapped = JunctionHelper.TryCreate(entry, outside);
+                BeforeMove = () =>
+                {
+                    var entry = Directory.GetDirectories(Path.Combine(trash, Id.ToString("D"))).Single();
+                    Directory.Delete(entry);   // empty: the entry folder of this call
+                    link = entry;
+                    swapped = JunctionHelper.TryCreate(entry, outside);
+                },
             });
 
             if (!swapped)
@@ -484,10 +487,13 @@ public class ProjectTrashTests
 
         try
         {
-            var result = ProjectTrash.Restore(file, project, trash, () =>
+            var result = ProjectTrash.Restore(file, project, trash, new ProjectTrash.TrashHooks
             {
-                Directory.Delete(link);   // the folder this call made
-                swapped = JunctionHelper.TryCreate(link, outside);
+                BeforeMove = () =>
+                {
+                    Directory.Delete(link);   // the folder this call made
+                    swapped = JunctionHelper.TryCreate(link, outside);
+                },
             });
 
             if (!swapped)
@@ -499,6 +505,130 @@ public class ProjectTrashTests
             Assert.Equal([1, 2], File.ReadAllBytes(file.TrashFile));
             Assert.Equal(outsideBefore, Snapshot(outside));
             Assert.Contains("db", result.Detail);   // the link stays and is named: it is never removed
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    // ---- a move that reports success while the source stays (a move across drives whose delete failed) ----
+
+    [Fact] public void MoveToTrash_whose_source_stays_after_the_move_deletes_the_copy_and_is_Locked()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        var source = Put(project, @"db\a.tsv", [1, 2, 3]);
+
+        var result = ProjectTrash.MoveToTrash(trash, Id, project, @"db\a.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+        {
+            // As if the delete of the source had failed after the copy: the file is back.
+            AfterMove = () => File.Copy(Directory.GetFiles(trash, "a.tsv", SearchOption.AllDirectories).Single(), source),
+        });
+
+        Assert.Equal(FileOpProblem.Locked, result.Problem);
+        Assert.Null(result.File);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(source));
+        Assert.Empty(Snapshot(trash));   // the copy and the folders made for it are gone: exactly one copy survives
+    }
+
+    [Fact] public void Restore_whose_trash_file_stays_after_the_move_deletes_the_copy_and_is_Locked()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        Put(project, @"db\a.tsv", [1, 2, 3]);
+        var file = Trash(trash, project, @"db\a.tsv", new FakeTimeProvider(Start));
+        Directory.Delete(PackFile(project, "db"));
+        var target = PackFile(project, @"db\a.tsv");
+
+        var result = ProjectTrash.Restore(file, project, trash, new ProjectTrash.TrashHooks
+        {
+            AfterMove = () => File.Copy(target, file.TrashFile),
+        });
+
+        Assert.Equal(FileOpProblem.Locked, result.Problem);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(file.TrashFile));
+        Assert.False(File.Exists(target));
+        Assert.False(Directory.Exists(PackFile(project, "db")));   // the folder made for the copy is gone, too
+    }
+
+    // ---- the trash root ----
+
+    [Fact] public void A_trash_root_that_is_not_a_full_path_a_drive_root_or_a_device_form_is_refused_and_nothing_is_touched()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var time = new FakeTimeProvider(Start);
+        // The source does not exist: if a check were missing, nothing could be moved or created, and the result would differ.
+        var driveRoot = Path.GetPathRoot(dir.Path)!;
+        var roots = new[]
+        {
+            @".\no<>such",
+            @"no<>such\trash",
+            @"Z:no<>such",
+            driveRoot,
+            driveRoot.TrimEnd('\\'),
+            @"\\?\" + Path.Combine(dir.Path, "trash"),
+            @"\\.\" + Path.Combine(dir.Path, "trash"),
+        };
+        var before = Snapshot(dir.Path);
+        var trashed = new TrashedFile(Id, Path.Combine(dir.Path, "trash", Id.ToString("D"), EntryName(Start), "a.tsv"), "a.tsv");
+
+        foreach (var root in roots)
+        {
+            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.MoveToTrash(root, Id, project, "missing.tsv", time).Problem);
+            Assert.Equal(FileOpProblem.UnsafePath, ProjectTrash.Restore(trashed, project, root).Problem);
+            Assert.Equal(0, ProjectTrash.Cleanup(root, TimeSpan.Zero, time, CancellationToken.None));
+        }
+
+        Assert.Equal(before, Snapshot(dir.Path));
+    }
+
+    [Fact] public void MoveToTrash_makes_the_missing_folders_of_the_trash_root_one_by_one_and_takes_them_back_on_failure()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = Path.Combine(dir.Path, "app", "data", "trash");
+        var locked = Put(project, "locked.tsv", [9]);
+        Put(project, "a.tsv", [1]);
+
+        var ok = ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start));
+        Assert.Equal(FileOpProblem.None, ok.Problem);
+        Assert.True(File.Exists(ok.File!.TrashFile));
+
+        Directory.Delete(Path.Combine(dir.Path, "app"), recursive: true);
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var result = ProjectTrash.MoveToTrash(trash, Id, project, "locked.tsv", new FakeTimeProvider(Start));
+            Assert.Equal(FileOpProblem.Locked, result.Problem);
+        }
+
+        Assert.False(Directory.Exists(Path.Combine(dir.Path, "app")));   // everything this call made is gone again
+    }
+
+    [Fact] public void MoveToTrash_refuses_a_link_above_a_missing_trash_root()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);
+        var source = Put(project, "a.tsv", [1]);
+        var link = Path.Combine(dir.Path, "linked-parent");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var outsideBefore = Snapshot(outside);
+
+            var result = ProjectTrash.MoveToTrash(Path.Combine(link, "trash"), Id, project, "a.tsv", new FakeTimeProvider(Start));
+
+            Assert.Equal(FileOpProblem.Link, result.Problem);
+            Assert.True(File.Exists(source));
+            Assert.Equal(outsideBefore, Snapshot(outside));
         }
         finally
         {
@@ -527,7 +657,6 @@ public class ProjectTrashTests
         var justOld = Trash(trash, project, "other.tsv", time);
         time.Now = Start.AddDays(-10);
         var recent = Trash(trash, project, "new.tsv", time);
-        File.SetAttributes(old.TrashFile, FileAttributes.ReadOnly);   // must not stop the clean-up
         time.Now = Start;
 
         var deleted = ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None);
@@ -570,12 +699,156 @@ public class ProjectTrashTests
         Directory.CreateDirectory(Path.Combine(trash, Id.ToString("D"), old, "sub"));
         var deletedB = PutEntry(trash, Guid.Empty, old, "b.tsv");   // the only entry of its project
 
-        var deleted = ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None);
+        // Links at both levels: old names behind them, which must stay untouched.
+        var otherProject = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        var oldBehind = EntryName(Start.AddDays(-101));
+        var behindProject = Path.Combine(dir.Path, "behind-project");
+        var behindProjectFile = Path.Combine(behindProject, oldBehind, "x.tsv");
+        Directory.CreateDirectory(Path.GetDirectoryName(behindProjectFile)!);
+        File.WriteAllBytes(behindProjectFile, [1]);
+        var behindEntry = Path.Combine(dir.Path, "behind-entry");
+        Directory.CreateDirectory(behindEntry);
+        File.WriteAllBytes(Path.Combine(behindEntry, "y.tsv"), [2]);
+        var projectLink = Path.Combine(trash, otherProject.ToString("D"));
+        var entryLink = Path.Combine(trash, Id.ToString("D"), oldBehind);
+        var madeProjectLink = JunctionHelper.TryCreate(projectLink, behindProject);
+        var madeEntryLink = JunctionHelper.TryCreate(entryLink, behindEntry);
 
-        Assert.Equal(2, deleted);
-        Assert.False(File.Exists(deletedA));
-        Assert.False(File.Exists(deletedB));
-        Assert.All(kept, p => Assert.True(File.Exists(p), p));
+        try
+        {
+            var deleted = ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None);
+
+            Assert.Equal(2, deleted);
+            Assert.False(File.Exists(deletedA));
+            Assert.False(File.Exists(deletedB));
+            Assert.All(kept, p => Assert.True(File.Exists(p), p));
+            Assert.Equal([1], File.ReadAllBytes(behindProjectFile));
+            Assert.Equal([2], File.ReadAllBytes(Path.Combine(behindEntry, "y.tsv")));
+            Assert.Equal(madeProjectLink, Directory.Exists(projectLink));
+            Assert.Equal(madeEntryLink, Directory.Exists(entryLink));
+        }
+        finally
+        {
+            DropLink(entryLink);
+            DropLink(projectLink);
+        }
+    }
+
+    [Fact] public void Cleanup_removes_a_link_inside_an_old_entry_as_a_link_and_never_enters_it()
+    {
+        using var dir = new TempDir();
+        var trash = NewTrashRoot(dir);
+        var time = new FakeTimeProvider(Start);
+        var outside = NewOutside(dir);
+        var entry = Path.GetDirectoryName(PutEntry(trash, Id, EntryName(Start.AddDays(-100)), "a.tsv"))!;
+        Directory.CreateDirectory(Path.Combine(entry, "sub"));
+        File.WriteAllBytes(Path.Combine(entry, "sub", "deep.tsv"), [1]);
+        var link = Path.Combine(entry, "sub", "linked");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var outsideBefore = Snapshot(outside);
+
+            var deleted = ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None);
+
+            Assert.Equal(1, deleted);
+            Assert.False(Directory.Exists(entry));   // the link and everything else of the entry is gone
+            Assert.Equal(outsideBefore, Snapshot(outside));
+            Assert.Equal([7, 7, 7], File.ReadAllBytes(Path.Combine(outside, "a.tsv")));
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void Cleanup_checks_the_folder_of_the_project_again_right_before_it_deletes()
+    {
+        using var dir = new TempDir();
+        var trash = NewTrashRoot(dir);
+        var time = new FakeTimeProvider(Start);
+        var old = EntryName(Start.AddDays(-100));
+        PutEntry(trash, Id, old, "a.tsv");
+        var behind = Path.Combine(dir.Path, "behind");
+        var behindFile = Path.Combine(behind, old, "x.tsv");
+        Directory.CreateDirectory(Path.GetDirectoryName(behindFile)!);
+        File.WriteAllBytes(behindFile, [1]);
+        var behindBefore = Snapshot(behind);
+        var guidFolder = Path.Combine(trash, Id.ToString("D"));
+        var swapped = false;
+
+        try
+        {
+            var deleted = ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None, new ProjectTrash.TrashHooks
+            {
+                BeforeDeleteEntry = _ =>
+                {
+                    Directory.Move(guidFolder, Path.Combine(dir.Path, "moved-away"));   // the folder of the project is replaced by a link
+                    swapped = JunctionHelper.TryCreate(guidFolder, behind);
+                },
+            });
+
+            if (!swapped)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(0, deleted);
+            Assert.Equal(behindBefore, Snapshot(behind));
+            Assert.Equal([1], File.ReadAllBytes(behindFile));
+            Assert.True(Directory.Exists(guidFolder));   // the link stays: never removed
+        }
+        finally
+        {
+            DropLink(guidFolder);
+        }
+    }
+
+    [Fact] public void Cleanup_keeps_an_entry_with_a_read_only_file_and_goes_on_with_the_next()
+    {
+        using var dir = new TempDir();
+        var trash = NewTrashRoot(dir);
+        var time = new FakeTimeProvider(Start);
+        var readOnly = PutEntry(trash, Id, EntryName(Start.AddDays(-100), "00000001"), "a.tsv");
+        var plain = PutEntry(trash, Id, EntryName(Start.AddDays(-100), "00000002"), "b.tsv");
+        File.SetAttributes(readOnly, FileAttributes.ReadOnly);
+
+        try
+        {
+            var deleted = ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None);
+
+            Assert.Equal(1, deleted);
+            Assert.True(File.Exists(readOnly));   // the attribute is not changed; the entry stays
+            Assert.True(File.GetAttributes(readOnly).HasFlag(FileAttributes.ReadOnly));
+            Assert.False(File.Exists(plain));
+            Assert.True(Directory.Exists(Path.Combine(trash, Id.ToString("D"))));   // not empty: stays
+        }
+        finally
+        {
+            File.SetAttributes(readOnly, FileAttributes.Normal);
+        }
+    }
+
+    [Fact] public void Cleanup_removes_an_empty_project_folder_only_when_this_run_deleted_an_entry_from_it()
+    {
+        using var dir = new TempDir();
+        var trash = NewTrashRoot(dir);
+        var time = new FakeTimeProvider(Start);
+        var emptyFolder = Path.Combine(trash, Id.ToString("D"));
+        Directory.CreateDirectory(emptyFolder);
+
+        Assert.Equal(0, ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None));
+        Assert.True(Directory.Exists(emptyFolder));
+
+        var other = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        PutEntry(trash, other, EntryName(Start.AddDays(-100)));
+        Assert.Equal(1, ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None));
+        Assert.False(Directory.Exists(Path.Combine(trash, other.ToString("D"))));
+        Assert.True(Directory.Exists(emptyFolder));
     }
 
     [Fact] public void Cleanup_never_follows_a_link_at_either_level()

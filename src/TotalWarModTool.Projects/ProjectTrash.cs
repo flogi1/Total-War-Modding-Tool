@@ -20,132 +20,152 @@ public sealed record TrashResult(FileOpProblem Problem, string? Detail, TrashedF
 /// (the time is the UTC time of the delete; the 8 hex characters keep two deletes of the same second apart). The trash root lies outside
 /// every project and is the only place besides the pack folders where the tool writes: everything this class creates, moves or deletes
 /// lies below <c>&lt;trash root&gt;\&lt;project id D&gt;\&lt;entry&gt;\</c>, and every part of that path is built from the project id and a
-/// generated name, never from caller text. Nothing happens through a link (junction or symbolic link): the trash root, the folder of the
-/// project and the entry folder are looked at before they are used, and again right before a file is moved. Nothing is overwritten.
-/// Never throws for the file system; only argument errors are thrown. A call that does not succeed leaves the file where it was and takes
-/// back the folders it created (innermost first, only when empty); what could not be taken back is named in the Detail.
+/// generated name, never from caller text. The trash root must be a fully qualified path that is neither a drive root nor a <c>\\?\</c>
+/// form (UnsafePath, and <see cref="Cleanup"/> does nothing otherwise). Nothing happens through a link (junction or symbolic link): the
+/// whole way to a trash folder is looked at before it is used and again right before a file is moved and before every retry of the move.
+/// Nothing is overwritten. Never throws for the file system; only argument errors are thrown. A call that does not succeed leaves the file
+/// where it was and takes back the folders it created (innermost first, only when empty); what could not be taken back is named in the Detail.
 /// </summary>
 public static class ProjectTrash
 {
+    /// <summary>The points at which a test can change the disk, as another process would.</summary>
+    internal sealed record TrashHooks
+    {
+        /// <summary>After the folders were made, right before the move (MoveToTrash and Restore).</summary>
+        public Action? BeforeMove { get; init; }
+
+        /// <summary>Right after the move returned (MoveToTrash and Restore): a test can bring the source back, as a move across drives whose delete failed does.</summary>
+        public Action? AfterMove { get; init; }
+
+        /// <summary>In Cleanup, with the full path of the entry, after the entry was chosen and before anything is checked or deleted.</summary>
+        public Action<string>? BeforeDeleteEntry { get; init; }
+    }
+
     private const string EntryDateFormat = "yyyyMMdd-HHmmss";
     private const int EntryNameLength = 24;   // yyyyMMdd-HHmmss-xxxxxxxx
     private const int EntryNameAttempts = 5;
     private const int MaxEntryDepth = 64;
+    private const string TrashBaseName = "trash";
 
     /// <summary>
     /// Moves pack\&lt;relativeFile&gt; to <c>&lt;trashRoot&gt;\&lt;projectId D&gt;\&lt;yyyyMMdd-HHmmss&gt;-&lt;8 hex&gt;\&lt;file name&gt;</c> without
-    /// overwriting; the trash root and the folder of the project are created when missing. The source goes through
-    /// <see cref="PackFolderPaths.ResolveForWrite"/> (UnsafePath, Link) and is checked again right before the move. SourceMissing when it is not a
-    /// file (a folder is never moved). A sharing violation of the move is retried briefly; Locked when the move then fails while the source is
-    /// still there. Link when the trash root, the folder of the project or the entry folder is a link. When the move fails, the folders created
-    /// for it are removed again, and a copy that a move across drives left in the trash is deleted so that exactly one copy survives.
+    /// overwriting; the missing folders of the trash root, the folder of the project and the entry folder are created one by one, each checked for
+    /// a link. The source goes through <see cref="PackFolderPaths.ResolveForWrite"/> (UnsafePath, Link) and, like the trash side, is checked
+    /// again right before the move and before every retry. SourceMissing when it is not a file (a folder is never moved). A sharing violation
+    /// of the move is retried briefly; Locked when the move then fails while the source is still there. Locked also when the move reported
+    /// success but the source is still there (a move across drives copies and then deletes, and the delete can fail while the copy worked):
+    /// the copy is deleted again so that exactly one copy survives. Link when a trash folder is a link. When the move fails, the folders
+    /// created for it are removed again.
     /// </summary>
     public static TrashResult MoveToTrash(string trashRoot, Guid projectId, string projectFolder, string relativeFile, TimeProvider time) =>
         MoveToTrash(trashRoot, projectId, projectFolder, relativeFile, time, null);
 
     internal static TrashResult MoveToTrash(string trashRoot, Guid projectId, string projectFolder, string relativeFile, TimeProvider time,
-        Action? beforeMove)
+        TrashHooks? hooks)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(trashRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentNullException.ThrowIfNull(relativeFile);
         ArgumentNullException.ThrowIfNull(time);
 
-        var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
-        if (Refuse(check) is { } refused)
+        if (ValidateRoot(trashRoot, out var root) is { } badRoot)
         {
-            return Failure(refused);
+            return AsTrash(badRoot);
+        }
+
+        var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
+        if (SafeFolders.Refuse(check, null) is { } refused)
+        {
+            return AsTrash(refused);
         }
 
         var source = check.FullPath!;
         if (!File.Exists(source))
         {
-            return Failure(FileOpProblem.SourceMissing, "the file to delete does not exist: " + relativeFile);
+            return AsTrash(SafeFolders.Failure(FileOpProblem.SourceMissing, "the file to delete does not exist: " + relativeFile));
         }
 
-        string root;
-        try
+        // The base of this call is the trash root, or, when that is missing, its first existing ancestor: the missing parts are made one by one.
+        var baseFolder = root;
+        var missing = new List<string>();
+        while (!Directory.Exists(baseFolder))
         {
-            root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(trashRoot));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return Failure(FileOpProblem.Failed, "the trash folder path is not valid: " + ex.Message);
+            var parent = Path.GetDirectoryName(baseFolder);
+            if (parent is null || File.Exists(baseFolder))
+            {
+                return AsTrash(SafeFolders.Failure(FileOpProblem.Failed, "the trash folder cannot be made: " + baseFolder));
+            }
+
+            missing.Insert(0, Path.GetFileName(baseFolder));
+            baseFolder = parent;
         }
 
-        var made = new MadeFolders();
+        var trashResolve = TrashResolver(baseFolder);
+        var folders = new CreatedFolders(baseFolder, TrashBaseName, trashResolve);
         var finished = false;
         try
         {
-            var result = MoveCore(root, projectId, projectFolder, relativeFile, time, beforeMove, source, made);
+            var result = MoveCore(root, projectId, projectFolder, relativeFile, time, hooks, source, baseFolder, [.. missing], trashResolve, folders);
             finished = true;
-            return result.Problem == FileOpProblem.None ? result : result with { Detail = result.Detail + Leftovers(made.Clean()) };
+            return result.Problem == FileOpProblem.None ? result : result with { Detail = result.Detail + Leftovers(folders.Clean()) };
         }
         finally
         {
             if (!finished)
             {
-                made.Clean();   // an unexpected error: the exception goes on
+                folders.Clean();   // an unexpected error: the exception goes on
             }
         }
     }
 
-    private static TrashResult MoveCore(string root, Guid projectId, string projectFolder, string relativeFile, TimeProvider time, Action? beforeMove,
-        string source, MadeFolders made)
+    private static TrashResult MoveCore(string root, Guid projectId, string projectFolder, string relativeFile, TimeProvider time, TrashHooks? hooks,
+        string source, string baseFolder, string[] missing, FolderResolver trashResolve, CreatedFolders folders)
     {
-        if (EnsureFolder(root, "the trash folder", FileOpProblem.Failed, null) is { } rootFailure)
-        {
-            return Failure(rootFailure);
-        }
-
+        FolderResolver packResolve = relative => PackFolderPaths.ResolveForWrite(projectFolder, relative);
         var projectName = projectId.ToString("D");
-        var projectTrash = Path.Combine(root, projectName);
-        if (EnsureFolder(projectTrash, projectName, FileOpProblem.Failed, made) is { } projectFailure)
-        {
-            return Failure(projectFailure);
-        }
-
-        string? entry = null;
-        for (var attempt = 0; attempt < EntryNameAttempts && entry is null; attempt++)
+        string? entryName = null;
+        for (var attempt = 0; attempt < EntryNameAttempts && entryName is null; attempt++)
         {
             var name = NewEntryName(time);
-            var candidate = Path.Combine(projectTrash, name);
-            if (Directory.Exists(candidate) || File.Exists(candidate) || IsLinkOrUnknown(candidate))
+            var candidate = Path.Combine(root, projectName, name);
+            if (!Directory.Exists(candidate) && !File.Exists(candidate) && !IsLinkOrUnknown(candidate))
             {
-                continue;   // taken by something that is not ours: never used
+                entryName = name;   // a name taken by something that is not ours is never used
             }
-
-            if (EnsureFolder(candidate, projectName + "\\" + name, FileOpProblem.Failed, made) is { } entryFailure)
-            {
-                return Failure(entryFailure);
-            }
-
-            entry = candidate;
         }
 
-        if (entry is null)
+        if (entryName is null)
         {
-            return Failure(FileOpProblem.Failed, "no free name for the trash entry was found");
+            return AsTrash(SafeFolders.Failure(FileOpProblem.Failed, "no free name for the trash entry was found"));
         }
 
-        var target = Path.Combine(entry, Path.GetFileName(source));
-        beforeMove?.Invoke();
-        if (RecheckSource(projectFolder, relativeFile, source) is { } changed)
+        string[] segments = [.. missing, projectName, entryName, Path.GetFileName(source)];
+        var targetRelative = string.Join('\\', segments);
+        var target = Path.GetFullPath(Path.Combine(baseFolder, targetRelative));
+        if (folders.Ensure(segments) is { } folderFailure)
         {
-            return Failure(changed);
+            return AsTrash(folderFailure);
         }
 
-        foreach (var part in new[] { root, projectTrash, entry })
+        hooks?.BeforeMove?.Invoke();
+        FileOpResult? changed = null;
+        bool StillSafe()
         {
-            if (IsLinkOrUnknown(part))
-            {
-                return Failure(FileOpProblem.Link, "the trash folder changed while the operation ran: a folder is a link now");
-            }
+            changed = SafeFolders.Reverify(packResolve, relativeFile, source, null) ?? SafeFolders.Reverify(trashResolve, targetRelative, target, "trash");
+            return changed is null;
+        }
+
+        if (!StillSafe())
+        {
+            return AsTrash(changed!);
         }
 
         try
         {
-            ProjectTempFiles.MoveWithoutOverwrite(source, target, () => File.Exists(target) || Directory.Exists(target), CancellationToken.None);
+            if (!ProjectTempFiles.MoveWithoutOverwrite(source, target, () => File.Exists(target) || Directory.Exists(target), CancellationToken.None, StillSafe))
+            {
+                return AsTrash(changed!);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -156,13 +176,21 @@ public static class ProjectTrash
                 return Moved(projectId, target, relativeFile);   // the move was done although it reported an error
             }
 
-            if (sourceThere && targetThere && !TryDeleteFile(target, entry))
+            if (sourceThere && targetThere && !folders.TryDeleteFile(target))
             {
-                // A move across drives copies and then deletes: the copy is here, the source could not be deleted, and the copy could not be taken back.
-                return Failure(FileOpProblem.Locked, $"the file could not be moved: {ex.Message} (a copy is left behind: '{target}')");
+                return AsTrash(SafeFolders.Failure(FileOpProblem.Locked, $"the file could not be moved: {ex.Message} (a copy is left behind: '{target}')"));
             }
 
-            return Failure(sourceThere ? FileOpProblem.Locked : FileOpProblem.Failed, "the file could not be moved to the trash: " + ex.Message);
+            return AsTrash(SafeFolders.Failure(sourceThere ? FileOpProblem.Locked : FileOpProblem.Failed, "the file could not be moved to the trash: " + ex.Message));
+        }
+
+        hooks?.AfterMove?.Invoke();
+        if (File.Exists(source))
+        {
+            // A move across drives copies and then deletes, and Windows reports success when the copy worked but the source stayed. Exactly one copy must survive: the source.
+            var detail = "the file was copied to the trash but could not be removed from the project (another program may hold it)";
+            return AsTrash(SafeFolders.Failure(FileOpProblem.Locked,
+                folders.TryDeleteFile(target) ? detail : $"{detail} (a copy is left behind: '{target}')"));
         }
 
         return Moved(projectId, target, relativeFile);
@@ -173,119 +201,108 @@ public static class ProjectTrash
 
     /// <summary>
     /// Moves the file back to pack\&lt;<see cref="TrashedFile.RelativeFile"/>&gt; (missing folders, also the pack folder, are created and reported in
-    /// <see cref="FileOpResult.CreatedFolders"/>) without overwriting. Before anything is touched the trash file is validated by its form: a full path
-    /// <c>&lt;root&gt;\&lt;ProjectId D&gt;\&lt;yyyyMMdd-HHmmss&gt;-&lt;8 hex&gt;\&lt;file name&gt;</c> whose file name is the file name of
-    /// <see cref="TrashedFile.RelativeFile"/>, and no part of it a link; otherwise UnsafePath. This form alone cannot tell the real trash from
-    /// another folder of the same shape: the App uses <see cref="Restore(TrashedFile, string, string)"/>, which also requires the root.
-    /// SourceMissing when the trash file is gone, TargetExists when something is at the old place, Link or UnsafePath from the target path.
-    /// After the move the empty entry folder and, when empty, the folder of the project are removed; when the move fails, the trash file stays
-    /// where it is and the created folders are taken back.
+    /// <see cref="FileOpResult.CreatedFolders"/>) without overwriting. Before anything is touched the trash file is validated: it must lie exactly at
+    /// <c>&lt;trashRoot&gt;\&lt;ProjectId D&gt;\&lt;yyyyMMdd-HHmmss&gt;-&lt;8 hex&gt;\&lt;file name&gt;</c> (a full path, the file name is the file name of
+    /// <see cref="TrashedFile.RelativeFile"/>), and no part of it may be a link; otherwise UnsafePath, so a forged <see cref="TrashedFile"/> cannot
+    /// pull a foreign file into the project. SourceMissing when the trash file is gone, TargetExists when something is at the old place, Link or
+    /// UnsafePath from the target path. Both sides are checked again right before the move and before every retry. After the move the empty
+    /// entry folder and, when empty, the folder of the project are removed (the trash root never). When the move fails, the trash file stays where
+    /// it is and the created folders are taken back; Locked also when the move reported success while the trash file is still there (a move across
+    /// drives whose delete failed): the copy at the old place is deleted again.
     /// </summary>
-    public static FileOpResult Restore(TrashedFile file, string projectFolder) => Restore(file, projectFolder, null, null);
+    public static FileOpResult Restore(TrashedFile file, string projectFolder, string trashRoot) => Restore(file, projectFolder, trashRoot, null);
 
-    /// <summary>
-    /// Like <see cref="Restore(TrashedFile, string)"/>, and in addition the trash file must lie exactly at
-    /// <c>&lt;trashRoot&gt;\&lt;ProjectId D&gt;\&lt;entry&gt;\&lt;file name&gt;</c> (UnsafePath otherwise). This is the overload for the App.
-    /// </summary>
-    public static FileOpResult Restore(TrashedFile file, string projectFolder, string trashRoot)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(trashRoot);
-        return Restore(file, projectFolder, trashRoot, null);
-    }
-
-    internal static FileOpResult Restore(TrashedFile file, string projectFolder, string? trashRoot, Action? beforeMove)
+    internal static FileOpResult Restore(TrashedFile file, string projectFolder, string trashRoot, TrashHooks? hooks)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(trashRoot);
 
-        var parts = ValidateTrashFile(file, trashRoot, out var invalid);
-        if (parts is null)
+        if (ValidateRoot(trashRoot, out var root) is { } badRoot)
         {
-            return OpFailure(invalid!.Value.Problem, invalid.Value.Detail);
+            return badRoot;
+        }
+
+        if (ValidateTrashFile(file, root, out var parts) is { } invalid)
+        {
+            return invalid;
         }
 
         var check = PackFolderPaths.ResolveForWrite(projectFolder, file.RelativeFile);
-        if (Refuse(check) is { } refused)
+        if (SafeFolders.Refuse(check, null) is { } refused)
         {
-            return OpFailure(refused.Problem, refused.Detail);
+            return refused;
         }
 
         var target = check.FullPath!;
-        if (!File.Exists(parts.File))
+        if (!File.Exists(parts!.File))
         {
-            return OpFailure(FileOpProblem.SourceMissing, "the file is not in the trash any more: " + file.RelativeFile);
+            return SafeFolders.Failure(FileOpProblem.SourceMissing, "the file is not in the trash any more: " + file.RelativeFile);
         }
 
         if (File.Exists(target) || Directory.Exists(target))
         {
-            return OpFailure(FileOpProblem.TargetExists, "a file or a folder is already at the old place: " + file.RelativeFile);
+            return SafeFolders.Failure(FileOpProblem.TargetExists, "a file or a folder is already at the old place: " + file.RelativeFile);
         }
 
-        var made = new MadeFolders();
+        FolderResolver packResolve = relative => PackFolderPaths.ResolveForWrite(projectFolder, relative);
+        var packFolder = Path.GetFullPath(Path.Combine(projectFolder, ProjectFile.PackFolder));
+        var folders = new CreatedFolders(packFolder, ProjectFile.PackFolder, packResolve);
         var finished = false;
         try
         {
-            var result = RestoreCore(parts, file, projectFolder, target, beforeMove, made);
+            var result = RestoreCore(parts, file, projectFolder, packFolder, target, hooks, packResolve, folders);
             finished = true;
-            return result.Problem == FileOpProblem.None ? result : result with { Detail = result.Detail + Leftovers(made.Clean()) };
+            return result.Problem == FileOpProblem.None ? result : result with { Detail = result.Detail + Leftovers(folders.Clean()) };
         }
         finally
         {
             if (!finished)
             {
-                made.Clean();
+                folders.Clean();
             }
         }
     }
 
-    private static FileOpResult RestoreCore(TrashParts parts, TrashedFile file, string projectFolder, string target, Action? beforeMove, MadeFolders made)
+    private static FileOpResult RestoreCore(TrashParts parts, TrashedFile file, string projectFolder, string packFolder, string target, TrashHooks? hooks,
+        FolderResolver packResolve, CreatedFolders folders)
     {
-        if (!Directory.Exists(projectFolder))
+        if (EnsurePackFolder(projectFolder, packFolder, folders) is { } packFailure)
         {
-            return OpFailure(FileOpProblem.Failed, "the project folder does not exist");
+            return packFailure;
         }
 
-        var path = Path.GetFullPath(projectFolder);
-        path = Path.Combine(path, ProjectFile.PackFolder);
-        if (EnsureFolder(path, ProjectFile.PackFolder, FileOpProblem.Failed, null) is { } packFailure)
+        if (folders.Ensure(file.RelativeFile.Split(['\\', '/'])) is { } folderFailure)
         {
-            return OpFailure(packFailure.Problem, packFailure.Detail);
+            return folderFailure;
         }
 
-        var segments = file.RelativeFile.Split(['\\', '/']);
-        var relative = string.Empty;
-        for (var i = 0; i < segments.Length - 1; i++)
+        var trashResolve = TrashResolver(parts.Root);
+        var trashRelative = Path.GetRelativePath(parts.Root, parts.File);
+        hooks?.BeforeMove?.Invoke();
+        FileOpResult? changed = null;
+        bool StillSafe()
         {
-            path = Path.Combine(path, segments[i]);
-            relative = relative.Length == 0 ? segments[i] : relative + "\\" + segments[i];
-            if (EnsureFolder(path, relative, FileOpProblem.TargetExists, made) is { } folderFailure)
+            changed = SafeFolders.Reverify(packResolve, file.RelativeFile, target, null) ?? SafeFolders.Reverify(trashResolve, trashRelative, parts.File, "trash");
+            if (changed is null && !File.Exists(parts.File))
             {
-                return OpFailure(folderFailure.Problem, folderFailure.Detail);
+                changed = SafeFolders.Failure(FileOpProblem.SourceMissing, "the file is not in the trash any more: " + file.RelativeFile);
             }
+
+            return changed is null;
         }
 
-        beforeMove?.Invoke();
-        if (RecheckSource(projectFolder, file.RelativeFile, target) is { } changed)
+        if (!StillSafe())
         {
-            return OpFailure(changed.Problem, changed.Detail);
-        }
-
-        foreach (var part in new[] { parts.Root, parts.ProjectFolder, parts.Entry, parts.File })
-        {
-            if (IsLinkOrUnknown(part))
-            {
-                return OpFailure(FileOpProblem.UnsafePath, "the trash changed while the operation ran: a part of the trash path is a link now");
-            }
-        }
-
-        if (!File.Exists(parts.File))
-        {
-            return OpFailure(FileOpProblem.SourceMissing, "the file is not in the trash any more: " + file.RelativeFile);
+            return changed!;
         }
 
         try
         {
-            ProjectTempFiles.MoveWithoutOverwrite(parts.File, target, () => File.Exists(target) || Directory.Exists(target), CancellationToken.None);
+            if (!ProjectTempFiles.MoveWithoutOverwrite(parts.File, target, () => File.Exists(target) || Directory.Exists(target), CancellationToken.None, StillSafe))
+            {
+                return changed!;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -293,51 +310,99 @@ public static class ProjectTrash
             var targetThere = File.Exists(target) || Directory.Exists(target);
             if (sourceThere || !targetThere)
             {
-                // The trash file is still where it was. A file at the target is left alone: it cannot be told apart from one that another
-                // program put there, so it is never deleted here.
+                // The trash file is still where it was. Whatever is at the target is left alone: after an error it cannot be told apart from
+                // something that another program put there, so it is never deleted here.
                 return targetThere
-                    ? OpFailure(FileOpProblem.TargetExists, "a file or a folder appeared at the old place, or a copy was left there: " + file.RelativeFile)
-                    : OpFailure(sourceThere ? FileOpProblem.Locked : FileOpProblem.Failed, "the file could not be restored: " + ex.Message);
+                    ? SafeFolders.Failure(FileOpProblem.TargetExists, "a file or a folder appeared at the old place, or a copy was left there: " + file.RelativeFile)
+                    : SafeFolders.Failure(sourceThere ? FileOpProblem.Locked : FileOpProblem.Failed, "the file could not be restored: " + ex.Message);
             }
 
             // The trash file is gone and the target is there: the move was done although it reported an error.
         }
 
-        // The file is back; the empty folders of the trash go. The folder of the project is removed only when this made it empty, and the
-        // trash root never.
-        if (TryRemoveEmptyFolder(parts.Entry))
+        hooks?.AfterMove?.Invoke();
+        if (File.Exists(parts.File))
         {
-            TryRemoveEmptyFolder(parts.ProjectFolder);
+            // The move reported success but the trash file stayed (a move across drives whose delete failed). The target did not exist before and the
+            // move never overwrites, so what is there is the copy of this call: it goes, and the trash file stays the only copy.
+            var detail = "the file was copied back but could not be removed from the trash (another program may hold it)";
+            return SafeFolders.Failure(FileOpProblem.Locked, folders.TryDeleteFile(target) ? detail : $"{detail} (a copy is left behind: '{target}')");
         }
 
-        return new FileOpResult(FileOpProblem.None, null, FileFingerprint.TryRead(target), [.. made.Shown]);
+        // The file is back; the empty folders of the trash go: the entry folder, then the folder of the project when that is empty too.
+        if (TryRemoveEmptyFolder(trashResolve, Path.GetRelativePath(parts.Root, parts.Entry)))
+        {
+            TryRemoveEmptyFolder(trashResolve, Path.GetRelativePath(parts.Root, parts.ProjectFolder));
+        }
+
+        return new FileOpResult(FileOpProblem.None, null, FileFingerprint.TryRead(target), [.. folders.Relative]);
+    }
+
+    /// <summary>
+    /// Makes sure the pack folder exists and is no link. Null when it is fine; a failure when nothing named "pack" can be made into a folder.
+    /// The pack folder is never recorded as created: it stays.
+    /// </summary>
+    private static FileOpResult? EnsurePackFolder(string projectFolder, string packFolder, CreatedFolders folders)
+    {
+        if (Directory.Exists(packFolder))
+        {
+            return folders.CheckBase();
+        }
+
+        if (File.Exists(packFolder))
+        {
+            return SafeFolders.Failure(FileOpProblem.Failed, "a file named 'pack' is in the project folder");
+        }
+
+        if (!Directory.Exists(projectFolder))
+        {
+            return SafeFolders.Failure(FileOpProblem.Failed, "the project folder does not exist");
+        }
+
+        if (folders.CheckBase() is { } danglingLink)
+        {
+            return danglingLink;   // a link whose target is gone
+        }
+
+        try
+        {
+            Directory.CreateDirectory(packFolder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return SafeFolders.Failure(FileOpProblem.Failed, "the pack folder could not be created: " + ex.Message);
+        }
+
+        if (folders.CheckBase() is { } linkNow)
+        {
+            return linkNow;
+        }
+
+        return Directory.Exists(packFolder) ? null : SafeFolders.Failure(FileOpProblem.Failed, "the pack folder is not there after it was created");
     }
 
     /// <summary>
     /// Deletes the entries of every project in the trash that are older than <paramref name="maxAge"/>, by the time stamp in the folder name
     /// (never by file times); an entry from the future is never older, and a negative <paramref name="maxAge"/> deletes nothing. Looks only at
     /// <c>&lt;trashRoot&gt;\&lt;GUID D&gt;\&lt;entry&gt;</c>: a folder whose name is no GUID, an entry whose name is not exactly
-    /// <c>yyyyMMdd-HHmmss-&lt;8 lower case hex&gt;</c> with a valid UTC time, and every link at either level is skipped and never followed.
-    /// A read-only file inside an entry does not stop the clean-up; an error costs only its entry. Afterwards empty project folders are removed.
-    /// The token is checked between entries; cancelling returns the count so far. Returns the number of deleted entries. Touches nothing outside
-    /// <paramref name="trashRoot"/>.
+    /// <c>yyyyMMdd-HHmmss-&lt;8 lower case hex&gt;</c> with a valid UTC time, and every link at either level is skipped and never followed. A trash
+    /// root that is not a fully qualified path, is a drive root, a <c>\\?\</c> form or a link is not touched.
+    /// An entry is deleted by a walk of its own, not by the recursive delete of the framework: right before it, the trash root, the folder of the
+    /// project and the entry are checked again for links; every folder is checked before it is entered; a link found inside (to a file or to a
+    /// folder) is removed as a link and never entered. Read-only files are not changed: such an entry stays. Any error stops only its entry
+    /// (it stays, perhaps partly emptied, and does not count). A project folder is removed afterwards only when this run deleted an entry from
+    /// it and it is empty now. The token is checked between entries; cancelling returns the count so far. Returns the number of deleted entries.
+    /// Touches nothing outside <paramref name="trashRoot"/>.
     /// </summary>
-    public static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken)
+    public static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken) =>
+        Cleanup(trashRoot, maxAge, time, cancellationToken, null);
+
+    internal static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken, TrashHooks? hooks)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(trashRoot);
         ArgumentNullException.ThrowIfNull(time);
 
-        if (maxAge < TimeSpan.Zero)
-        {
-            return 0;
-        }
-
-        string root;
-        try
-        {
-            root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(trashRoot));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        if (maxAge < TimeSpan.Zero || ValidateRoot(trashRoot, out var root) is not null)
         {
             return 0;
         }
@@ -361,6 +426,7 @@ public static class ProjectTrash
                 continue;
             }
 
+            var deletedHere = 0;
             foreach (var entry in ListFolders(projectTrash))
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -373,67 +439,87 @@ public static class ProjectTrash
                     continue;
                 }
 
-                if (TryDeleteEntry(root, entry))
+                hooks?.BeforeDeleteEntry?.Invoke(entry);
+                if (TryDeleteEntry(root, projectTrash, entry))
                 {
                     deleted++;
+                    deletedHere++;
                 }
             }
 
-            TryRemoveEmptyFolder(projectTrash);
+            if (deletedHere > 0 && !IsLinkOrUnknown(root))
+            {
+                TryRemoveEmptyFolder(TrashResolver(root), Path.GetFileName(projectTrash));
+            }
         }
 
         return deleted;
     }
 
-    /// <summary>Deletes one entry folder with everything in it. False (and the entry stays, at least in part) when it is a link, lies outside the root or cannot be deleted.</summary>
-    private static bool TryDeleteEntry(string root, string entry)
+    /// <summary>
+    /// Deletes one entry folder with everything in it. The trash root, the folder of the project and the entry are checked once more right
+    /// before (a link may have taken the place of one of them). False when one of them is a link or gone, or when anything cannot be deleted.
+    /// </summary>
+    private static bool TryDeleteEntry(string root, string projectTrash, string entry)
     {
-        try
+        foreach (var folder in new[] { root, projectTrash, entry })
         {
-            if (!IsBelow(root, Path.GetFullPath(entry)) || IsLinkOrUnknown(entry))
+            if (IsLinkOrUnknown(folder) || !Directory.Exists(folder))
             {
                 return false;
             }
+        }
 
-            ClearReadOnly(entry, 0);
-            if (IsLinkOrUnknown(entry))
+        return DeleteTree(entry, 0);
+    }
+
+    /// <summary>
+    /// Deletes a folder and its content without following links: a link inside is removed as a link, a real folder is emptied first, a real
+    /// file is deleted (a read-only file fails). The folder is looked at for a link right before it is entered. False at the first failure.
+    /// </summary>
+    private static bool DeleteTree(string folder, int depth)
+    {
+        if (depth > MaxEntryDepth || IsLinkOrUnknown(folder))
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var path in Directory.GetFileSystemEntries(folder))
             {
-                return false;   // a link may have taken its place meanwhile
+                var attributes = File.GetAttributes(path);
+                var isFolder = attributes.HasFlag(FileAttributes.Directory);
+                if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    if (isFolder)
+                    {
+                        Directory.Delete(path, recursive: false);   // the link itself
+                    }
+                    else
+                    {
+                        File.Delete(path);
+                    }
+                }
+                else if (isFolder)
+                {
+                    if (!DeleteTree(path, depth + 1))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    File.Delete(path);
+                }
             }
 
-            Directory.Delete(entry, recursive: true);
+            Directory.Delete(folder, recursive: false);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             return false;
-        }
-    }
-
-    /// <summary>Clears the read-only attribute of the files below a folder; links are neither entered nor changed. Throws when something cannot be done (the entry is then skipped).</summary>
-    private static void ClearReadOnly(string folder, int depth)
-    {
-        if (depth > MaxEntryDepth)
-        {
-            throw new IOException("the folder is nested too deeply");
-        }
-
-        foreach (var path in Directory.GetFileSystemEntries(folder))
-        {
-            var attributes = File.GetAttributes(path);
-            if (attributes.HasFlag(FileAttributes.ReparsePoint))
-            {
-                continue;
-            }
-
-            if (attributes.HasFlag(FileAttributes.Directory))
-            {
-                ClearReadOnly(path, depth + 1);
-            }
-            else if (attributes.HasFlag(FileAttributes.ReadOnly))
-            {
-                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
-            }
         }
     }
 
@@ -454,16 +540,101 @@ public static class ProjectTrash
     private sealed record TrashParts(string Root, string ProjectFolder, string Entry, string File);
 
     /// <summary>
-    /// Null (with <paramref name="invalid"/> set) unless <see cref="TrashedFile.TrashFile"/> has the form of a file in the trash of
-    /// <see cref="TrashedFile.ProjectId"/> (and lies in <paramref name="trashRoot"/> when that is given) and no part of it is a link.
+    /// Null (with the full, trimmed path in <paramref name="root"/>) when <paramref name="trashRoot"/> is a fully qualified path that is no
+    /// drive root, no share root and no <c>\\?\</c> or <c>\\.\</c> form; otherwise UnsafePath.
     /// </summary>
-    private static TrashParts? ValidateTrashFile(TrashedFile file, string? trashRoot, out Refusal? invalid)
+    private static FileOpResult? ValidateRoot(string trashRoot, out string root)
     {
-        invalid = null;
+        root = string.Empty;
+        try
+        {
+            if (!Path.IsPathFullyQualified(trashRoot) || trashRoot.StartsWith(@"\\?\", StringComparison.Ordinal) || trashRoot.StartsWith(@"\\.\", StringComparison.Ordinal))
+            {
+                return SafeFolders.Failure(FileOpProblem.UnsafePath, "the trash folder must be a fully qualified path of an ordinary folder");
+            }
+
+            var full = Path.GetFullPath(trashRoot);
+            var pathRoot = Path.GetPathRoot(full);
+            if (pathRoot is null || Path.TrimEndingDirectorySeparator(full).Length <= Path.TrimEndingDirectorySeparator(pathRoot).Length)
+            {
+                return SafeFolders.Failure(FileOpProblem.UnsafePath, "the trash folder must not be the root of a drive");
+            }
+
+            root = Path.TrimEndingDirectorySeparator(full);
+            return null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return SafeFolders.Failure(FileOpProblem.UnsafePath, "the trash folder path is not valid: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// The rules for a path below a trash folder (spelled with '\'): not empty, not rooted, no empty, '.' or '..' segment, lies below the base
+    /// folder, and neither the base folder nor any part of the way is a link or cannot be checked (Link; the first one is named).
+    /// </summary>
+    private static FolderResolver TrashResolver(string baseFolder) => relative =>
+    {
+        const string unsafeDetail = "the path is not a plain path below the trash folder";
+        if (string.IsNullOrEmpty(relative) || Path.IsPathRooted(relative))
+        {
+            return new PackFolderPathCheck(PackPathProblem.UnsafePath, null, null, unsafeDetail);
+        }
+
+        var segments = relative.Split(['\\', '/']);
+        if (segments.Any(s => s.Length == 0 || s is "." or ".."))
+        {
+            return new PackFolderPathCheck(PackPathProblem.UnsafePath, null, null, unsafeDetail);
+        }
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(Path.Combine(baseFolder, relative));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return new PackFolderPathCheck(PackPathProblem.UnsafePath, null, null, "the trash path cannot be resolved: " + ex.Message);
+        }
+
+        if (!IsBelow(baseFolder, full))
+        {
+            return new PackFolderPathCheck(PackPathProblem.UnsafePath, null, null, unsafeDetail);
+        }
+
+        if (IsLinkOrUnknown(baseFolder))
+        {
+            return new PackFolderPathCheck(PackPathProblem.Link, full, TrashBaseName, "the trash folder is a link or cannot be checked");
+        }
+
+        var path = baseFolder;
+        var walked = string.Empty;
+        foreach (var segment in segments)
+        {
+            path = Path.Combine(path, segment);
+            walked = walked.Length == 0 ? segment : walked + "\\" + segment;
+            if (IsLinkOrUnknown(path))
+            {
+                return new PackFolderPathCheck(PackPathProblem.Link, full, walked, $"the trash folder '{walked}' is a link or cannot be checked");
+            }
+        }
+
+        return new PackFolderPathCheck(PackPathProblem.None, full, null, null);
+    };
+
+    /// <summary>
+    /// Null (with <paramref name="parts"/> set) when <see cref="TrashedFile.TrashFile"/> lies exactly at
+    /// <c>&lt;root&gt;\&lt;ProjectId D&gt;\&lt;entry&gt;\&lt;file name&gt;</c> (the entry folder has the form of an entry, the file name is the file
+    /// name of <see cref="TrashedFile.RelativeFile"/>, the way from the root down is no link); otherwise UnsafePath.
+    /// </summary>
+    private static FileOpResult? ValidateTrashFile(TrashedFile file, string root, out TrashParts? parts)
+    {
+        parts = null;
+        static FileOpResult Unsafe(string detail) => SafeFolders.Failure(FileOpProblem.UnsafePath, detail);
+
         if (string.IsNullOrEmpty(file.TrashFile) || string.IsNullOrEmpty(file.RelativeFile))
         {
-            invalid = new Refusal(FileOpProblem.UnsafePath, "the trash file or the original path is empty");
-            return null;
+            return Unsafe("the trash file or the original path is empty");
         }
 
         string full;
@@ -471,76 +642,53 @@ public static class ProjectTrash
         {
             if (!Path.IsPathFullyQualified(file.TrashFile) || file.TrashFile.StartsWith(@"\\?\", StringComparison.Ordinal) || file.TrashFile.StartsWith(@"\\.\", StringComparison.Ordinal))
             {
-                invalid = new Refusal(FileOpProblem.UnsafePath, "the trash file is not a full path of an ordinary file");
-                return null;
+                return Unsafe("the trash file is not a full path of an ordinary file");
             }
 
             full = Path.GetFullPath(file.TrashFile);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            invalid = new Refusal(FileOpProblem.UnsafePath, "the trash file path cannot be resolved: " + ex.Message);
-            return null;
+            return Unsafe("the trash file path cannot be resolved: " + ex.Message);
+        }
+
+        if (!IsBelow(root, full))
+        {
+            return Unsafe("the trash file is not in the trash folder");
         }
 
         var entry = Path.GetDirectoryName(full);
         var projectFolder = entry is null ? null : Path.GetDirectoryName(entry);
-        var root = projectFolder is null ? null : Path.GetDirectoryName(projectFolder);
-        if (entry is null || projectFolder is null || root is null)
+        if (entry is null || projectFolder is null
+            || !string.Equals(Path.TrimEndingDirectorySeparator(Path.GetDirectoryName(projectFolder) ?? string.Empty), root, StringComparison.OrdinalIgnoreCase))
         {
-            invalid = new Refusal(FileOpProblem.UnsafePath, "the trash file is not in an entry folder of a project folder");
-            return null;
+            return Unsafe("the trash file is not in an entry folder of a project folder of the trash");
         }
 
         if (!string.Equals(Path.GetFileName(projectFolder), file.ProjectId.ToString("D"), StringComparison.Ordinal))
         {
-            invalid = new Refusal(FileOpProblem.UnsafePath, "the trash file is not in the trash folder of its project");
-            return null;
+            return Unsafe("the trash file is not in the trash folder of its project");
         }
 
         if (!IsEntryName(Path.GetFileName(entry)))
         {
-            invalid = new Refusal(FileOpProblem.UnsafePath, "the folder of the trash file is not a trash entry");
-            return null;
+            return Unsafe("the folder of the trash file is not a trash entry");
         }
 
         var originalName = file.RelativeFile.Split(['\\', '/'])[^1];
         if (!string.Equals(Path.GetFileName(full), originalName, StringComparison.Ordinal))
         {
-            invalid = new Refusal(FileOpProblem.UnsafePath, "the name of the trash file differs from the name of the original file");
-            return null;
+            return Unsafe("the name of the trash file differs from the name of the original file");
         }
 
-        if (trashRoot is not null)
+        var resolved = TrashResolver(Path.GetDirectoryName(projectFolder)!)(Path.GetRelativePath(Path.GetDirectoryName(projectFolder)!, full));
+        if (resolved.Problem != PackPathProblem.None || IsLinkOrUnknown(Path.GetDirectoryName(projectFolder)!))
         {
-            string expected;
-            try
-            {
-                expected = Path.GetFullPath(trashRoot);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                invalid = new Refusal(FileOpProblem.UnsafePath, "the trash folder path is not valid: " + ex.Message);
-                return null;
-            }
-
-            if (!string.Equals(Path.TrimEndingDirectorySeparator(root), Path.TrimEndingDirectorySeparator(expected), StringComparison.OrdinalIgnoreCase))
-            {
-                invalid = new Refusal(FileOpProblem.UnsafePath, "the trash file is not in the trash folder");
-                return null;
-            }
+            return Unsafe("a part of the trash path is a link or cannot be checked: " + (resolved.Detail ?? full));
         }
 
-        foreach (var part in new[] { root, projectFolder, entry, full })
-        {
-            if (IsLinkOrUnknown(part))
-            {
-                invalid = new Refusal(FileOpProblem.UnsafePath, "a part of the trash path is a link or cannot be checked: " + part);
-                return null;
-            }
-        }
-
-        return new TrashParts(root, projectFolder, entry, full);
+        parts = new TrashParts(Path.GetDirectoryName(projectFolder)!, projectFolder, entry, full);
+        return null;
     }
 
     private static string NewEntryName(TimeProvider time) =>
@@ -580,79 +728,12 @@ public static class ProjectTrash
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out stampUtc);
     }
 
-    // ---- folders and links ----
+    // ---- links and folders ----
 
-    private readonly record struct Refusal(FileOpProblem Problem, string Detail);
+    private static TrashResult AsTrash(FileOpResult result) => new(result.Problem, result.Detail, null);
 
-    /// <summary>The refusal for a path that <see cref="PackFolderPaths.ResolveForWrite"/> did not accept; null when it is fine.</summary>
-    private static Refusal? Refuse(PackFolderPathCheck check) => check.Problem switch
-    {
-        PackPathProblem.UnsafePath => new Refusal(FileOpProblem.UnsafePath, check.Detail ?? "the path is not a plain file path below the pack folder"),
-        PackPathProblem.Link => new Refusal(FileOpProblem.Link, check.Detail ?? $"links are not supported: the path passes through the link '{check.LinkPath}'"),
-        _ => null,
-    };
-
-    /// <summary>The path is resolved again right before the disk is changed: a link may have appeared since. Null when it still resolves to the same place without a link.</summary>
-    private static Refusal? RecheckSource(string projectFolder, string relativeFile, string expectedFullPath)
-    {
-        var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
-        if (check.Problem == PackPathProblem.None)
-        {
-            return string.Equals(check.FullPath, expectedFullPath, StringComparison.Ordinal)
-                ? null
-                : new Refusal(FileOpProblem.UnsafePath, "the path resolves to another place than before: " + relativeFile);
-        }
-
-        var refusal = Refuse(check)!.Value;
-        return refusal with { Detail = "the path changed while the operation ran: " + refusal.Detail };
-    }
-
-    /// <summary>
-    /// Makes sure the folder exists and is no link; creates it when missing (for the trash root also the folders above it). A folder is
-    /// recorded in <paramref name="made"/> only when it did not exist right before it was created and is a real folder right after.
-    /// </summary>
-    private static Refusal? EnsureFolder(string path, string shown, FileOpProblem fileInTheWay, MadeFolders? made)
-    {
-        if (Directory.Exists(path))
-        {
-            return IsLinkOrUnknown(path) ? LinkRefusal(shown) : null;
-        }
-
-        if (File.Exists(path))
-        {
-            return new Refusal(fileInTheWay, $"a file is in the place of the folder '{shown}'");
-        }
-
-        if (IsLinkOrUnknown(path))
-        {
-            return LinkRefusal(shown);   // a link whose target is gone
-        }
-
-        try
-        {
-            Directory.CreateDirectory(path);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            return new Refusal(FileOpProblem.Failed, $"the folder '{shown}' could not be created: " + ex.Message);
-        }
-
-        // CreateDirectory succeeds silently on a folder that is already there, so a link that appeared in that moment shows only here.
-        if (IsLinkOrUnknown(path))
-        {
-            return LinkRefusal(shown);
-        }
-
-        if (!Directory.Exists(path))
-        {
-            return new Refusal(FileOpProblem.Failed, $"the folder '{shown}' is not there after it was created");
-        }
-
-        made?.Add(path, shown);
-        return null;
-    }
-
-    private static Refusal LinkRefusal(string shown) => new(FileOpProblem.Link, $"links are not supported: the folder '{shown}' is a link");
+    private static string Leftovers(IReadOnlyList<string> leftovers) =>
+        leftovers.Count == 0 ? string.Empty : " (left behind: " + string.Join(", ", leftovers) + ")";
 
     /// <summary>
     /// True when the path is a link (reparse point) or cannot be asked. False for a path that does not exist. Stricter than
@@ -681,17 +762,18 @@ public static class ProjectTrash
         return path.Length > prefix.Length && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Removes a folder when it is empty and no link. True when it is gone afterwards.</summary>
-    private static bool TryRemoveEmptyFolder(string path)
+    /// <summary>Removes a folder below the resolver's base when the way to it is clean and it is empty. True when it is gone afterwards.</summary>
+    private static bool TryRemoveEmptyFolder(FolderResolver resolve, string relative)
     {
-        if (IsLinkOrUnknown(path))
+        var check = resolve(relative);
+        if (check.Problem != PackPathProblem.None)
         {
             return false;
         }
 
         try
         {
-            Directory.Delete(path, recursive: false);
+            Directory.Delete(check.FullPath!, recursive: false);
             return true;
         }
         catch (DirectoryNotFoundException)
@@ -703,74 +785,4 @@ public static class ProjectTrash
             return false;   // not empty, or in use
         }
     }
-
-    /// <summary>Deletes a file this call put into a folder it created. False when it is still there afterwards.</summary>
-    private static bool TryDeleteFile(string file, string folder)
-    {
-        if (IsLinkOrUnknown(folder) || IsLinkOrUnknown(file))
-        {
-            return false;
-        }
-
-        try
-        {
-            File.SetAttributes(file, FileAttributes.Normal);
-            File.Delete(file);
-            return !File.Exists(file);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return !File.Exists(file);
-        }
-    }
-
-    private static TrashResult Failure(Refusal refusal) => Failure(refusal.Problem, refusal.Detail);
-
-    private static TrashResult Failure(FileOpProblem problem, string detail) => new(problem, detail, null);
-
-    private static string Leftovers(IReadOnlyList<string> leftovers) =>
-        leftovers.Count == 0 ? string.Empty : " (left behind: " + string.Join(", ", leftovers) + ")";
-
-    /// <summary>The folders a call has made so far and has to take back when it does not succeed (outermost first).</summary>
-    private sealed class MadeFolders
-    {
-        private readonly List<string> _full = [];
-
-        /// <summary>The folders as shown to the caller (relative names), in the order they were made.</summary>
-        public List<string> Shown { get; } = [];
-
-        public void Add(string full, string shown)
-        {
-            _full.Add(full);
-            Shown.Add(shown);
-        }
-
-        /// <summary>
-        /// Removes the made folders, innermost first (non-recursive: a folder with content stays; a link that took the place of a folder is
-        /// not removed). Never throws. Returns what could not be taken back.
-        /// </summary>
-        public List<string> Clean()
-        {
-            var leftovers = new List<string>();
-            for (var i = _full.Count - 1; i >= 0; i--)
-            {
-                if (!TryRemoveEmptyFolder(_full[i]))
-                {
-                    for (var outer = i; outer >= 0; outer--)
-                    {
-                        leftovers.Add("folder '" + Shown[outer] + "'");
-                    }
-
-                    break;
-                }
-            }
-
-            _full.Clear();
-            Shown.Clear();
-            return leftovers;
-        }
-    }
-
-    private static FileOpResult OpFailure(FileOpProblem problem, string? detail) =>
-        new(problem, detail, null, []);
 }
