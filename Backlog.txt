@@ -19,6 +19,9 @@ Teil 3: Error-Log und Spielstart (am 2026-10-02 von Teil 7 vorgezogen)
     (Verweis im Konzept auf das EU-V-Wiki stammt aus PMT, für Total War unbelegt)
 
 Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
+  - Nutzerwunsch (2026-10-05, nach der Abnahme von Plan 3): Die Textansicht aus Teil 2 zeigt nur die
+    TSV-Form einer Tabelle und hilft der Lesbarkeit nicht. Gewünscht ist eine Textform, in der alles,
+    was logisch zusammengehört, untereinander steht und die Verknüpfungen zwischen den Tabellen sichtbar sind
   - Referenzgraph aus dem Schema (5825 Referenzfelder); Eignung zu messen
   - Katalog aller Einstellmöglichkeiten (Effekte, Boni) mit Suche und Kategorien, auch aus Mods
   - Kategorien: Gebäude, Lords, Traits und Ancillaries, Skripte, AI, Fähigkeiten, Fraktionsmechaniken, Misc
