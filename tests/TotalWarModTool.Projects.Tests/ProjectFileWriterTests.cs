@@ -101,9 +101,19 @@ public class ProjectFileWriterTests
         Assert.Empty(Directory.GetFileSystemEntries(other.Path));
     }
 
-    // "{tmp}" stands for the temp dir of the test. Every rooted row points into that temp dir, so that broken code would write
-    // there and not to a real drive or share. The rows that cannot be redirected (a drive-relative path, a path on the root of the
-    // current drive, a UNC path with a host that never resolves) are asserted on the result and on the unchanged temp dir only.
+    // "{tmp}" stands for the temp dir of the test, "{tmpNoDrive}" for the same path without its drive letter and colon (a rooted path
+    // on the current drive). If the refusal were missing, Path.Combine(packFolder, relativeFile) would point as follows for each row:
+    //   ""                          the pack folder itself (a folder, the write fails)
+    //   "..\x.tsv", "a/../../x"     a file in the project folder or its parent-of-pack level, inside the temp dir
+    //   {tmp}\..., \\?\{tmp}\...    the same files inside the temp dir (a rooted path replaces the pack folder)
+    //   {tmpNoDrive}\...            the same, on the current drive: the temp dir again
+    //   "a.tsv:stream"              a stream of pack\a.tsv, inside the temp dir
+    //   "x.tsv.", "x.tsv "          pack\x.tsv (Windows trims the dot and the space), inside the temp dir
+    //   "NUL.tsv"                   the NUL device, which discards everything; it names no location
+    //   "a\\b", "a\\b.tsv"          pack\a\b (doubled separators collapse), inside the temp dir
+    //   ".", "sub\."                the pack folder and pack\sub (folders, the write fails)
+    // Forms that could name a place outside the temp dir (a drive-relative path such as "C:x", a UNC path) are not part of this
+    // theory; PackFolderPathsTests covers them on ResolveForWrite, which writes nothing.
     [Theory]
     [InlineData("")]
     [InlineData("..\\x.tsv")]
@@ -112,11 +122,8 @@ public class ProjectFileWriterTests
     [InlineData("{tmp}\\pack\\x.tsv")]
     [InlineData("\\\\?\\{tmp}\\outside.tsv")]
     [InlineData("\\\\?\\{tmp}\\pack\\x.tsv")]
-    [InlineData("C:x")]
-    [InlineData("\\twmt-test-never-written.tsv")]
-    [InlineData("\\\\twmt-test-host.invalid\\share\\x.tsv")]
-    [InlineData("a:stream")]
-    [InlineData("a::$DATA")]
+    [InlineData("{tmpNoDrive}\\outside.tsv")]
+    [InlineData("\\\\?\\{tmpNoDrive}\\outside.tsv")]
     [InlineData("a.tsv:stream")]
     [InlineData("x.tsv.")]
     [InlineData("x.tsv ")]
@@ -132,7 +139,10 @@ public class ProjectFileWriterTests
         Directory.CreateDirectory(PackFile(dir.Path, "sub"));
         var outside = Path.Combine(dir.Path, "outside.tsv");
         File.WriteAllBytes(outside, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-        relativeFile = relativeFile.Replace("{tmp}", dir.Path);
+        var noDrive = dir.Path[2..];
+        Assert.Equal(':', dir.Path[1]);
+        Assert.Equal('\\', noDrive[0]);
+        relativeFile = relativeFile.Replace("{tmpNoDrive}", noDrive).Replace("{tmp}", dir.Path);
         var before = Snapshot(dir.Path);
 
         var result = ProjectFileWriter.WriteText(dir.Path, relativeFile, "changed");
@@ -255,20 +265,33 @@ public class ProjectFileWriterTests
         var user = WindowsIdentity.GetCurrent().User!;
         var fileRule = new FileSystemAccessRule(user, FileSystemRights.ReadAttributes, AccessControlType.Deny);
         var folderRule = new FileSystemAccessRule(user, FileSystemRights.ListDirectory, AccessControlType.Deny);
-        FileSecurity fileSecurity;
-        DirectorySecurity folderSecurity;
+
+        // Every rule that was set is taken back before the test leaves, so that the temp dir cleanup can always delete the folder.
+        var undo = new Stack<Action>();
         try
         {
-            fileSecurity = fileInfo.GetAccessControl();
+            var fileSecurity = fileInfo.GetAccessControl();
             fileSecurity.AddAccessRule(fileRule);
             fileInfo.SetAccessControl(fileSecurity);
-            folderSecurity = folderInfo.GetAccessControl();
+            undo.Push(() =>
+            {
+                fileSecurity.RemoveAccessRule(fileRule);
+                fileInfo.SetAccessControl(fileSecurity);
+            });
+
+            var folderSecurity = folderInfo.GetAccessControl();
             folderSecurity.AddAccessRule(folderRule);
             folderInfo.SetAccessControl(folderSecurity);
+            undo.Push(() =>
+            {
+                folderSecurity.RemoveAccessRule(folderRule);
+                folderInfo.SetAccessControl(folderSecurity);
+            });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or InvalidOperationException)
         {
-            return;   // access rules cannot be set in this environment (a half-set rule is left to the temp dir cleanup)
+            RestoreRules(undo);   // the rule that was already added is removed again
+            return;   // access rules cannot be set in this environment
         }
 
         try
@@ -292,14 +315,29 @@ public class ProjectFileWriterTests
         }
         finally
         {
-            folderSecurity.RemoveAccessRule(folderRule);
-            folderInfo.SetAccessControl(folderSecurity);
-            fileSecurity.RemoveAccessRule(fileRule);
-            fileInfo.SetAccessControl(fileSecurity);
+            RestoreRules(undo);
         }
 
         Assert.Equal([1, 2, 3], File.ReadAllBytes(file));
         Assert.Empty(TempFilesBelow(dir.Path));
+    }
+
+    /// <summary>Runs every undo step, last set first, each one in its own try/finally so that one failing step never skips the others.</summary>
+    private static void RestoreRules(Stack<Action> undo)
+    {
+        if (undo.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            undo.Pop()();
+        }
+        finally
+        {
+            RestoreRules(undo);
+        }
     }
 
     private static bool ReadAttributesFails(string file)

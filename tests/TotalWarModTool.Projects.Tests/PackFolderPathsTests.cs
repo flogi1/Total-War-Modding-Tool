@@ -81,6 +81,12 @@ public class PackFolderPathsTests
     [Theory]
     [InlineData("a.tsv:stream")]
     [InlineData("a::$DATA")]
+    // Forms that name a place outside the project (drive-relative, a drive root, a UNC share): only resolved here, never written.
+    [InlineData("C:x")]
+    [InlineData("a:stream")]
+    [InlineData("\\twmt-test-never-written.tsv")]
+    [InlineData("\\\\twmt-test-host.invalid\\share\\x.tsv")]
+    [InlineData("\\\\?\\C:\\twmt-test-never-written.tsv")]
     [InlineData("NUL.tsv")]
     [InlineData("x.tsv.")]
     [InlineData("x.tsv ")]
