@@ -554,6 +554,53 @@ public class ProjectTrashTests
         Assert.False(Directory.Exists(PackFile(project, "db")));   // the folder made for the copy is gone, too
     }
 
+    [Fact] public void MoveToTrash_keeps_the_trash_entry_when_another_file_is_at_the_source_after_the_move()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        var source = Put(project, "a.tsv", [1, 2, 3]);
+
+        var result = ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+        {
+            // Another program creates a new file at the old place (different content, also a different length in the second round).
+            AfterMove = () => File.WriteAllBytes(source, [9, 9, 9]),
+        });
+
+        Assert.Equal(FileOpProblem.None, result.Problem);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(result.File!.TrashFile));   // the only copy of the deleted file stays
+        Assert.Equal([9, 9, 9], File.ReadAllBytes(source));
+
+        var longer = Put(project, "b.tsv", [1, 2, 3]);
+        var second = ProjectTrash.MoveToTrash(trash, Id, project, "b.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+        {
+            AfterMove = () => File.WriteAllBytes(longer, [1, 2, 3, 4]),
+        });
+
+        Assert.Equal(FileOpProblem.None, second.Problem);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(second.File!.TrashFile));
+        Assert.Equal([1, 2, 3, 4], File.ReadAllBytes(longer));
+    }
+
+    [Fact] public void Restore_stands_when_the_trash_file_is_a_different_file_after_the_move()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        Put(project, "a.tsv", [1, 2, 3]);
+        var file = Trash(trash, project, "a.tsv", new FakeTimeProvider(Start));
+        var target = PackFile(project, "a.tsv");
+
+        var result = ProjectTrash.Restore(file, project, trash, new ProjectTrash.TrashHooks
+        {
+            AfterMove = () => File.WriteAllBytes(file.TrashFile, [9, 9, 9]),
+        });
+
+        Assert.Equal(FileOpProblem.None, result.Problem);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(target));
+        Assert.Equal([9, 9, 9], File.ReadAllBytes(file.TrashFile));   // harmless leftover, Cleanup removes it later
+    }
+
     // ---- the trash root ----
 
     [Fact] public void A_trash_root_that_is_not_a_full_path_a_drive_root_or_a_device_form_is_refused_and_nothing_is_touched()

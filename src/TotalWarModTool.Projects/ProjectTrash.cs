@@ -53,8 +53,8 @@ public static class ProjectTrash
     /// a link. The source goes through <see cref="PackFolderPaths.ResolveForWrite"/> (UnsafePath, Link) and, like the trash side, is checked
     /// again right before the move and before every retry. SourceMissing when it is not a file (a folder is never moved). A sharing violation
     /// of the move is retried briefly; Locked when the move then fails while the source is still there. Locked also when the move reported
-    /// success but the source is still there (a move across drives copies and then deletes, and the delete can fail while the copy worked):
-    /// the copy is deleted again so that exactly one copy survives. Link when a trash folder is a link. When the move fails, the folders
+    /// success but a byte-identical file is still at the source (a move across drives copies and then deletes, and the delete can fail while the copy worked):
+    /// the copy is deleted again so that exactly one copy survives (a different file there is another program's new file: the move stands). Link when a trash folder is a link. When the move fails, the folders
     /// created for it are removed again.
     /// </summary>
     public static TrashResult MoveToTrash(string trashRoot, Guid projectId, string projectFolder, string relativeFile, TimeProvider time) =>
@@ -185,9 +185,10 @@ public static class ProjectTrash
         }
 
         hooks?.AfterMove?.Invoke();
-        if (File.Exists(source))
+        if (File.Exists(source) && SameContent(source, target))
         {
             // A move across drives copies and then deletes, and Windows reports success when the copy worked but the source stayed. Exactly one copy must survive: the source.
+            // Only a source that is byte-identical to the copy is that case: a different file at the source is another program's new file, and the trash copy is then the only copy of ours.
             var detail = "the file was copied to the trash but could not be removed from the project (another program may hold it)";
             return AsTrash(SafeFolders.Failure(FileOpProblem.Locked,
                 folders.TryDeleteFile(target) ? detail : $"{detail} (a copy is left behind: '{target}')"));
@@ -208,7 +209,7 @@ public static class ProjectTrash
     /// UnsafePath from the target path. Both sides are checked again right before the move and before every retry. After the move the empty
     /// entry folder and, when empty, the folder of the project are removed (the trash root never). When the move fails, the trash file stays where
     /// it is and the created folders are taken back; Locked also when the move reported success while the trash file is still there (a move across
-    /// drives whose delete failed): the copy at the old place is deleted again.
+    /// drives whose delete failed) and it is byte-identical to the restored file: the copy at the old place is deleted again (a different trash file stays and the restore stands).
     /// </summary>
     public static FileOpResult Restore(TrashedFile file, string projectFolder, string trashRoot) => Restore(file, projectFolder, trashRoot, null);
 
@@ -321,10 +322,12 @@ public static class ProjectTrash
         }
 
         hooks?.AfterMove?.Invoke();
-        if (File.Exists(parts.File))
+        if (File.Exists(parts.File) && SameContent(parts.File, target))
         {
             // The move reported success but the trash file stayed (a move across drives whose delete failed). The target did not exist before and the
-            // move never overwrites, so what is there is the copy of this call: it goes, and the trash file stays the only copy.
+            // move never overwrites, so what is there is the copy of this call: it goes, and the trash file stays the only copy. Only when the trash
+            // file is byte-identical to it: a different file there is no leftover of this move, and then the restore stands (the file stays in the
+            // trash, harmless, and Cleanup removes it later).
             var detail = "the file was copied back but could not be removed from the trash (another program may hold it)";
             return SafeFolders.Failure(FileOpProblem.Locked, folders.TryDeleteFile(target) ? detail : $"{detail} (a copy is left behind: '{target}')");
         }
@@ -689,6 +692,41 @@ public static class ProjectTrash
 
         parts = new TrashParts(Path.GetDirectoryName(projectFolder)!, projectFolder, entry, full);
         return null;
+    }
+
+    /// <summary>True only when both files can be read and have the same length and the same bytes (compared in blocks). Any read error counts as "not identical".</summary>
+    private static bool SameContent(string a, string b)
+    {
+        try
+        {
+            using var first = new FileStream(a, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var second = new FileStream(b, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (first.Length != second.Length)
+            {
+                return false;
+            }
+
+            var bufferA = new byte[81920];
+            var bufferB = new byte[81920];
+            while (true)
+            {
+                var read = first.Read(bufferA, 0, bufferA.Length);
+                if (read == 0)
+                {
+                    return true;
+                }
+
+                second.ReadExactly(bufferB, 0, read);
+                if (!bufferA.AsSpan(0, read).SequenceEqual(bufferB.AsSpan(0, read)))
+                {
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return false;   // EndOfStreamException is an IOException: a file that changed while it was read is not identical
+        }
     }
 
     private static string NewEntryName(TimeProvider time) =>
