@@ -12,6 +12,7 @@
     <Project Path="src/TotalWarModTool.Settings/TotalWarModTool.Settings.csproj" />
     <Project Path="src/TotalWarModTool.Storage/TotalWarModTool.Storage.csproj" />
     <Project Path="src/TotalWarModTool.Tables/TotalWarModTool.Tables.csproj" />
+    <Project Path="src/TotalWarModTool.UndoRedo/TotalWarModTool.UndoRedo.csproj" />
     <Project Path="src/TotalWarModTool.Workspace/TotalWarModTool.Workspace.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -26,6 +27,7 @@
     <Project Path="tests/TotalWarModTool.Settings.Tests/TotalWarModTool.Settings.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Storage.Tests/TotalWarModTool.Storage.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Tables.Tests/TotalWarModTool.Tables.Tests.csproj" />
+    <Project Path="tests/TotalWarModTool.UndoRedo.Tests/TotalWarModTool.UndoRedo.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Workspace.Tests/TotalWarModTool.Workspace.Tests.csproj" />
   </Folder>
 </Solution>
