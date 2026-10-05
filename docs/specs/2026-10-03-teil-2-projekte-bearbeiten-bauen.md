@@ -159,14 +159,28 @@ Das Tool schreibt in Teil 2 zusätzlich zu `%APPDATA%\TotalWarModTool` und
 
 1. **In den Projektordner** eines bekannten Projekts: die Projektdatei, Dateien unter `pack\` und das
    Pack unter `build\`. Nichts sonst, außer den eigenen temp-Dateien während eines Schreibvorgangs
-   (`twmt-project.json.<8 Hex>.tmp`, `build\<Pack-Name>.<8 Hex>.tmp`). Ein Import schreibt zuerst in
+   (`twmt-project.json.<8 Hex>.tmp`, `build\<Pack-Name>.<8 Hex>.tmp`, `pack\<Pfad der Datei>.<8 Hex>.tmp`
+   neben der Zieldatei). Ein Import schreibt zuerst in
    einen Staging-Ordner `<Zielordner>.import-<8 Hex>` direkt neben dem Zielordner, also im
    Elternordner, den der Nutzer gewählt hat, und benennt ihn am Ende um. Ist `pack\` oder `build\`
    selbst eine Verknüpfung (Junction, symbolischer Link), schreibt, löscht und liest das Tool dort
-   nichts (Festlegungen aus Plan 3, Punkt 19).
+   nichts (Festlegungen aus Plan 3, Punkt 19). Dateien unter `pack\` legt das Tool an, benennt sie um und
+   verschiebt sie in den Papierkorb (Punkt 3); es überschreibt dabei nie eine Datei und schreibt nie durch
+   eine Verknüpfung. Ordner, die es dabei selbst angelegt hat, entfernt es wieder, sobald sie leer sind
+   (zum Beispiel bei „Rückgängig“). Fehlt `pack\` selbst, legt das Anlegen der ersten Datei es an;
+   entfernt wird es nie (Festlegungen aus Plan 5).
 2. **In den `data`-Ordner des Spiels:** genau eine Datei pro Projekt, das installierte Pack, und nur
    unter den Bedingungen aus Abschnitt 5.7. Dazu gehört während des Installierens die temp-Datei
    `<Pack-Name>.twmt-tmp` im selben Ordner.
+3. **In den Papierkorb des Tools** `%LocalAppData%\TotalWarModTool\trash\<Projekt-GUID>\` (er liegt unter
+   dem Ordner, den der Absatz oben nennt): Eine gelöschte Datei wandert nach
+   `<Projekt-GUID>\<yyyyMMdd-HHmmss>-<8 Hex>\<Dateiname>` (die Zeit ist UTC). Das Tool legt dort nur diese
+   Ordner an und verschiebt Dateien hinein und wieder heraus. Gelöscht wird dort nur beim Aufräumen beim
+   Start (Abschnitt 5.8): Es entfernt nur Eintragsordner mit gültigem Datumsnamen unterhalb eines
+   `<Projekt-GUID>\`-Ordners, die älter als 30 Tage sind, und danach einen Projektordner, den dieser Lauf
+   geleert hat. Einer Verknüpfung folgt es nie; eine Verknüpfung in einem Eintrag entfernt es als
+   Verknüpfung. Nach dem Zurückholen einer Datei entfernt das Tool den leeren Eintragsordner und den
+   leeren Projektordner (die Wurzel `trash` nie).
 
 Vanilla-Packs, Workshop-Packs und fremde Packs in `data` werden nie geschrieben, umbenannt oder
 gelöscht. Ein Projektordner wird nie gelöscht, auch nicht beim Entfernen aus der Projektliste.
@@ -242,8 +256,8 @@ Projektdatei damit überschreibt, baut die gerundeten Werte.
 |---|---|---|---|
 | `Tables` | erweitert | `DbTableEncoder`, `LocEncoder`, `TableTsv` (lesen und schreiben), `CellText` (die Zellregeln des Dialekts, gemeinsam für `TableTsv` und das Dokument). Dekodieren und Kodieren liegen in derselben Library. | `Schema` |
 | `PackFiles` | erweitert | `PackWriter`: schreibt PFH5 als Stream. | – |
-| `Projects` | neu | Projektdatei, Projektliste, Import, `ComputeBuild` und `WriteBuild`, Installieren, `ProjectFileWriter` (eine Datei unter `pack\` sicher schreiben, `Probe` und `Fingerprint` zum Prüfen). | `Storage`, `PackFiles`, `Schema`, `Tables`, `Operations` |
-| `UndoRedo` | neu (Kopie aus PMT, Plan 4) | Globale Command-History (`Execute`, `Record`). | – |
+| `Projects` | neu | Projektdatei, Projektliste, Import, `ComputeBuild` und `WriteBuild`, Installieren, `ProjectFileWriter` (eine Datei unter `pack\` sicher schreiben, `Probe` und `Fingerprint` zum Prüfen); seit Plan 5 `ProjectFileOps` (Datei anlegen und umbenennen, leere Ordner wieder entfernen), `ProjectTrash` (Papierkorb: in den Papierkorb verschieben, zurückholen, aufräumen), `NewFiles` (Inhalt und Namensregeln neuer Dateien) und `SafeFolders` (Ordner einzeln und ohne Verknüpfung anlegen). | `Storage`, `PackFiles`, `Schema`, `Tables`, `Operations` |
+| `UndoRedo` | neu (Kopie aus PMT, Plan 4) | Globale Command-History (`Execute`, `Record`). Seit Plan 5 meldet das Ereignis `RedoDiscarded` die Schritte, die ein neuer Schritt aus „Wiederholen“ verdrängt hat. | – |
 | `Editing` | neu (Plan 4) | Tabellen-Dokument (`RowsDocument`): Zellen, Zeilen, Prüfung, Geändert-Zustand, Befehle; Zwischenablage-Text (`ClipboardRows`). | `Schema`, `Tables`, `UndoRedo` |
 | `Workspace` | erweitert | Projektbaum als Quelle neben den Packs. | `Projects` |
 | `App` | erweitert | Gruppe „Projekte“ im Explorer, Befehle, Dialoge, editierbares Raster, Textansicht. | alle |
@@ -448,7 +462,7 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
 #### Festlegungen aus Plan 4
 
 Plan 4 baut das Bearbeiten und Speichern von Tabellen und Loc-Dateien eines Projekts. Papierkorb,
-Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5.
+Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5 (siehe dort).
 
 1. Die Zellregeln des Dialekts liegen einmal vor (`CellText` in `Tables`). `TableTsv` und das
    Dokument nutzen dieselben Regeln, damit alles, was das Dokument annimmt, sich als TSV schreiben und
@@ -576,6 +590,131 @@ Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5.
     ausführt (wie das Kontextmenü, Punkt 19), und ein ungültiger Wert hält den Befehl an. Die Leiste
     bricht in eine zweite Zeile um, wenn das Fenster schmal ist.
 
+#### Festlegungen aus Plan 5
+
+Plan 5 baut die Dateioperationen im Projekt: neue Tabelle, neue Loc-Datei, „Ins Projekt übernehmen“, Umbenennen
+und Löschen. Jede Operation ist ein Schritt der globalen History, gelöschte Dateien gehen in den Papierkorb des
+Tools (Abschnitt 4). Die Punkte 1 bis 10 sind die Festlegungen aus dem Plan, die Punkte ab 11 halten fest, was
+die Umsetzung genauer oder anders entschieden hat.
+
+1. Eine Dateioperation läuft zuerst über die Fortschritts-Komponente und wird danach als Schritt in die History
+   eingetragen (`Record`, nicht `Execute`). Kommt ein Abbruch erst, nachdem die Arbeit getan ist, wird der Schritt
+   trotzdem eingetragen. Undo und Redo eines Dateischritts (`FileStep`) laufen im UI-Thread; bei großen Dateien
+   ist das nicht ideal (Backlog).
+2. Jeder Dateischritt ist ein Wechsel zwischen „Datei im Projekt“ und „Datei im Papierkorb“ oder zwischen zwei
+   Namen: Anlegen und Übernehmen schieben die Datei beim Rückgängig in den Papierkorb und holen sie beim
+   Wiederholen zurück, Löschen macht es umgekehrt, Umbenennen benennt hin und her. Nichts wird überschrieben
+   (Punkt 12).
+3. Offene Tabs: Löschen und Umbenennen lehnen ab, solange ein offener Tab der Datei ungespeicherte Änderungen hat
+   oder eine Zelle gerade getippt wird; sonst schließt die App die Tabs der Datei. Dasselbe gilt für Rückgängig
+   und Wiederholen eines Dateischritts: Die Meldung nennt die Datei, der Tab wird gewählt, der Schritt bleibt in
+   der History. Die Tabs werden erst nach dem erfolgreichen Schritt geschlossen; scheitert er, bleiben sie offen.
+4. Umbenennen ändert nur den Namensteil: Ordner und Endung (`.tsv`, `.loc.tsv` oder die vorhandene) bleiben, und
+   ein Name, mit dem das Projekt die Datei für eine andere Art Datei halten würde, wird abgelehnt (eine binär
+   gebliebene Tabelle würde sonst durch `.tsv` zur Tabelle in Textform). Der Inhalt wird nicht angefasst; die
+   Metazeile einer TSV trägt bis zum nächsten Speichern den alten Pfad, das Speichern schreibt den neuen.
+5. Namen neuer Tabellen und Loc-Dateien folgen `NewFiles.NameProblem`: nicht leer, höchstens 100 Zeichen, kein
+   Schrägstrich, kein Punkt (die Endung bestimmt die Art der Datei), kein Leerzeichen am Anfang oder Ende, kein Tab
+   und kein Zeilenumbruch, kein `;` (Trenner der Metazeile) und nur, was unter Windows ein Dateiname sein kann.
+6. Neue Tabelle: leer, in der neuesten Version des Schemas, und nur für Tabellen, deren neueste Definition keinen
+   nicht unterstützten Feldtyp und mindestens ein Feld hat (eine Tabelle ohne Spalten lässt sich nicht als TSV
+   schreiben). Loc-Dateien liegen unter `text/db` (Konvention des Pack-Formats, Konstante `NewFiles.LocFolder`).
+7. „Ins Projekt übernehmen“: Regeln pro Eintrag wie beim Import (Tabelle und Loc als Text, wenn das verlustfrei
+   geht, sonst unverändert; ein Pfad, der unter Windows nicht geht, wird abgelehnt). Ein Name, der dem des
+   Quell-Eintrags gleicht, braucht die Bestätigung. Eine Tabelle oder Loc-Datei, die binär bleibt, wird mit Grund
+   in der Statuszeile gemeldet.
+8. Papierkorb: Der Name des Eintragsordners trägt die UTC-Zeit des Löschens (`<yyyyMMdd-HHmmss>-<8 Hex>`). Das
+   Aufräumen beim Start löscht Einträge, die älter als 30 Tage sind, nach dieser Zeit und nie nach Dateizeiten;
+   ein Eintrag aus der Zukunft bleibt. Es läuft still (Punkt 27).
+9. Dateischritte eines Projekts, das die Liste verlässt, verlassen die History (Rückgängig- und
+   Wiederholen-Stapel). Eine Datei, die ein solcher Schritt im Papierkorb hält, bleibt dort (Punkt 19).
+10. Der Explorer baut die Aktionen von Datei- und Eintragsknoten erst beim Öffnen des Kontextmenüs, einmal pro
+    Öffnen. Ein Pack mit hunderttausenden Einträgen kostet so nichts, solange kein Menü offen ist (gemessen:
+    null Aufbauten nach dem Aufklappen eines Packs mit 10.000 Einträgen).
+11. Anlegen und Umbenennen lösen den Pfad zuerst streng auf (`PackFolderPaths.ResolveForWrite`), legen fehlende
+    Ordner einzeln an und prüfen jeden auf eine Verknüpfung; direkt vor dem Verschieben und vor jedem
+    Wiederholversuch wird der ganze Weg erneut geprüft. Eine Verknüpfung, die inzwischen entstanden ist, beendet
+    den Vorgang (`SafeFolders`). Scheitert der Vorgang, nimmt er die Ordner wieder zurück, die er angelegt hat. Die
+    Umbenennung der App bleibt im Ordner der Datei; `ProjectFileOps.Rename` kann auch in einen anderen Ordner
+    verschieben, das nutzt noch kein Befehl (Backlog).
+12. Nichts wird überschrieben: Anlegen, Übernehmen, Umbenennen und Zurückholen brechen ab, wenn am Ziel schon etwas
+    liegt (Datei oder Ordner, ohne Rücksicht auf Groß-/Kleinschreibung; eine Umbenennung, die nur die
+    Schreibweise des Dateinamens ändert, ist erlaubt). Das Verschieben versucht es bei einer Sperre durch ein
+    anderes Programm kurz erneut (insgesamt rund 1 s), nie mit Überschreiben.
+13. Namen neuer Dateien, zusätzlich zu Punkt 5: Für Tabellen und Loc-Dateien lehnt `NewFiles.NameProblem` auch
+    unsichtbare Steuerzeichen ab (Bidi-, Nullbreiten- und C1-Zeichen), weil sonst zwei Namen gleich aussehen und
+    verschieden sind. Für jede neue, übernommene oder umbenannte Datei gilt: Ein Name, den das Projekt ignorieren
+    würde (`~$…`, die Endungen `.bak`, `.tmp`, …, siehe Plan 3, Punkt 2), wird abgelehnt, weil die Datei nie ins
+    Pack käme, und ein Pfad über 259 Zeichen wird abgelehnt, gemessen am endgültigen Dateipfad im Projekt (mit
+    `.tsv` oder `.loc.tsv`).
+14. Papierkorb, Pfade: Die Wurzel des Papierkorbs muss ein vollständiger Pfad und darf kein Laufwerks-Stamm sein.
+    `ProjectTrash.Restore` verlangt, dass die Datei genau unter `<Wurzel>\<Projekt-GUID>\<Eintrag>\<Dateiname>`
+    liegt, und prüft die Form des Eintrags, damit ein gefälschter Papierkorb-Pfad keine fremde Datei ins Projekt
+    zieht.
+15. Ein Verschieben über Laufwerksgrenzen kopiert und löscht dann die Quelle. Gelingt das nur „halb“ (die Kopie ist
+    da, die Quelle nicht gelöscht), nimmt das Tool die Kopie nur dann zurück, wenn die Datei am alten Ort Byte für
+    Byte dieselbe ist (das Ergebnis ist dann „gesperrt“); eine andere Datei dort ist die eines anderen Programms,
+    und der Vorgang gilt als gelungen. Der Fall ist ohne zweites Laufwerk nicht automatisch getestet (Backlog).
+16. Das Aufräumen löscht mit einem eigenen Durchlauf statt mit dem rekursiven Löschen des Frameworks, prüft die
+    Kette (Papierkorb, Projektordner, Eintrag, aktueller Ordner) vor jedem Element auf Verknüpfungen, entfernt
+    eine Verknüpfung als Verknüpfung und fasst den Schreibschutz nicht an: Ein schreibgeschützter Eintrag bleibt
+    liegen und wird nie aufgeräumt (Backlog). Zwischen der letzten Prüfung und dem einen Aufruf des Dateisystems
+    bleibt ein kleines Fenster, das sich unter Windows nicht schließen lässt.
+17. Rückgängig und Wiederholen schieben eine Datei nur dann in den Papierkorb (Rückgängig von Anlegen und
+    Übernehmen, Wiederholen von Löschen), wenn sie noch so ist, wie der Schritt sie hinterlassen hat (Pfad, Größe
+    und Zeit des letzten Schreibens, `FileFingerprint`). Sonst fällt der Schritt aus der History, die Datei bleibt
+    liegen, und die Meldung nennt „Löschen“ als Weg. Folge: „Anlegen rückgängig“ geht nicht mehr, nachdem in der
+    Datei etwas gespeichert wurde. Eine gleich große Änderung innerhalb der Zeitauflösung fällt nicht auf
+    (Backlog). Umbenennen vergleicht nichts, der Inhalt bleibt unberührt.
+18. Scheitert das Zurückholen aus dem Papierkorb (Ziel belegt, Datei weg, gesperrt), fällt der Schritt aus der
+    History, und Meldung und Log nennen den vollen Papierkorb-Pfad der Datei, die dort bleibt.
+19. Fallen Schritte aus anderen Gründen weg (das Projekt verlässt die Liste, ein neuer Schritt verwirft
+    „Wiederholen“, ein Schritt ist nicht mehr ausführbar), steht jede Datei, die dadurch ohne Schritt im Papierkorb
+    bleibt, mit ihrem Pfad im Log. `ActionHistory.RedoDiscarded` meldet dafür die Schritte, die ein neuer Schritt aus
+    „Wiederholen“ verdrängt. Eine solche Datei ist nur über das Log zu finden (Backlog: Papierkorb ansehen).
+20. Fällt ein Dateischritt weg, weil er nicht mehr laufen kann, entfernt die App auch die übrigen Schritte
+    desselben Projekts, die dieselbe Datei betreffen (auch unter einem früheren oder späteren Namen einer
+    Umbenennungskette), aus beiden Stapeln, jeweils mit einer Logzeile (und dem Papierkorb-Pfad, wenn ein Schritt
+    eine Datei dort hält). Sie beschreiben eine Platte, die es nicht mehr gibt; ein liegen gebliebenes Umbenennen
+    könnte sonst eine fremde Datei umbenennen. Die Meldung des entfallenen Schritts sagt einmal, dass die übrigen
+    Schritte der Datei ebenfalls entfernt wurden.
+21. Tabs bei Umbenennen: Eine offene Datei wird unter dem neuen Namen wieder geöffnet, auch bei Rückgängig und bei
+    einer Umbenennung, die nur die Groß-/Kleinschreibung ändert (der Tab zeigt dann die alte Schreibweise und
+    wird ersetzt). Ein Tab einer gelöschten Datei bleibt zu. Eine neue oder übernommene Datei öffnet sich in einem
+    Tab; ist das Projekt zugeklappt, klappt es dafür auf.
+22. „Ins Projekt übernehmen“, Einzelheiten: Ziel ist das aktive Projekt (ohne aktives Projekt ist die Aktion
+    deaktiviert und nennt den Grund). Die Bestätigung bei gleichem Namen vergleicht ohne Rücksicht auf
+    Groß-/Kleinschreibung, „Anderen Namen wählen“ führt zur Namensfrage zurück. Der Dialog lehnt einen Namen ab,
+    der in Text- oder Rohform schon vergeben ist, weil erst die Aktion entscheidet, ob die Datei Text bleibt.
+    Der größte übernehmbare Eintrag hat 256 MiB (`PackReader.DefaultMaxEntryBytes`); ein größerer wird mit der
+    Meldung „zu groß“ abgelehnt.
+23. Namensvorschlag: der Projektname in Kleinbuchstaben, jedes Zeichen außer `a` bis `z`, `0` bis `9` und `_` wird
+    zu `_`; ist der Name vergeben, wird `_2` bis `_99` angehängt, ist er aus anderem Grund unbrauchbar (zum Beispiel
+    zu lang), gilt `new` mit derselben Zählung.
+24. Die Liste der anlegbaren Tabellen entsteht einmal pro Schema über die Fortschritts-Komponente (sie schreibt und
+    liest jede Tabelle des Schemas einmal) und wird gemerkt; ein neu geladenes Schema rechnet sie neu. Der Dialog
+    filtert sie ohne Rücksicht auf Groß-/Kleinschreibung nach einem Textteil und virtualisiert sie (geprüft mit
+    1.500 Tabellen).
+25. Die Namensprüfung im Dialog und die Aktion nutzen dieselben Regeln (`NewFiles.NameProblem`, die Pfadregeln
+    des Schreibens, die Ignorierregel und die Prüfung „Ziel belegt“). `ProjectFilesController.CheckNewName`
+    bündelt sie für die Dialoge und für das Umbenennen; Anlegen und Übernehmen wenden sie über `NewFiles` und
+    `ProjectFileOps.Create` an. `CheckNewName` nimmt `/` und `\` im Ordner gleich. Eine Aktion, die an einem
+    offenen Tab scheitern würde, wird vor dem Dialog abgelehnt. Startet eine andere Operation erst, während der
+    Dialog offen ist, meldet die App „beschäftigt“, damit die Eingabe nicht still verloren geht.
+26. Explorer, Einzelheiten: Die Aktionen am Projektknoten sind „Neue Tabelle“, „Neue Loc-Datei“, eine Trennlinie und
+    die bisherigen Einträge; am Dateiknoten „Umbenennen“ und „Löschen“; an jedem Eintrag eines Packs „Ins Projekt
+    übernehmen“. Ordnerknoten haben keine Aktion. Ob die App beschäftigt ist, fragt der Befehl live (er wird beim
+    Klick geprüft, der Grund im Tooltip steht beim Aufbau der Liste). Eine Aktion wirkt auf die Datei ihres Knotens,
+    nicht auf die gewählte Zeile. Nach jeder Dateiaktion und nach Rückgängig und Wiederholen listet der Explorer die
+    offenen Projekte still neu; zugeklappte bleiben zu.
+27. Aufräumen beim Start: still (kein Fortschrittsfenster, keine Sperre des Hauptfensters), auf einem Pool-Thread,
+    einmal nach dem Anzeigen des Hauptfensters, mit 30 Tagen (`ProjectFilesController.CleanupTrashAsync`). Ist die
+    Zahl der entfernten Einträge größer als 0, steht sie im Log; ein Problem mit dem Papierkorb ist nur eine Logzeile
+    und hält den Start nie auf.
+28. Statuszeile: Die jüngere Meldung aus Projektbefehlen und Dateiaktionen steht dort (der Tooltip zeigt den
+    ganzen Text); „Löschen“ nennt darin „Rückgängig“. Eine Aktion, die wirklich startet, löscht die alte Meldung
+    zuerst; ein Befehl, der nicht startet (beschäftigt, Dialog abgebrochen), lässt sie stehen.
+
 ### 5.5 Import
 
 Ablauf: Quelle wählen (Pack aus dem Explorer oder freie `.pack`-Datei), Zielordner wählen (leer oder
@@ -605,14 +744,17 @@ neu), Vorschau (Zahl der Tabellen, Loc-Dateien, sonstigen Dateien, Gesamtgröße
 
 ### 5.6 „Ins Projekt übernehmen“
 
-Kommt mit Plan 5 (Abschnitt 9). Ein Eintrag aus Vanilla oder fremder Mod wird in das aktive Projekt kopiert, mit denselben Regeln pro
-Eintrag wie beim Import.
+Seit Plan 5 (Abschnitt 9, Festlegungen aus Plan 5). Ein Eintrag aus Vanilla oder fremder Mod wird in das aktive
+Projekt kopiert, mit denselben Regeln pro Eintrag wie beim Import.
 
-- Tabellen und Loc: Ein Dialog fragt nach dem neuen Dateinamen. Vorschlag ist der Projektname.
-- Gleicher Name wie in Vanilla ist erlaubt, braucht aber eine ausdrückliche Bestätigung mit dem
-  Hinweis, dass die Datei dann die ganze Vanilla-Tabelle ersetzt.
-- Ziel existiert: Abbruch mit Meldung.
-- Ein Undo-Schritt (die Datei wandert in den Papierkorb des Tools).
+- Tabellen und Loc: Ein Dialog fragt nach dem neuen Dateinamen. Vorschlag ist der Projektname. Jeder andere
+  Eintrag behält seinen Pfad, es gibt keine Frage.
+- Gleicher Name wie der Quell-Eintrag (ohne Rücksicht auf Groß-/Kleinschreibung) ist erlaubt, braucht aber eine
+  ausdrückliche Bestätigung mit dem Hinweis, dass die Datei dann im Spiel die ganze Datei ersetzt, nicht nur die
+  geänderten Zeilen.
+- Ziel existiert: Der Dialog lehnt einen Namen ab, der in Text- oder Rohform schon vergeben ist, und die Aktion
+  bricht auch selbst mit Meldung ab, ohne etwas zu ändern.
+- Ein Undo-Schritt: Rückgängig verschiebt die Datei in den Papierkorb des Tools, Wiederholen holt sie zurück.
 
 ### 5.7 Bauen und Installieren
 
@@ -677,8 +819,8 @@ Eintrag wie beim Import.
 - Eine globale History für die App. `Strg+Z` nimmt den letzten Schritt zurück und wechselt zum
   betroffenen Tab. `Strg+Y` stellt wieder her.
 - Die History lebt bis zum Schließen der App, auch über das Speichern hinweg.
-- Dateioperationen stehen in derselben History: Tabelle anlegen, Datei löschen, umbenennen, „Ins
-  Projekt übernehmen“.
+- Dateioperationen stehen in derselben History: Tabelle anlegen, Loc-Datei anlegen, Datei löschen,
+  umbenennen, „Ins Projekt übernehmen“ (Festlegungen aus Plan 5).
 - Jedes Schließen eines Tabs entfernt dessen Schritte aus der History (Festlegungen aus Plan 4, Punkt 4).
 
 **Speichern**
@@ -688,13 +830,15 @@ Eintrag wie beim Import.
 - Kein Snapshot beim normalen Speichern. Undo und Git decken das ab.
 - Tab oder App schließen mit ungespeicherten Änderungen: Speichern, Verwerfen, Abbrechen.
 
-**Dateioperationen im Projekt** (Plan 5)
+**Dateioperationen im Projekt** (seit Plan 5)
 
 - Neue Tabelle (Tabelle aus dem Schema wählen, Dateiname), neue Loc-Datei, Datei umbenennen, Datei
-  löschen.
+  löschen. „Ins Projekt übernehmen“ steht in 5.6.
 - Löschen verschiebt die Datei nach `%LocalAppData%\TotalWarModTool\trash\<Projekt-GUID>\`. Undo holt
-  sie zurück. Beim Start kürzt das Tool den Papierkorb auf die letzten 30 Tage.
-- Löschen ist damit reversibel und fragt nicht nach.
+  sie zurück. Beim Start räumt das Tool den Papierkorb still auf: Einträge, die älter als 30 Tage sind,
+  werden gelöscht (Abschnitt 4, Punkt 3).
+- Löschen ist damit reversibel und fragt nicht nach. Ein Papierkorb zum Ansehen und Leeren gibt es noch
+  nicht (Backlog).
 
 **Änderungen von außen**
 
@@ -709,15 +853,19 @@ Eintrag wie beim Import.
 
 - Explorer: Gruppe „Projekte“ über den Packs. Jedes Projekt ist ein Knoten mit dem Baum von `pack\`.
   Das aktive Projekt ist hervorgehoben.
-- Kontextmenü am Projekt: Als aktiv setzen, Bauen, Bauen und installieren, Deinstallieren, Aus der
-  Liste entfernen. Am Pack: Als Projekt importieren. Am Eintrag: Ins Projekt übernehmen (Plan 5).
-- Menü: Neues Projekt, Projekt öffnen, Pack importieren, Bauen (aktives Projekt). Speichern, Alle
+- Kontextmenü am Projekt: Neue Tabelle, Neue Loc-Datei, Trennlinie, Als aktiv setzen, Bauen, Bauen und
+  installieren, Deinstallieren, Aus der Liste entfernen. An einer Projektdatei: Umbenennen, Löschen. Am Pack:
+  Als Projekt importieren. Am Eintrag (jedes Packs): Ins Projekt übernehmen. Ordnerknoten haben kein Menü
+  (Festlegungen aus Plan 5, Punkt 10 und 26).
+- Menü: Neues Projekt, Projekt öffnen, Pack importieren, Neue Tabelle und Neue Loc-Datei (für das aktive
+  Projekt, mit Tooltip als Grund, wenn gesperrt), Bauen (aktives Projekt). Speichern, Alle
   speichern stehen seit Plan 4 im Menü „Projekt“, Rückgängig und Wiederholen im Menü „Bearbeiten“
   (zwischen „Werkzeuge“ und „Projekt“). Zeilenbefehle und Kopieren und Einfügen liegen im
   Kontextmenü des bearbeitbaren Rasters und auf Tastenkürzeln (`Einfg`, `Entf`, `Strg+D`, `Strg+C`,
   `Strg+V`).
 - Tabellen-Tab: Umschalter „Raster“ und „Text“. Die Textansicht zeigt die TSV-Form, nur lesen,
   markieren, kopieren. Sie gilt für alle Quellen.
+- Statuszeile: Sie zeigt auch das Ergebnis der letzten Dateiaktion (Festlegungen aus Plan 5, Punkt 28).
 - Session: Tabs von Projektdateien werden wie Pack-Tabs wiederhergestellt (Projekt-GUID und Pfad).
 - Alle Texte über `AppTexts`, in `en` und `de`.
 - Aus dem Backlog vorgezogen, weil jetzt Schreiboperationen laufen: `ProgressRunner` bricht die
@@ -762,7 +910,11 @@ Eintrag wie beim Import.
 | Pack in `data` gehört nicht dem Tool | Installieren und Deinstallieren brechen mit Meldung ab. |
 | `packName` gleicht einem Vanilla-Pack | Beim Anlegen, Umbenennen und Installieren abgelehnt. |
 | Spiel sperrt das Pack in `data` | Meldung, alte Datei bleibt. |
-| Undo einer Dateioperation scheitert (Papierkorb-Datei fehlt) | Meldung, der Schritt bleibt in der History nicht erhalten, kein Teilzustand. |
+| Undo einer Dateioperation scheitert (Papierkorb-Datei fehlt, Ziel belegt, Datei gesperrt) | Meldung, der Schritt fällt aus der History, kein Teilzustand. Liegt eine Datei im Papierkorb, nennen Meldung und Log den vollen Pfad. Die übrigen Schritte derselben Datei fallen mit weg, und die Meldung sagt das einmal. |
+| Datei seit dem Schritt geändert (von außen oder durch Speichern), Rückgängig von Anlegen oder Übernehmen, Wiederholen von Löschen | Nichts wird in den Papierkorb verschoben, die Datei bleibt, der Schritt fällt aus der History. Die Meldung nennt die Datei und „Löschen“ als Weg. |
+| Ziel einer neuen, übernommenen oder umbenannten Datei existiert schon | Abbruch mit Meldung, nichts wird geändert. Der Dialog lehnt den Namen schon bei der Eingabe ab. |
+| Löschen oder Umbenennen einer Datei mit ungespeichertem Tab | Abgelehnt mit Meldung, die Datei und Tab nennt. Der Eintrag im Explorer ist gesperrt und nennt den Grund. |
+| Aufräumen des Papierkorbs scheitert | Nur eine Logzeile, der Start läuft weiter. Ein schreibgeschützter Eintrag bleibt liegen. |
 | Zwei Dateien im Projekt ergeben denselben Pack-Pfad | Bauen stoppt und nennt beide. |
 
 ---
@@ -796,7 +948,9 @@ Eintrag wie beim Import.
 4. **Bearbeiten:** `UndoRedo`, `Editing`, editierbares Raster, Speichern, Änderungen von außen.
    Danach ist nutzbar: importieren, im Raster ändern, speichern, bauen, installieren.
 5. **Dateioperationen:** Papierkorb, neue Tabelle und Loc-Datei, umbenennen, löschen, „Ins Projekt
-   übernehmen“. Baut auf History, Dokument und Speichern aus Plan 4 auf.
+   übernehmen“. Baut auf History, Dokument und Speichern aus Plan 4 auf. Umgesetzt (Festlegungen aus Plan 5).
+   Danach ist nutzbar: ein Projekt von Grund auf füllen (neue Tabelle, neue Loc-Datei, Einträge aus Spiel und
+   Mods übernehmen), Dateien umbenennen und löschen, alles mit Rückgängig, dann bauen und installieren.
 
 Jeder Plan wird erst geschrieben, wenn die Schnittstellen des vorigen existieren.
 

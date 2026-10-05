@@ -55,7 +55,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 == Aus Teil 2 zurückgestellt ==
 
-- Plan 5 von Teil 2 (noch offen, siehe Spec Abschnitt 9): Dateioperationen mit Papierkorb, neue Tabelle und Loc-Datei, umbenennen, löschen, „Ins Projekt übernehmen“; der Plan ist noch nicht geschrieben
 - Prüfung von Referenzen und doppelten Schlüsseln beim Bearbeiten (mit Teil 4)
 - Editierbare Textansicht der Tabellen (mit Teil 4 oder 5)
 - TSV erkennen, die aus einem RPFM-Export stammt (alle Kommazahlen mit genau 4 Nachkommastellen), und Hinweis zeigen
@@ -202,6 +201,22 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Ein fremder Abonnent von `RowsDocument.Changed`, der wirft, kann die Zeilen des Tabs aus dem Takt bringen (es gibt keinen solchen Abonnenten)
 - Ein bearbeitbarer Tab mit veraltetem Schema speichert mit der alten Definition und bietet kein Neuladen an
 - Einfügen läuft im UI-Thread (bis 100.000 Zeilen), bei Bedarf über die Fortschritts-Komponente
+
+== Aus Plan 5 (Dateioperationen) zurückgestellt ==
+
+- Aktionen an Ordnerknoten (neuer Ordner, Ordner umbenennen oder löschen); heute haben Ordnerknoten kein Menü
+- Mehrere Dateien auf einmal löschen oder übernehmen
+- Ganze Tabelle aus Vanilla übernehmen und dabei einzelne Zeilen auswählen
+- Datei in einen anderen Ordner verschieben (`ProjectFileOps.Rename` kann es schon, die App bietet es nicht an)
+- Papierkorb ansehen und leeren; bis dahin ist eine Datei im Papierkorb, zu der kein Schritt mehr gehört (Projekt entfernt, Schritt verworfen), nur über das Log auffindbar
+- Undo und Redo großer Dateien über die Fortschritts-Komponente (laufen heute im UI-Thread)
+- Neue Tabelle in einer älteren Schema-Version anlegen
+- Die Fälle „Verschieben über Laufwerksgrenzen“ (Papierkorb) und „Zieldatei ist ein symbolischer Link“ (Anlegen, Umbenennen, Zurückholen) sind ohne zweites Laufwerk bzw. ohne Administratorrechte nicht automatisch getestet
+- Undo und Redo eines Dateischritts erkennen eine gleich große Änderung innerhalb der Zeitauflösung nicht (der Fingerprint besteht aus Größe und Zeit)
+- Ein schreibgeschützter Eintrag im Papierkorb wird nie aufgeräumt
+- Die Namensprüfung im Dialog greift bei jedem Tastendruck auf die Platte zu
+- `CreatableTables` enthält Tabellen mit extrem langem Namen nicht (ab 152 Zeichen; im Schema gibt es keine), obwohl sich mit einem kurzen Dateinamen eine anlegen ließe
+- Eine Aktion, die nach dem Namensdialog abgelehnt wird (zum Beispiel weil das Ziel inzwischen belegt ist), fragt den Namen nicht erneut; die Eingabe geht verloren
 
 == Wartet auf ein öffentliches Remote ==
 
