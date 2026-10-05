@@ -1,5 +1,5 @@
 Backlog Total War Modding Tool
-Stand: 2026-10-04
+Stand: 2026-10-05
 
 Alles, was nicht jetzt gebaut wird. Nummern der Teile wie in docs/specs/2026-10-02-fundament.md, Abschnitt 1.2.
 Reihenfolge seit 2026-10-03: Teil 2 (Spec docs/specs/2026-10-03-teil-2-projekte-bearbeiten-bauen.md),
@@ -55,6 +55,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 == Aus Teil 2 zurückgestellt ==
 
+- Plan 5 von Teil 2 (noch offen, siehe Spec Abschnitt 9): Dateioperationen mit Papierkorb, neue Tabelle und Loc-Datei, umbenennen, löschen, „Ins Projekt übernehmen“; der Plan ist noch nicht geschrieben
 - Prüfung von Referenzen und doppelten Schlüsseln beim Bearbeiten (mit Teil 4)
 - Editierbare Textansicht der Tabellen (mit Teil 4 oder 5)
 - TSV erkennen, die aus einem RPFM-Export stammt (alle Kommazahlen mit genau 4 Nachkommastellen), und Hinweis zeigen
@@ -166,7 +167,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 == Aus Plan 3 (Projekte in der App) zurückgestellt ==
 
 - Der Explorer zeigt ignorierte Dateien (versteckte, Systemdateien, Sperr- und Sicherungsdateien von Editoren) nicht
-- Projekt-Tabs tragen keine Markierung, wenn die Datei von außen geändert wurde (mit Plan 4)
 - Bau- und Import-Meldungen der Library sind englischer Klartext und nicht übersetzt
 - Fortschritt beim Installieren ist unbestimmt (die Library meldet keinen)
 - Der Dialog „Neues Projekt“ merkt sich den zuletzt gewählten Elternordner nicht
@@ -183,6 +183,23 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Session: Der Vergleich für „geändert“ zählt wiederhergestellte statt tatsächlich angewendete Einträge (Packs und Projekte)
 - Kein Test für einen unerwarteten Fehler beim Wiederherstellen einer Projektdatei (kein Seam)
 - Test-Fake `FakeProjectDialogs` kann bei einer abgelehnten festen Antwort endlos schleifen; Schutz ergänzen
+
+== Aus Plan 4 (Bearbeiten) zurückgestellt ==
+
+- Sortieren und Filtern im bearbeitbaren Raster (die Zeilenindizes der Ansicht und des Dokuments müssen gleich bleiben; heute ist Sortieren dort aus)
+- Suchen und Ersetzen in einer Tabelle
+- Zellbereich statt ganzer Zeilen kopieren und einfügen
+- Verlauf der Schritte anzeigen (die Beschreibungen der Schritte sind heute Englisch und unsichtbar)
+- „Neu laden“ für Nur-Lese-Tabs von Projektdateien (sie tragen heute nur die Markierung „veraltet“)
+- Das Dokument auf dem Pool-Thread bauen bei sehr großen Tabellen (heute im UI-Thread)
+- Windows-Abmeldung oder Herunterfahren beendet die App ohne Rückfrage nach ungespeicherten Änderungen (`SessionEnding` abfangen)
+- Eine gleich große Änderung von außen genau zwischen dem Lesen der Datei und dem Fingerprint bleibt unbemerkt (Fingerprint vor dem Lesen nehmen)
+- Ein Tab, dessen Datei beim Öffnen nicht prüfbar war, fragt beim nächsten Speichern nach einer Änderung von außen, auch wenn es keine gab
+- Kopfzeile beim Einfügen: Spaltennamen werden nicht getrimmt (Leerzeichen, andere Groß-/Kleinschreibung)
+- Zellen in Anführungszeichen aus Tabellenprogrammen (Zelle mit Tab oder Zeilenumbruch) werden beim Einfügen wörtlich übernommen
+- Der Fall „Zieldatei ist selbst ein symbolischer Link“ des `ProjectFileWriter` ist ohne Administratorrechte nicht automatisch testbar
+- Sehr große Auswahl: Nach einem Zeilenbefehl über mehr als 2.000 Zeilen wird nur die erste Zeile markiert
+- Ein fremder Abonnent von `RowsDocument.Changed`, der wirft, kann die Zeilen des Tabs aus dem Takt bringen (es gibt keinen solchen Abonnenten)
 
 == Wartet auf ein öffentliches Remote ==
 

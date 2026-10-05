@@ -3,7 +3,7 @@
 - **Datum:** 2026-10-03
 - **Status:** Entwurf, wartet auf Freigabe durch den Nutzer
 - **Baut auf:** `docs/specs/2026-10-02-fundament.md` (Teil 1, umgesetzt und abgenommen)
-- **Pläne:** vier Pläne nacheinander, siehe Abschnitt 9
+- **Pläne:** fünf Pläne nacheinander, siehe Abschnitt 9
 
 ---
 
@@ -240,11 +240,11 @@ Projektdatei damit überschreibt, baut die gerundeten Werte.
 
 | Modul | Stand | Aufgabe | Referenzen |
 |---|---|---|---|
-| `Tables` | erweitert | `DbTableEncoder`, `LocEncoder`, `TableTsv` (lesen und schreiben). Dekodieren und Kodieren liegen in derselben Library. | `Schema` |
+| `Tables` | erweitert | `DbTableEncoder`, `LocEncoder`, `TableTsv` (lesen und schreiben), `CellText` (die Zellregeln des Dialekts, gemeinsam für `TableTsv` und das Dokument). Dekodieren und Kodieren liegen in derselben Library. | `Schema` |
 | `PackFiles` | erweitert | `PackWriter`: schreibt PFH5 als Stream. | – |
-| `Projects` | neu | Projektdatei, Projektliste, Import, `ComputeBuild` und `WriteBuild`, Installieren. | `Storage`, `PackFiles`, `Schema`, `Tables`, `Operations` |
-| `UndoRedo` | neu (Kopie aus PMT) | Globale Command-History (`Execute`, `Record`). | – |
-| `Editing` | neu | Tabellen-Dokument: Zellen, Zeilen, Prüfung, Geändert-Zustand, Befehle. | `Schema`, `Tables`, `UndoRedo` |
+| `Projects` | neu | Projektdatei, Projektliste, Import, `ComputeBuild` und `WriteBuild`, Installieren, `ProjectFileWriter` (eine Datei unter `pack\` sicher schreiben, `Probe` und `Fingerprint` zum Prüfen). | `Storage`, `PackFiles`, `Schema`, `Tables`, `Operations` |
+| `UndoRedo` | neu (Kopie aus PMT, Plan 4) | Globale Command-History (`Execute`, `Record`). | – |
+| `Editing` | neu (Plan 4) | Tabellen-Dokument (`RowsDocument`): Zellen, Zeilen, Prüfung, Geändert-Zustand, Befehle; Zwischenablage-Text (`ClipboardRows`). | `Schema`, `Tables`, `UndoRedo` |
 | `Workspace` | erweitert | Projektbaum als Quelle neben den Packs. | `Projects` |
 | `App` | erweitert | Gruppe „Projekte“ im Explorer, Befehle, Dialoge, editierbares Raster, Textansicht. | alle |
 
@@ -293,7 +293,7 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
 
 #### Festlegungen aus Plan 2
 
-1. Der Papierkorb kommt mit Plan 4, weil erst das Löschen von Dateien ihn braucht.
+1. Der Papierkorb kommt mit Plan 5, weil erst das Löschen von Dateien ihn braucht.
 2. `Projects` referenziert `GameProfiles` nicht. Der `data`-Ordner und die Vanilla-Packnamen kommen vom
    Aufrufer.
 3. Der `packName` eines Imports wird vom Aufrufer vorgegeben (Vorschlag: Dateiname der Quelle) und gegen
@@ -374,8 +374,8 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
    nicht gefunden, prüft erst das Installieren.
 6. Wird der Pack-Name eines installierten Projekts geändert, deinstalliert „Bauen und installieren“
    zuerst das alte Pack.
-7. Offene Projekt-Tabs zeigen den Stand beim Öffnen. Eine Markierung für außen geänderte Dateien kommt
-   mit Plan 4.
+7. Offene Projekt-Tabs zeigen den Stand beim Öffnen. Die Markierung für außen geänderte Dateien kam
+   mit Plan 4 (siehe dort, Punkt 7 und 22).
 8. Die Textansicht entsteht beim ersten Umschalten, höchstens 5 Mio. Zeichen.
 9. `ProgressRunner` bricht die Arbeit ab, wenn das Fortschrittsfenster nicht geöffnet werden kann.
 10. Beim Umbenennen des Pack-Namens läuft „Bauen und installieren“ in dieser Reihenfolge: Zuerst wird
@@ -445,6 +445,99 @@ schon Text, das reicht laut 3.1). Der Encoder nimmt das Modell des Dekoders (`De
     ohnehin beschäftigt.
 24. Verlässt ein Projekt die Liste, schließt die App seine offenen Tabs.
 
+#### Festlegungen aus Plan 4
+
+Plan 4 baut das Bearbeiten und Speichern von Tabellen und Loc-Dateien eines Projekts. Papierkorb,
+Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5.
+
+1. Die Zellregeln des Dialekts liegen einmal vor (`CellText` in `Tables`). `TableTsv` und das
+   Dokument nutzen dieselben Regeln, damit alles, was das Dokument annimmt, sich als TSV schreiben und
+   als derselbe Wert wieder lesen lässt.
+2. Ein Dokument (`RowsDocument` in `Editing`) trägt Tabellen und Loc-Dateien. Eine Loc-Datei hat drei feste
+   Spalten: `key`, `text` und `tooltip`.
+3. „Geändert“ ist an den zuletzt angewandten Schritt gebunden, nicht an einen Zähler. Nimmt der Nutzer
+   nach dem Speichern einen Schritt zurück, ist der Tab geändert; wiederholt er ihn, ist der Tab es
+   nicht mehr.
+4. Jedes Schließen eines bearbeitbaren Tabs entfernt dessen Schritte (Rückgängig und Wiederholen) aus der
+   History, auch nach dem Speichern und auch, wenn ein Projekt die Liste verlässt. 5.8 nennt das nur für
+   „Verwerfen“; ein geschlossenes Dokument gibt es nicht mehr.
+5. Die Zwischenablage trägt Spaltennamen in der ersten Zeile und danach eine Zeile pro Eintrag, mit Tab
+   getrennt und wie im Dialekt maskiert. Das ist das Format der App, nicht der RPFM-Dialekt: keine
+   Metazeile, und Farbkanäle stehen einzeln (keine Hex-Spalte). Einfügen ordnet per Spaltenname zu.
+6. Speichern schreibt nur Dateien unter `pack\` eines bekannten Projekts, nie durch eine Verknüpfung, und
+   legt keine Ordner an. Fehlt der Ordner der Datei, scheitert das Speichern mit Meldung.
+7. Änderungen von außen werden geprüft, wenn das Hauptfenster aktiv wird (nach einer Verzögerung von
+   300 ms, eine Konstante), nach `F5` und vor dem Speichern. Die App lädt nie von selbst neu.
+8. „Aus der Liste entfernen“ ist gesperrt, solange das Projekt ungespeicherte Änderungen hat; der
+   Tooltip nennt den Grund (nach „unbekannt“ und „installiert“). „Bauen“ und „Bauen und installieren“
+   fragen „alle speichern“ nur für Tabs des eigenen Projekts, gleich ob der Bau über das Menü, die
+   Tastenkürzel oder den Explorer startet.
+9. Im bearbeitbaren Raster ist Sortieren aus. Die Zeilen der Ansicht und des Dokuments müssen dieselben
+   Indizes haben. Nur-Lese-Raster sortieren weiter.
+10. Rückgängig in einer Zelle im Editiermodus ist das der Textbox. Der globale Schritt entsteht erst
+    mit dem Bestätigen der Zelle.
+11. Ein Zeilenumbruch `\r` in einer Zelle wird bei der Eingabe abgelehnt, weil der Dialekt dafür kein
+    Escape hat. `CellText.TryParse` lehnt außerdem ein NUL, ein einzelnes Surrogat-Zeichen und die beiden
+    wörtlichen Escape-Folgen (`\\t`, `\\n`) ab. Das Lesen vorhandener Dateien bleibt bei seiner
+    bisherigen Toleranz: ein NUL in einer Datei wird weiter gelesen.
+12. Die Regel für Farbkanäle (ganze Zahl von 0 bis 255, auch für Kommafelder) ist eine gemeinsame
+    Prüfung (`CellText.IsColourChannelValue`). Das Dokument fragt über
+    `RowsDocument.IsColourChannelColumn`, welche Spalten Farbkanäle sind.
+13. Wirft ein Handler von `RowsDocument.Changed` während eines Schritts, nimmt das Dokument den Schritt
+    zurück und reicht die Ausnahme weiter; der Schritt gilt dann als nicht ausgeführt. Ein Schritt kann
+    keine Zeile einfügen, die schon im Dokument liegt (`InsertRows` lehnt dieselbe Zeile zweimal ab).
+    Kommazahlen müssen genau das sein, was die Textform trägt (kein `NaN` mit abweichendem Bitmuster).
+14. Zwischenablage, Grenzen: Kopieren lehnt Zeilen ab, die das Format nicht tragen kann (Meldung mit Zeile
+    und Spalte), und kopiert höchstens 100.000 Zeilen. Eine Tabelle mit zwei Spalten gleichen Namens lässt
+    sich weder kopieren noch einfügen. Ein BOM am Anfang wird ignoriert. Zellen in Anführungszeichen, wie
+    Tabellenprogramme sie schreiben, werden wörtlich übernommen. Namen verworfener Spalten erscheinen in
+    der Meldung gekürzt. Die Zwischenablage kennt die Farbkanal-Spalten nicht: Ein Packwert außerhalb
+    von 0 bis 255 wird kopiert, beim Einfügen aber abgelehnt. Kopieren läuft nicht über die
+    Fortschritts-Komponente (im Speicher, höchstens 100.000 Zeilen). Beim Einfügen nennt eine Meldung
+    fehlende und verworfene Spalten; die nächste Änderung des Dokuments löscht sie.
+15. `ProjectFileWriter`: Die strengen Pfadregeln liegen in `PackFolderPaths.ResolveForWrite`. Die
+    temp-Datei wird nie über eine vorhandene Datei geschrieben. Ein Ordner auf dem Weg, dessen Attribute
+    sich nicht lesen lassen, gilt für Schreiben als Verknüpfung. Ein Text, der kein gültiges UTF-16 ist,
+    wird abgelehnt. `Probe` unterscheidet „vorhanden“, „fehlt“ und „nicht prüfbar“.
+16. Bearbeitbarer Tab: Kommt eine Änderung, während die Textansicht zeigt (das geht nur über Rückgängig
+    und Wiederholen), schaltet der Tab auf das Raster zurück; der Text entsteht beim nächsten Umschalten
+    neu. Ändert ein Schritt mehr als 2.000 Zeilen, wird das Raster in einem Durchgang neu aufgebaut
+    statt Zeile für Zeile.
+17. Der `DocumentsController` besitzt die Tab-Liste; `MainViewModel` übernimmt sie von dort. Wiederhergestellte
+    Projekt-Tabs der Session sind bearbeitbar.
+18. Speichern: Nur das Bauen des Textes und das Schreiben laufen im Hintergrund, über die
+    Fortschritts-Komponente; „Alle speichern“ ist ein Lauf. Ein Abbruch zwischen zwei Dateien lässt die
+    schon geschriebenen Dateien gespeichert. Unmittelbar vor jedem Schreiben wird die Datei erneut gegen
+    den Stand geprüft, den der Nutzer gesehen hat oder zu dem er gefragt wurde; hat sie sich inzwischen
+    geändert, wird sie nicht geschrieben, der Tab bleibt geändert und die Meldung nennt die Datei.
+    „Nicht prüfbar“ ist ein eigener Fall und gilt nie als gelöscht: Ohne bekannten Stand wird dann nicht
+    geschrieben. Eine Meldung nennt höchstens 10 Dateien. Speichern und Alle speichern (Menü „Projekt“,
+    `Strg+S`, `Strg+Umschalt+S`) sind gesperrt, solange eine Operation läuft.
+19. Eine Zelle, die noch im Editiermodus ist, wird vor „Speichern“, „Alle speichern“, dem Schließen eines
+    Tabs, dem Schließen der App und dem Bauen bestätigt, ebenso vor dem Öffnen des Kontextmenüs. Ein
+    ungültiger Wert hält die Aktion mit einer Meldung an. Eine getippte Zelle in einem sonst
+    unveränderten Tab gilt als „etwas zu speichern“.
+20. `Strg+Z` und `Strg+Y` in einer Zelle im Editiermodus wirken nur in der Zelle und erreichen nie die
+    globale History. Außerhalb davon sind Rückgängig und Wiederholen gesperrt, solange eine Operation
+    läuft. Scheitert ein Schritt beim Zurücknehmen, fällt er aus der History, und eine Meldung nennt
+    den Grund.
+21. Schließen: Ein geänderter Tab fragt asynchron; eine zweite Schließanfrage, solange die Frage offen
+    ist, wird ignoriert. Beim Schließen der App fragt die App einmal für alle geänderten Tabs. Die Frage
+    zeigt höchstens 10 Dateien.
+22. Änderungen von außen, Einzelheiten: Pro offenem Projekt-Tab (bearbeitbar und nur lesbar) steht ein
+    Fingerprint, genommen beim Anlegen des Tabs. Weicht die Dateigröße beim Öffnen von der Größe des
+    Eintrags ab, ist der Tab sofort als geändert markiert und trägt keinen Fingerprint. Die Prüfung
+    liest nichts, sie fragt nur Größe und Zeit ab; sie läuft nicht, solange eine Operation läuft. Eine
+    Datei, die sich nicht prüfen lässt, bekommt keine Markierung. Die Markierung „gelöscht“ oder
+    „geändert“ hat Vorrang vor den Markierungen für Pack und Schema. Der Knopf „Neu laden“ erscheint nur
+    bei einem bearbeitbaren, ungeänderten Tab mit Markierung von außen; Nur-Lese-Projekt-Tabs bekommen
+    nur die Markierung. Neu laden entfernt die Schritte des alten Dokuments aus der History und lässt
+    für eine gelöschte Datei an derselben Stelle den Hinweis-Tab erscheinen. Bei der Rückfrage
+    „Überschreiben, Neu laden, Abbrechen“ ist Abbrechen die Vorgabe, `Enter` überschreibt nie.
+23. Die Zeilenkopfzelle zeigt die Zeilennummer (ab 1). Nach einem Zeilenbefehl (Einfügen, Duplizieren,
+    Einfügen aus der Zwischenablage, Löschen) sind die betroffenen Zeilen markiert, bei mehr als 2.000
+    Zeilen nur die erste. Ein anderer Tab beginnt ohne Markierung.
+
 ### 5.5 Import
 
 Ablauf: Quelle wählen (Pack aus dem Explorer oder freie `.pack`-Datei), Zielordner wählen (leer oder
@@ -474,7 +567,7 @@ neu), Vorschau (Zahl der Tabellen, Loc-Dateien, sonstigen Dateien, Gesamtgröße
 
 ### 5.6 „Ins Projekt übernehmen“
 
-Ein Eintrag aus Vanilla oder fremder Mod wird in das aktive Projekt kopiert, mit denselben Regeln pro
+Kommt mit Plan 5 (Abschnitt 9). Ein Eintrag aus Vanilla oder fremder Mod wird in das aktive Projekt kopiert, mit denselben Regeln pro
 Eintrag wie beim Import.
 
 - Tabellen und Loc: Ein Dialog fragt nach dem neuen Dateinamen. Vorschlag ist der Projektname.
@@ -534,7 +627,8 @@ Eintrag wie beim Import.
 
 **Kopieren und Einfügen**
 
-- Kopieren aus jedem Raster legt TSV mit Spaltennamen in die Zwischenablage.
+- Kopieren aus jedem Raster legt TSV mit Spaltennamen in die Zwischenablage (Format der App, siehe
+  Festlegungen aus Plan 4, Punkt 5 und 14).
 - Einfügen in ein Projekt-Raster ordnet per Spaltenname zu. Fehlende Spalten bekommen den
   Standardwert des Typs, überzählige entfallen. Eine kurze Meldung nennt beides.
 - Zeilen mit ungültigen Werten: Das ganze Einfügen wird mit Meldung abgelehnt.
@@ -547,7 +641,7 @@ Eintrag wie beim Import.
 - Die History lebt bis zum Schließen der App, auch über das Speichern hinweg.
 - Dateioperationen stehen in derselben History: Tabelle anlegen, Datei löschen, umbenennen, „Ins
   Projekt übernehmen“.
-- Schließen eines Tabs mit Verwerfen entfernt dessen Schritte aus der History.
+- Jedes Schließen eines Tabs entfernt dessen Schritte aus der History (Festlegungen aus Plan 4, Punkt 4).
 
 **Speichern**
 
@@ -556,7 +650,7 @@ Eintrag wie beim Import.
 - Kein Snapshot beim normalen Speichern. Undo und Git decken das ab.
 - Tab oder App schließen mit ungespeicherten Änderungen: Speichern, Verwerfen, Abbrechen.
 
-**Dateioperationen im Projekt**
+**Dateioperationen im Projekt** (Plan 5)
 
 - Neue Tabelle (Tabelle aus dem Schema wählen, Dateiname), neue Loc-Datei, Datei umbenennen, Datei
   löschen.
@@ -578,9 +672,12 @@ Eintrag wie beim Import.
 - Explorer: Gruppe „Projekte“ über den Packs. Jedes Projekt ist ein Knoten mit dem Baum von `pack\`.
   Das aktive Projekt ist hervorgehoben.
 - Kontextmenü am Projekt: Als aktiv setzen, Bauen, Bauen und installieren, Deinstallieren, Aus der
-  Liste entfernen. Am Pack: Als Projekt importieren. Am Eintrag: Ins Projekt übernehmen (Plan 4).
+  Liste entfernen. Am Pack: Als Projekt importieren. Am Eintrag: Ins Projekt übernehmen (Plan 5).
 - Menü: Neues Projekt, Projekt öffnen, Pack importieren, Bauen (aktives Projekt). Speichern, Alle
-  speichern, Rückgängig und Wiederholen kommen mit Plan 4.
+  speichern stehen seit Plan 4 im Menü „Projekt“, Rückgängig und Wiederholen im Menü „Bearbeiten“
+  (zwischen „Werkzeuge“ und „Projekt“). Zeilenbefehle und Kopieren und Einfügen liegen im
+  Kontextmenü des bearbeitbaren Rasters und auf Tastenkürzeln (`Einfg`, `Entf`, `Strg+D`, `Strg+C`,
+  `Strg+V`).
 - Tabellen-Tab: Umschalter „Raster“ und „Text“. Die Textansicht zeigt die TSV-Form, nur lesen,
   markieren, kopieren. Sie gilt für alle Quellen.
 - Session: Tabs von Projektdateien werden wie Pack-Tabs wiederhergestellt (Projekt-GUID und Pfad).
@@ -658,8 +755,10 @@ Eintrag wie beim Import.
 2. **`Projects`:** Projektdatei, Projektliste, Import, Bauen, Installieren. Ohne UI.
 3. **App, erster Teil:** Projekte im Explorer, Import, Bauen, Installieren, Textansicht, Session.
    Danach ist nutzbar: Mod importieren, außen bearbeiten, bauen, installieren.
-4. **Bearbeiten:** `UndoRedo`, `Editing`, Papierkorb, editierbares Raster, Speichern, Dateioperationen,
-   „Ins Projekt übernehmen“, Änderungen von außen.
+4. **Bearbeiten:** `UndoRedo`, `Editing`, editierbares Raster, Speichern, Änderungen von außen.
+   Danach ist nutzbar: importieren, im Raster ändern, speichern, bauen, installieren.
+5. **Dateioperationen:** Papierkorb, neue Tabelle und Loc-Datei, umbenennen, löschen, „Ins Projekt
+   übernehmen“. Baut auf History, Dokument und Speichern aus Plan 4 auf.
 
 Jeder Plan wird erst geschrieben, wenn die Schnittstellen des vorigen existieren.
 
