@@ -267,4 +267,84 @@ public class TabsViewModelTests
         Assert.Contains("k1\tt1\ttrue\n", tab.Text);
         Assert.False(tab.ShowGrid);
     }
+
+    [Fact] public void SpecialTab_replaces_the_default_tab_and_null_keeps_it()
+    {
+        var tabs = new TabsViewModel(Texts);
+        var asked = new List<(TabSource, string)>();
+        TabViewModel? special = null;
+        Action<TabViewModel>? handedClose = null;
+        tabs.SpecialTab = (source, entry, close) =>
+        {
+            asked.Add((source, entry.EntryPath));
+            handedClose = close;
+            return entry.EntryPath == "special.txt" ? special = new TextTabViewModel(source, entry.EntryPath, Texts, close, new TextContent("s", "UTF-8", false, 1)) : null;
+        };
+
+        tabs.Add(A, Text("special.txt"), null);
+        tabs.Add(A, Text("plain.txt"), null);
+
+        Assert.Equal(2, tabs.Tabs.Count);
+        Assert.Same(special, tabs.Tabs[0]);                                  // the tab of the hook is the one that is added
+        Assert.IsType<TextTabViewModel>(tabs.Tabs[1]);                      // null: the default tab
+        Assert.NotSame(special, tabs.Tabs[1]);
+        Assert.Equal([(A.Path, "special.txt"), (A.Path, "plain.txt")], asked.Select(a => (a.Item1.Key, a.Item2)));
+
+        // The callback it is given closes the tab through the list, and it asks (see CanClose).
+        var asks = 0; tabs.CanClose = _ => { asks++; return true; };
+        handedClose!(special!);
+        Assert.Equal(1, asks);
+        Assert.DoesNotContain(special, tabs.Tabs);
+    }
+
+    [Fact] public void CanClose_false_keeps_the_tab_for_the_command_and_for_close_selected()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, Text("1"), null); tabs.Add(A, Text("2"), null);
+        var asked = new List<string>();
+        var allow = false;
+        tabs.CanClose = tab => { asked.Add(tab.Title); return allow; };
+
+        tabs.Tabs[0].CloseCommand.Execute(null);                            // the tab's own command asks
+        tabs.CloseSelectedCommand.Execute(null);                            // so does close selected (and the middle button, which runs CloseCommand)
+        tabs.Close(tabs.Tabs[0]);
+
+        Assert.Equal(["1", "2", "1"], asked);
+        Assert.Equal(2, tabs.Tabs.Count);
+        Assert.Equal("2", tabs.SelectedTab!.Title);
+
+        allow = true;
+        tabs.CloseSelectedCommand.Execute(null);
+        Assert.Equal(["1"], tabs.Tabs.Select(t => t.Title));
+        Assert.Equal("1", tabs.SelectedTab!.Title);
+    }
+
+    [Fact] public void CloseWithoutAsking_does_not_ask()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, Text("1"), null); tabs.Add(A, Text("2"), null);
+        var asked = 0; tabs.CanClose = _ => { asked++; return false; };
+        var second = tabs.Tabs[1];
+
+        tabs.CloseWithoutAsking(second);
+
+        Assert.Equal(0, asked);
+        Assert.Equal(["1"], tabs.Tabs.Select(t => t.Title));
+        Assert.Equal("1", tabs.SelectedTab!.Title);
+        tabs.CloseWithoutAsking(second);                                    // already closed: nothing happens
+        Assert.Single(tabs.Tabs);
+    }
+
+    [Fact] public void Close_of_a_tab_that_is_not_open_does_not_ask()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, Text("1"), null);
+        var stranger = new TextTabViewModel(A, "x", Texts, _ => { }, new TextContent("x", "UTF-8", false, 1));
+        var asked = 0; tabs.CanClose = _ => { asked++; return true; };
+
+        tabs.Close(stranger);
+
+        Assert.Equal(0, asked);
+        Assert.Single(tabs.Tabs);
+    }
 }

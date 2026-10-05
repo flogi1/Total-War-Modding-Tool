@@ -223,5 +223,12 @@
   "project.action.remove": "Remove from list",
   "project.action.import": "Import as project",
   "project.busy": "Another operation is still running.",
-  "project.packFolderMissing": "The folder 'pack' is missing in this project."
+  "project.packFolderMissing": "The folder 'pack' is missing in this project.",
+  "edit.expected.integer": "Expected a whole number from {0} to {1}.",
+  "edit.expected.float": "Expected a number with a decimal point, for example 1.5.",
+  "edit.expected.boolean": "Expected true or false.",
+  "edit.expected.colour": "Expected a colour as hex digits, for example FF8800.",
+  "edit.expected.text": "Expected text that the file can store. Carriage returns and NUL characters are not allowed.",
+  "edit.expected.channel": "Expected a whole number from 0 to 255, because this column is a colour channel.",
+  "edit.check.message": "{0} Reason: {1}"
 }

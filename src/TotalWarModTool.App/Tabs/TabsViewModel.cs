@@ -44,6 +44,15 @@ public sealed class TabsViewModel : ObservableObject
 
     public ICommand CloseSelectedCommand => _closeSelectedCommand;
 
+    /// <summary>
+    /// Asked first by <see cref="Add"/>: returns the tab for an entry that gets a special tab (an editable project file), or null for the
+    /// default. It gets the same close callback the factory would get.
+    /// </summary>
+    public Func<TabSource, OpenedEntry, Action<TabViewModel>, TabViewModel?>? SpecialTab { get; set; }
+
+    /// <summary>Asked before a tab is closed by its command, by Ctrl+W or by the middle button; false keeps it open.</summary>
+    public Func<TabViewModel, bool>? CanClose { get; set; }
+
     /// <summary>Raised when tabs were added or removed and when the selection changed.</summary>
     public event EventHandler? Changed;
 
@@ -63,7 +72,7 @@ public sealed class TabsViewModel : ObservableObject
     /// <summary>Appends the tab for an opened entry. It is selected when <paramref name="select"/> is set or nothing is selected yet.</summary>
     public void Add(TabSource source, OpenedEntry entry, ResolvedSchema? schema, bool select = true)
     {
-        var tab = TabFactory.Create(source, entry, schema, Texts, Close);
+        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close);
         Tabs.Add(tab);
         if (select || SelectedTab is null)
         {
@@ -71,8 +80,24 @@ public sealed class TabsViewModel : ObservableObject
         }
     }
 
-    /// <summary>Closes the tab. When it is the selected one, its right neighbour is selected, else its left neighbour, else nothing.</summary>
+    /// <summary>
+    /// Closes the tab after <see cref="CanClose"/> agreed (the variant the close commands use). A tab that is not open is ignored without asking.
+    /// </summary>
     public void Close(TabViewModel tab)
+    {
+        if (!Tabs.Contains(tab) || CanClose?.Invoke(tab) == false)
+        {
+            return;
+        }
+
+        CloseWithoutAsking(tab);
+    }
+
+    /// <summary>
+    /// Closes the tab without asking: the app decided it (the project left the list, a reload replaced the tab). When it is the selected
+    /// one, its right neighbour is selected, else its left neighbour, else nothing.
+    /// </summary>
+    public void CloseWithoutAsking(TabViewModel tab)
     {
         var index = Tabs.IndexOf(tab);
         if (index < 0)

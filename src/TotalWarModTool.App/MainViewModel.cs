@@ -256,7 +256,7 @@ public sealed class MainViewModel : ObservableObject
         var listed = _projects!.Projects.Select(state => state.Id).ToHashSet();
         foreach (var tab in Tabs.Tabs.Where(tab => TabSource.TryGetProjectId(tab.PackPath, out var id) && !listed.Contains(id)).ToList())
         {
-            Tabs.Close(tab);
+            Tabs.CloseWithoutAsking(tab);
         }
     }
 

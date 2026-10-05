@@ -56,14 +56,20 @@ public abstract class TabViewModel : ObservableObject, IDisposable
 
     public ICommand CloseCommand { get; }
 
-    /// <summary>Stops listening to the texts. Safe to call more than once.</summary>
+    /// <summary>Stops listening to the texts, then calls <see cref="OnDispose"/>. Safe to call more than once.</summary>
     public void Dispose()
     {
         if (!_disposed)
         {
             _disposed = true;
             _texts.PropertyChanged -= OnTextsChanged;
+            OnDispose();
         }
+    }
+
+    /// <summary>Called once, by the first <see cref="Dispose"/>: a tab that listens to something else stops listening here.</summary>
+    protected virtual void OnDispose()
+    {
     }
 
     /// <summary>True when the entry is a table (a table tab or the hint tab of a table): a change of the schema affects what it shows.</summary>
@@ -119,7 +125,8 @@ public abstract class TabViewModel : ObservableObject, IDisposable
 
 /// <summary>
 /// A tab with rows that can be shown as a grid or, read-only, as the TSV text of the table (see <see cref="TableTsv"/>). The text is built
-/// on the first switch to the text view and kept; it is cut at a line end when it is longer than <see cref="MaxTextChars"/>.
+/// on the first switch to the text view and kept (until <see cref="InvalidateText"/>); it is cut at a line end when it is longer than
+/// <see cref="MaxTextChars"/>.
 /// </summary>
 public abstract class RowsTabViewModel : TabViewModel
 {
@@ -182,6 +189,28 @@ public abstract class RowsTabViewModel : TabViewModel
         if (_notice is not null)
         {
             SetProperty(ref _textNotice, _notice(Texts), nameof(TextNotice));
+        }
+    }
+
+    /// <summary>
+    /// The content changed: the text built so far is out of date. It is built again on the next switch to the text view, or at once
+    /// when the text view is showing.
+    /// </summary>
+    protected void InvalidateText()
+    {
+        _textBuilt = false;
+        var hadText = _text is not null || _textNotice is not null;
+        _text = null;
+        _notice = null;
+        _textNotice = null;
+        if (_showText)
+        {
+            BuildText();
+        }
+        else if (hadText)
+        {
+            OnPropertyChanged(nameof(Text));
+            OnPropertyChanged(nameof(TextNotice));
         }
     }
 

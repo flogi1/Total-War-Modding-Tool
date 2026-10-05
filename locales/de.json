@@ -223,5 +223,12 @@
   "project.action.remove": "Aus der Liste entfernen",
   "project.action.import": "Als Projekt importieren",
   "project.busy": "Eine andere Operation läuft noch.",
-  "project.packFolderMissing": "Der Ordner „pack“ fehlt in diesem Projekt."
+  "project.packFolderMissing": "Der Ordner „pack“ fehlt in diesem Projekt.",
+  "edit.expected.integer": "Erwartet wird eine ganze Zahl von {0} bis {1}.",
+  "edit.expected.float": "Erwartet wird eine Zahl mit Dezimalpunkt, zum Beispiel 1.5.",
+  "edit.expected.boolean": "Erwartet wird true oder false.",
+  "edit.expected.colour": "Erwartet wird eine Farbe aus Hex-Ziffern, zum Beispiel FF8800.",
+  "edit.expected.text": "Erwartet wird ein Text, den die Datei speichern kann. Zeilenrückläufe (CR) und NUL-Zeichen sind nicht erlaubt.",
+  "edit.expected.channel": "Erwartet wird eine ganze Zahl von 0 bis 255, denn diese Spalte ist ein Farbkanal.",
+  "edit.check.message": "{0} Grund: {1}"
 }
