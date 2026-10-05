@@ -249,6 +249,14 @@ public abstract class RowsTabViewModel : TabViewModel
         get => _showText;
         set
         {
+            if (value && !_showText && !CanShowText())
+            {
+                // Refused: the switch that has been clicked goes back.
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ShowGrid));
+                return;
+            }
+
             if (!SetProperty(ref _showText, value))
             {
                 return;
@@ -261,6 +269,9 @@ public abstract class RowsTabViewModel : TabViewModel
             }
         }
     }
+
+    /// <summary>Asked before the switch to the text view; false refuses it. An editable tab commits the cell that is being edited first.</summary>
+    protected virtual bool CanShowText() => true;
 
     public bool ShowGrid => !_showText;
 
@@ -291,6 +302,13 @@ public abstract class RowsTabViewModel : TabViewModel
         {
             SetProperty(ref _gridNotice, _gridNoticeText(Texts), nameof(Notice));
         }
+
+        RefreshMoreTexts();
+    }
+
+    /// <summary>Called after the texts of the base were computed again; a tab with texts of its own computes them here.</summary>
+    protected virtual void RefreshMoreTexts()
+    {
     }
 
     /// <summary>The number of rows of the tab; indexes from 0 to this count minus one are rows.</summary>

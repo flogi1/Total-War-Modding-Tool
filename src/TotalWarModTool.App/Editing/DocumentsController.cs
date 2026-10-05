@@ -68,6 +68,7 @@ public sealed partial class DocumentsController
 
         tabs.SpecialTab = CreateEditableTab;
         tabs.CanClose = CanCloseTab;
+        tabs.CanLeave = CanLeaveTab;
         tabs.Tabs.CollectionChanged += OnTabsCollectionChanged;
         tabs.Changed += (_, _) => RaiseSaveCommandsChanged();
         history.Changed += RaiseCommandsChanged;
@@ -155,6 +156,14 @@ public sealed partial class DocumentsController
     {
         // Also guarded here: a direct call must not reach the history with an empty stack (that throws) or during an operation.
         if (!CanStep(undo))
+        {
+            return;
+        }
+
+        // A value that is typed into a cell is committed first: it becomes the latest step, so an undo takes back what the user just typed,
+        // never an older change under it. A value that cannot be committed stops the step, and nothing is dropped. The commit changes the
+        // history, so the step is asked for again.
+        if (!CommitPendingEdits(EditableTabs) || !CanStep(undo))
         {
             return;
         }

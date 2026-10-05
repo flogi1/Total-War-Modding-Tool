@@ -94,6 +94,14 @@ public sealed partial class AppTexts
     public string GridPasteExtraColumns(string columns) =>
         F("grid.paste.extraColumns", "Columns of the pasted text that this table does not have were left out: {0}.", columns);
 
+    /// <param name="length">Length of the text on the clipboard, in characters.</param>
+    /// <param name="max">The longest text that a paste reads.</param>
+    public string GridPasteTooLarge(int length, int max) =>
+        F("grid.paste.tooLarge", "The text on the clipboard is too long to paste: {0} characters. At most {1} characters can be pasted at once.", length, max);
+
+    public string GridEditDiscarded => T("grid.editDiscarded",
+        "The value that was being typed into a cell was discarded, because the rows or the tab changed under it. Type it again if you still need it.");
+
     public string EditPendingInvalidTitle => T("edit.pendingInvalid.title", "Invalid value in a cell");
 
     public string EditPendingInvalidMessage => T("edit.pendingInvalid.message",

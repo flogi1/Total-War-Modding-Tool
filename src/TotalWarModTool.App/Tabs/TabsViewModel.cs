@@ -11,6 +11,9 @@ public sealed class TabsViewModel : ObservableObject
     private readonly RelayCommand _closeSelectedCommand;
     private TabViewModel? _selectedTab;
 
+    // Set while the app itself moves the selection away from a tab that is going (closed without asking, replaced): CanLeave is not asked then.
+    private bool _leaving;
+
     public TabsViewModel(AppTexts texts)
     {
         ArgumentNullException.ThrowIfNull(texts);
@@ -34,6 +37,13 @@ public sealed class TabsViewModel : ObservableObject
         get => _selectedTab;
         set
         {
+            if (!ReferenceEquals(_selectedTab, value) && !MayLeave())
+            {
+                // Refused: the property keeps its value. The notification makes a control that has already moved (the tab control) go back.
+                OnPropertyChanged();
+                return;
+            }
+
             if (SetProperty(ref _selectedTab, value))
             {
                 _closeSelectedCommand.RaiseCanExecuteChanged();
@@ -43,6 +53,19 @@ public sealed class TabsViewModel : ObservableObject
     }
 
     public ICommand CloseSelectedCommand => _closeSelectedCommand;
+
+    /// <summary>
+    /// Asked for the tab that is selected before another one is selected (a click on a header, an undo that shows another file, a file
+    /// that is opened); false refuses the change and the selection stays. A tab with a cell that holds a value that cannot be committed says
+    /// no. Not asked when the tab goes away (closed without asking, replaced) or is no longer in the list.
+    /// </summary>
+    public Func<TabViewModel, bool>? CanLeave { get; set; }
+
+    /// <summary>
+    /// True when the selected tab may be left now (asks <see cref="CanLeave"/>); a view asks it before it lets the user move the selection,
+    /// so that the tab control never shows another tab for a moment.
+    /// </summary>
+    public bool MayLeave() => _leaving || _selectedTab is not { } old || !Tabs.Contains(old) || CanLeave?.Invoke(old) != false;
 
     /// <summary>
     /// Asked first by <see cref="Add"/>: returns the tab for an entry that gets a special tab (an editable project file), or null for the
@@ -107,7 +130,7 @@ public sealed class TabsViewModel : ObservableObject
         Tabs.Insert(index, tab);
         if (wasSelected)
         {
-            SelectedTab = tab;
+            SelectWithoutAsking(tab);
         }
 
         Tabs.RemoveAt(index + 1);
@@ -143,11 +166,25 @@ public sealed class TabsViewModel : ObservableObject
         if (ReferenceEquals(SelectedTab, tab))
         {
             // Selected before the removal, so the tab control never has to pick a tab on its own.
-            SelectedTab = index + 1 < Tabs.Count ? Tabs[index + 1] : index > 0 ? Tabs[index - 1] : null;
+            SelectWithoutAsking(index + 1 < Tabs.Count ? Tabs[index + 1] : index > 0 ? Tabs[index - 1] : null);
         }
 
         Tabs.RemoveAt(index);
         tab.Dispose();
+    }
+
+    // The selected tab goes away: what it holds is the app's decision already, so it is not asked whether it may be left.
+    private void SelectWithoutAsking(TabViewModel? tab)
+    {
+        _leaving = true;
+        try
+        {
+            SelectedTab = tab;
+        }
+        finally
+        {
+            _leaving = false;
+        }
     }
 
     /// <summary>Marks every tab of the pack: the pack changed on disk, the tabs show old content. <paramref name="packPath"/> is a <see cref="TabSource.Key"/>.</summary>

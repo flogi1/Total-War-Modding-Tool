@@ -579,4 +579,126 @@ public class TabsViewTests
             setup.Window.Close();
         }
     });
+
+    // ---- leaving a tab with a cell in edit mode -----------------------------------------------------------------------------------------
+
+    // The grid of the selected tab with a cell of the text column in edit mode and the given text typed into it.
+    private static TextBox TypeIntoFirstRow(Setup setup, EditableRowsTabViewModel tab, string text)
+    {
+        var grid = setup.Grid;
+        grid.CurrentCell = new DataGridCellInfo(tab.Rows[0], grid.Columns[1]);
+        Assert.True(grid.BeginEdit());
+        Pump(setup.Window);
+        var box = Assert.IsType<TextBox>(grid.Columns[1].GetCellContent(tab.Rows[0]));
+        box.Text = text;
+        return box;
+    }
+
+    // The tab list as the controller sets it up: a tab with a cell in edit mode commits it before it is left.
+    private static void CommitBeforeLeaving(TabsViewModel viewModel) =>
+        viewModel.CanLeave = tab => tab is not EditableRowsTabViewModel editable || editable.TryCommitPendingEdit();
+
+    [Fact] public void A_header_selection_that_the_tab_list_refuses_goes_back_to_the_old_tab() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            CommitBeforeLeaving(setup.ViewModel);
+            var first = EditableLoc(setup, new FakeClipboard());
+            var second = EditableLoc(setup, new FakeClipboard());
+            setup.ViewModel.SelectedTab = first;
+            Pump(setup.Window);
+            var box = TypeIntoFirstRow(setup, first, "x" + (char)13 + "y");              // a carriage return: not a value of the column
+
+            setup.TabControl.SelectedItem = second;                                     // what a click on the header does to the tab control
+            Pump(setup.Window);
+
+            Assert.Same(first, setup.ViewModel.SelectedTab);
+            Assert.Same(first, setup.TabControl.SelectedItem);                          // the tab control really went back
+            Assert.True(first.HasPendingEdit);
+            Assert.NotNull(first.ValidationMessage);
+            Assert.Same(box, setup.Grid.Columns[1].GetCellContent(first.Rows[0]));      // the editor with the typed text is still there
+            Assert.Equal("Text", first.Document.Rows[0][1]);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void A_valid_value_is_committed_when_another_tab_is_selected_by_the_header() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            CommitBeforeLeaving(setup.ViewModel);
+            var first = EditableLoc(setup, new FakeClipboard());
+            var second = EditableLoc(setup, new FakeClipboard());
+            setup.ViewModel.SelectedTab = first;
+            Pump(setup.Window);
+            TypeIntoFirstRow(setup, first, "typed");
+
+            setup.TabControl.SelectedItem = second;
+            Pump(setup.Window);
+
+            Assert.Same(second, setup.ViewModel.SelectedTab);
+            Assert.Same(second, setup.TabControl.SelectedItem);
+            Assert.Equal("typed", first.Document.Rows[0][1]);
+            Assert.True(first.IsModified);
+            Assert.False(first.HasPendingEdit);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void A_click_on_another_header_does_not_even_start_while_the_cell_holds_an_invalid_value() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            CommitBeforeLeaving(setup.ViewModel);
+            var first = EditableLoc(setup, new FakeClipboard());
+            var second = EditableLoc(setup, new FakeClipboard());
+            setup.ViewModel.SelectedTab = first;
+            Pump(setup.Window);
+            TypeIntoFirstRow(setup, first, "x" + (char)13 + "y");
+            var item = Assert.IsType<TabItem>(setup.TabControl.ItemContainerGenerator.ContainerFromIndex(1));
+            var header = Descendants<TextBlock>(item).First(t => t.Text == second.Title);
+            var down = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = Mouse.PreviewMouseDownEvent, Source = header };
+
+            header.RaiseEvent(down);
+
+            Assert.True(down.Handled);                                                  // refused before the tab control moved at all
+            Assert.Same(first, setup.TabControl.SelectedItem);
+            Assert.True(first.HasPendingEdit);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void The_text_view_is_refused_while_a_cell_holds_an_invalid_value_and_the_switch_goes_back() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            var tab = EditableLoc(setup, new FakeClipboard());
+            TypeIntoFirstRow(setup, tab, "x" + (char)13 + "y");
+            var buttons = Descendants<RadioButton>(setup.View).ToList();
+
+            ((ISelectionItemProvider)new RadioButtonAutomationPeer(buttons[1]).GetPattern(PatternInterface.SelectionItem)!).Select();
+            Pump(setup.Window);
+
+            Assert.False(tab.ShowText);
+            Assert.Equal([true, false], buttons.Select(b => b.IsChecked == true));      // the grid switch is checked again
+            Assert.Equal(Visibility.Visible, setup.Grid.Visibility);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
 }

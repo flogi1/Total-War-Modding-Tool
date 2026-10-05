@@ -27,9 +27,6 @@ public sealed partial class TableGrid : DataGrid
     public static readonly DependencyProperty EditColumnsProperty = DependencyProperty.Register(
         nameof(EditColumns), typeof(IReadOnlyList<FieldDefinition>), typeof(TableGrid), new PropertyMetadata(null, OnEditColumnsChanged));
 
-    public static readonly DependencyProperty SelectedRowIndexesProperty = DependencyProperty.Register(
-        nameof(SelectedRowIndexes), typeof(IReadOnlyList<int>), typeof(TableGrid), new PropertyMetadata(Array.Empty<int>()));
-
     // The keys of the styles in Controls.xaml that give the editors of the cells the colours of the theme.
     private const string TextEditorStyleKey = "ThemeGridCellEditor";
     private const string CheckBoxStyleKey = "ThemeGridCheckBox";
@@ -80,16 +77,6 @@ public sealed partial class TableGrid : DataGrid
         set => SetValue(EditColumnsProperty, value);
     }
 
-    /// <summary>
-    /// The indexes of the selected rows in the rows of <see cref="DataGrid.ItemsSource"/> (not in the order of a sorted view), ascending. The grid
-    /// also hands them to the view model of its data context.
-    /// </summary>
-    public IReadOnlyList<int> SelectedRowIndexes
-    {
-        get => (IReadOnlyList<int>)GetValue(SelectedRowIndexesProperty);
-        private set => SetCurrentValue(SelectedRowIndexesProperty, value);
-    }
-
     private static void OnColumnNamesChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var grid = (TableGrid)d;
@@ -114,8 +101,8 @@ public sealed partial class TableGrid : DataGrid
     {
         var grid = (TableGrid)d;
 
-        // A cell that is still being edited belongs to the columns that go now.
-        grid.CancelPendingEdit();
+        // A cell that is still being edited belongs to the columns that go now: its value is committed, and only a value that cannot be is dropped.
+        grid.LeaveEdit();
         grid.Columns.Clear();
         var fields = e.NewValue as IReadOnlyList<FieldDefinition>;
         if (fields is null)
@@ -147,7 +134,7 @@ public sealed partial class TableGrid : DataGrid
 
         if (field.Type == FieldType.Boolean)
         {
-            return new GridCheckBoxColumn
+            return new GridCheckBoxColumn(CommitAfterToggle)
             {
                 Header = header,
                 Binding = new Binding($"[{index}]") { Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged },
@@ -164,7 +151,7 @@ public sealed partial class TableGrid : DataGrid
 
         // The tab is asked when the rule runs: one grid shows the tabs one after another, and two tabs of the same table share their columns.
         binding.ValidationRules.Add(new CellRule(index, () => DataContext as EditableRowsTabViewModel));
-        return new GridTextColumn { Header = header, Binding = binding };
+        return new GridTextColumn(index, TextEdited) { Header = header, Binding = binding };
     }
 
     // ----- selection -----
@@ -173,7 +160,6 @@ public sealed partial class TableGrid : DataGrid
     {
         base.OnSelectionChanged(e);
         var indexes = IndexesOfSelection();
-        SelectedRowIndexes = indexes;
         if (_attached is not null)
         {
             _attached.SelectedRows = indexes;
@@ -281,6 +267,8 @@ public sealed partial class TableGrid : DataGrid
                 RenumberRows(this);
                 if (_isEditing && !AnyCellEditing(this))
                 {
+                    // The row went away under the edit: the one case besides Esc in which a typed value is dropped, and the user is told.
+                    NoteDiscard();
                     SetEditing(false);
                 }
             });
@@ -325,17 +313,36 @@ public sealed partial class TableGrid : DataGrid
 
     // The editing element and the shown element are made by the column; the style that the column gives them is the one of the system
     // theme, so the keyed styles of the app are set on them (a dynamic reference: they follow the theme).
-    private sealed class GridTextColumn : DataGridTextColumn
+    private sealed class GridTextColumn(int fieldIndex, Action<TextBox, bool> edited) : DataGridTextColumn
     {
+        /// <summary>The index of the field (the column of the document) that this column shows.</summary>
+        public int FieldIndex { get; } = fieldIndex;
+
         protected override FrameworkElement GenerateEditingElement(DataGridCell cell, object dataItem)
         {
             var element = base.GenerateEditingElement(cell, dataItem);
             element.SetResourceReference(FrameworkElement.StyleProperty, TextEditorStyleKey);
             return element;
         }
+
+        // The edit counts as a change only while the text differs from the text the cell had when it was opened: F2 without typing is no
+        // change, and typing the old text again takes the change back.
+        protected override object PrepareCellForEdit(FrameworkElement editingElement, RoutedEventArgs editingEventArgs)
+        {
+            var original = base.PrepareCellForEdit(editingElement, editingEventArgs);
+            if (editingElement is TextBox box && original is string text)
+            {
+                box.TextChanged += (_, _) => edited(box, box.Text != text);
+                edited(box, box.Text != text);
+            }
+
+            return original;
+        }
     }
 
-    private sealed class GridCheckBoxColumn : DataGridCheckBoxColumn
+    // A check box has no state in which something is typed: the edit ends right after the toggle (the binding wrote the value at once), so
+    // that the grid is not "editing" and its keys work.
+    private sealed class GridCheckBoxColumn(Action toggled) : DataGridCheckBoxColumn
     {
         protected override FrameworkElement GenerateElement(DataGridCell cell, object dataItem)
         {
@@ -348,6 +355,13 @@ public sealed partial class TableGrid : DataGrid
         {
             var element = base.GenerateEditingElement(cell, dataItem);
             element.SetResourceReference(FrameworkElement.StyleProperty, CheckBoxEditingStyleKey);
+            if (element is CheckBox box)
+            {
+                RoutedEventHandler handler = (_, _) => toggled();
+                box.Checked += handler;
+                box.Unchecked += handler;
+            }
+
             return element;
         }
     }

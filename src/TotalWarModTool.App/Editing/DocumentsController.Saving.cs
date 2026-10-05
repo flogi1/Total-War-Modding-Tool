@@ -480,6 +480,10 @@ public sealed partial class DocumentsController
         }
     }
 
+    // The hook of the tab list for leaving the selected tab (another tab is selected by a click, an undo, an opened file): the cell that is
+    // being edited is committed first, and a value that cannot be committed keeps the user on the tab, with the message.
+    private bool CanLeaveTab(TabViewModel tab) => tab is not EditableRowsTabViewModel editable || CommitPendingEdits([editable]);
+
     // The hook of the tab list: an unmodified tab (or any other kind) closes at once; a modified one is never closed by this call. The question
     // and the save are asynchronous, so they start here and the tab is closed when they agree.
     private bool CanCloseTab(TabViewModel tab)

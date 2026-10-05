@@ -29,6 +29,49 @@ public sealed partial class TabsView : UserControl
         }
     }
 
+    // The selected tab decides whether it may be left (a cell with a value that cannot be committed says no). Asked before the tab control
+    // moves, so that it never shows another tab for a moment: a click on the header of another tab, and the keys that change the tab.
+    private void OnTabControlPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindTabItem(e.OriginalSource as DependencyObject) is { DataContext: TabViewModel tab }
+            && !ReferenceEquals(tab, ViewModel.SelectedTab) && !ViewModel.MayLeave())
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnTabControlPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var inContent = e.OriginalSource is not TabItem;
+        var changesTab = Keyboard.Modifiers == ModifierKeys.Control
+            ? e.Key is Key.Tab or Key.PageUp or Key.PageDown
+            : !inContent && e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End;
+        if (changesTab && !ViewModel.MayLeave())
+        {
+            e.Handled = true;
+        }
+    }
+
+    // The tab list can refuse a change of the selection (a programmatic one, or one that got past the checks above); the tab control then
+    // goes back to the tab that is selected. Later, not inside its own change of the selection. Changes of inner grids bubble up here too.
+    private void OnTabControlSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, TabHost))
+        {
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(TabHost.SelectedItem, ViewModel.SelectedTab))
+            {
+                TabHost.SelectedItem = ViewModel.SelectedTab;
+            }
+        });
+    }
+
+    private TabsViewModel ViewModel => (TabsViewModel)DataContext;
+
     private static TabItem? FindTabItem(DependencyObject? element)
     {
         while (element is not null and not TabItem)

@@ -444,4 +444,64 @@ public class TabsViewModelTests
         Assert.False(before.CopyRowsCommand.CanExecute(null));
         Assert.True(after.CopyRowsCommand.CanExecute(null));
     }
+
+    // ---- leaving the selected tab -------------------------------------------------------------------------------------------------
+
+    [Fact] public void A_refused_change_of_the_selection_keeps_the_tab_and_tells_the_listeners()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, Text("a.txt"), null); tabs.Add(A, Text("b.txt"), null);
+        var first = tabs.Tabs[0]; var second = tabs.Tabs[1];
+        var asked = new List<TabViewModel>();
+        var answer = false;
+        tabs.CanLeave = tab => { asked.Add(tab); return answer; };
+        var raised = new List<string?>(); tabs.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        tabs.SelectedTab = first;                                           // refused: the tab that would be left is asked
+
+        Assert.Same(second, tabs.SelectedTab);
+        Assert.Equal([second], asked);
+        Assert.Contains(nameof(TabsViewModel.SelectedTab), raised);         // a tab control that has moved already goes back
+
+        tabs.SelectedTab = second;                                          // the same tab: nothing to leave, nobody is asked
+        Assert.Single(asked);
+
+        answer = true;
+        tabs.SelectedTab = first;
+        Assert.Same(first, tabs.SelectedTab);
+        Assert.Equal([second, second], asked);
+    }
+
+    [Fact] public void Every_way_to_select_another_tab_asks_the_selected_one()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, Text("a.txt"), null); tabs.Add(A, Text("b.txt"), null);
+        tabs.CanLeave = _ => false;
+
+        tabs.TryActivate(A.Path, "a.txt");                                   // activating another tab is a selection too
+        Assert.Same(tabs.Tabs[1], tabs.SelectedTab);
+        tabs.Add(A, Text("c.txt"), null);                                    // an opened file is selected: refused, but the tab is added
+        Assert.Equal(3, tabs.Tabs.Count);
+        Assert.Same(tabs.Tabs[1], tabs.SelectedTab);
+        Assert.False(tabs.MayLeave());
+    }
+
+    [Fact] public void A_tab_that_goes_away_is_not_asked_whether_it_may_be_left()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, Text("a.txt"), null); tabs.Add(A, Text("b.txt"), null);
+        var asked = 0;
+        tabs.CanLeave = _ => { asked++; return false; };
+
+        tabs.CloseWithoutAsking(tabs.Tabs[1]);                               // the app decided: the selection moves to the neighbour
+
+        Assert.Equal(0, asked);
+        Assert.Same(tabs.Tabs[0], tabs.SelectedTab);
+
+        var replaced = tabs.Replace(tabs.Tabs[0], A, Text("a.txt"), null);   // a reload turns the tab into another one
+        Assert.True(replaced);
+        Assert.Equal(0, asked);
+        Assert.Single(tabs.Tabs);
+        Assert.Same(tabs.Tabs[0], tabs.SelectedTab);
+    }
 }

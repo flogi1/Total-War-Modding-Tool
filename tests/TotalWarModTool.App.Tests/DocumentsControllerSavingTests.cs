@@ -837,8 +837,8 @@ public class DocumentsControllerSavingTests
             var originalA = setup.Read(FileA);
             var originalB = setup.Read(FileB);
             a.Rows[0][Value] = "50";                                            // a is modified, b has the cell that cannot be committed
+            setup.Tabs.SelectedTab = a;                                         // selected first: a tab with a cell that cannot be committed is not left
             var cell = PendingCell.Invalid(b);
-            setup.Tabs.SelectedTab = a;
 
             Assert.False(await setup.Controller.SaveAsync([a, b]));
 
@@ -1008,6 +1008,100 @@ public class DocumentsControllerSavingTests
             PendingCell.Typing(a, "50");
 
             Assert.Equal(setup.Game.Texts.ProjectRemoveUnsaved, setup.Controller.UnsavedReason(setup.Project.Id));
+        }
+    }
+
+    // ---- leaving the tab and undoing with a cell in edit mode --------------------------------------------------------------------------
+
+    [Fact] public async Task Selecting_another_tab_commits_the_typed_value_as_one_step_first()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            setup.Tabs.SelectedTab = a;
+            var cell = PendingCell.Typing(a, "50");
+
+            setup.Tabs.SelectedTab = b;                                         // what a click on the header of b does
+
+            Assert.Same(b, setup.Tabs.SelectedTab);
+            Assert.Equal(1, cell.Commits);
+            Assert.Equal("50", a.Rows[0][Value]);                               // the typed value is in the document, not dropped
+            Assert.True(a.IsModified);
+            Assert.Empty(setup.Dialogs.Messages);
+            setup.History.Undo();                                               // as one step
+            Assert.Equal("42", a.Rows[0][Value]);
+            Assert.False(setup.History.CanUndo);
+        }
+    }
+
+    [Fact] public async Task A_value_that_cannot_be_committed_keeps_the_user_on_the_tab_with_the_message()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            setup.Tabs.SelectedTab = a;
+            var cell = PendingCell.Invalid(a);
+
+            setup.Tabs.SelectedTab = b;
+
+            Assert.Same(a, setup.Tabs.SelectedTab);
+            Assert.Equal(1, cell.Commits);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
+            Assert.Equal("42", a.Rows[0][Value]);
+            Assert.False(a.IsModified);
+            Assert.True(a.HasPendingEdit);                                      // the edit is still there for the user to fix or to discard
+        }
+    }
+
+    [Fact] public async Task Opening_another_file_while_a_cell_holds_an_invalid_value_leaves_the_selection_alone()
+    {
+        var setup = await CreateAsync(Table(FileA, 42), Table(FileB, 7), Table(FileC, 3));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            PendingCell.Invalid(a);
+
+            await OpenAsync(setup, FileB);                                      // the new tab is added, but the selection does not move
+
+            Assert.Equal(2, setup.Tabs.Tabs.Count);
+            Assert.Same(a, setup.Tabs.SelectedTab);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
+        }
+    }
+
+    [Fact] public async Task An_undo_commits_the_typed_value_first_and_takes_back_exactly_that_step()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            a.Rows[0][Value] = "50";                                            // an older step
+            setup.Tabs.SelectedTab = a;
+            var cell = PendingCell.Typing(a, "60");
+
+            setup.Controller.UndoCommand.Execute(null);                         // from the menu: the grid does not see this key
+
+            Assert.Equal(1, cell.Commits);
+            Assert.Equal("50", a.Rows[0][Value]);                               // the typed step is undone, the older one is still there
+            Assert.True(setup.History.CanUndo);
+            Assert.True(setup.History.CanRedo);
+            Assert.Empty(setup.Dialogs.Messages);
+        }
+    }
+
+    [Fact] public async Task An_undo_with_a_cell_that_cannot_be_committed_does_nothing_and_says_so()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            a.Rows[0][Value] = "50";
+            setup.Tabs.SelectedTab = a;
+            PendingCell.Invalid(a);
+
+            setup.Controller.UndoCommand.Execute(null);
+
+            Assert.Equal("50", a.Rows[0][Value]);                               // the older step is not undone under the user's hands
+            Assert.False(setup.History.CanRedo);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
         }
     }
 }

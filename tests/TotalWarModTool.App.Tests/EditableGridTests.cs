@@ -42,20 +42,20 @@ public class EditableGridTests
 
     private static string ControlsXamlPath() => System.IO.Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml");
 
-    private static EditableRowsTabViewModel NewTab(int rows, out RowsDocument document, out ActionHistory history, IClipboard? clipboard)
+    private static EditableRowsTabViewModel NewTab(int rows, out RowsDocument document, out ActionHistory history, IClipboard? clipboard, AppTexts? texts = null)
     {
         var data = Enumerable.Range(0, rows).Select(i => new object?[] { "k" + i, i * 10, i % 2 == 1 }).ToList();
         document = RowsDocument.ForTable("units_tables", 3, @"db\units_tables\data.tsv", Def, data);
         history = new ActionHistory();
-        return new EditableRowsTabViewModel(Source, "db/units_tables/data.tsv", Texts, _ => { }, document, history, clipboard);
+        return new EditableRowsTabViewModel(Source, "db/units_tables/data.tsv", texts ?? Texts, _ => { }, document, history, clipboard);
     }
 
     // The grid as the template of the tab view makes it: the bindings, then the data context; in a shown window with the styles of Controls.xaml.
     // The test host has no Application, so the styles go into the resources of the window.
-    private static Setup Create(int rows = 3)
+    private static Setup Create(int rows = 3, AppTexts? texts = null)
     {
         var clipboard = new FakeClipboard();
-        var tab = NewTab(rows, out var document, out var history, clipboard);
+        var tab = NewTab(rows, out var document, out var history, clipboard, texts);
         var grid = new TableGrid();
         grid.SetBinding(TableGrid.EditColumnsProperty, new Binding(nameof(EditableRowsTabViewModel.Columns)));
         grid.SetBinding(System.Windows.Controls.ItemsControl.ItemsSourceProperty, new Binding(nameof(EditableRowsTabViewModel.Rows)));
@@ -154,8 +154,9 @@ public class EditableGridTests
     [Fact] public void Committing_a_valid_cell_changes_the_document() => WithGrid(setup =>
     {
         var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
-        Assert.True(setup.Tab.HasPendingEdit);
+        Assert.False(setup.Tab.HasPendingEdit);                                             // opened, nothing typed: no change
         box.Text = "42";
+        Assert.True(setup.Tab.HasPendingEdit);
 
         Assert.True(setup.Grid.CommitEdit(DataGridEditingUnit.Cell, true));
         Pump(setup.Window);
@@ -168,15 +169,27 @@ public class EditableGridTests
         Assert.Equal("42", Assert.IsType<TextBlock>(setup.Content(1, Cost)).Text);          // back to the shown element
     });
 
-    [Fact] public void Committing_a_check_box_changes_the_document() => WithGrid(setup =>
+    [Fact] public void A_check_box_cell_ends_its_edit_right_after_the_toggle() => WithGrid(setup =>
     {
+        Select(setup, 1);
         var box = Assert.IsType<CheckBox>(BeginEdit(setup, 0, Flag));
         box.IsChecked = true;
-
-        Assert.True(setup.Grid.CommitEdit(DataGridEditingUnit.Cell, true));
+        Pump(setup.Window);                                                                 // the end of the edit is posted
 
         Assert.Equal(true, setup.Document.Rows[0][Flag]);
         Assert.True(setup.Tab.IsModified);
+        setup.History.Undo();                                                               // exactly one step
+        Assert.Equal(false, setup.Document.Rows[0][Flag]);
+        Assert.False(setup.History.CanUndo);
+        setup.History.Redo();
+        Assert.False(setup.Tab.HasPendingEdit);
+        Assert.False(Assert.IsType<CheckBox>(setup.Content(0, Flag)).IsHitTestVisible);     // the shown element again: the cell is not in edit mode
+
+        // The keys of the grid work: a real Insert key goes through the grid and inserts a row below the selected row.
+        var insert = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(setup.Grid)!, 0, Key.Insert) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+        setup.Grid.RaiseEvent(insert);
+        Assert.True(insert.Handled);
+        Assert.Equal(4, setup.Document.Rows.Count);
     });
 
     [Fact] public void An_invalid_cell_stays_in_edit_mode_and_shows_the_message() => WithGrid(setup =>
@@ -214,9 +227,12 @@ public class EditableGridTests
         box.Text = "abc";
         Assert.False(setup.Grid.CommitEdit(DataGridEditingUnit.Cell, true));                // an error is showing
 
-        var escape = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(box)!, 0, Key.Escape) { RoutedEvent = Keyboard.KeyDownEvent };
-        box.RaiseEvent(escape);
+        // What the keyboard does: the preview event first, then the key event.
+        var source = PresentationSource.FromVisual(box)!;
+        box.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Escape) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+        box.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Escape) { RoutedEvent = Keyboard.KeyDownEvent });
         Pump(setup.Window);
+        Assert.Null(setup.Tab.Notice);                                                      // Esc is the user's own decision: no notice
 
         Assert.Equal("10", Assert.IsType<TextBlock>(setup.Content(1, Cost)).Text);          // the shown element again, with the old value
         Assert.Equal(10, setup.Document.Rows[1][Cost]);
@@ -269,7 +285,6 @@ public class EditableGridTests
         Select(setup, 2, 0);
 
         Assert.Equal([0, 2], setup.Tab.SelectedRows);                                       // ascending, whatever the order of the clicks
-        Assert.Equal([0, 2], setup.Grid.SelectedRowIndexes);
 
         setup.Grid.UnselectAll();
         Assert.Empty(setup.Tab.SelectedRows);
@@ -392,9 +407,10 @@ public class EditableGridTests
     [Fact] public void In_edit_mode_the_keys_belong_to_the_editor_except_undo_and_redo() => WithGrid(setup =>
     {
         Select(setup, 1);
-        BeginEdit(setup, 1, Cost);
+        var editor = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        editor.Text = "7";
         Assert.True(setup.Tab.HasPendingEdit);
-        setup.Tab.Rows[0][Cost] = "5";                                                      // an older step in the global history
+        setup.Tab.Rows[0][Cost] = "5";                                                   // an older step in the global history
 
         foreach (var key in new[] { Key.Insert, Key.Delete })
         {
@@ -437,7 +453,8 @@ public class EditableGridTests
 
     [Fact] public void A_row_that_leaves_under_a_cell_in_edit_mode_does_not_leave_a_pending_edit_behind() => WithGrid(setup =>
     {
-        BeginEdit(setup, 1, Cost);
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        box.Text = "77";
         Assert.True(setup.Tab.HasPendingEdit);
 
         setup.History.Execute(setup.Document.DeleteRows([1]));                              // an undo or a reload does the same to the rows
@@ -445,7 +462,114 @@ public class EditableGridTests
 
         Assert.False(setup.Tab.HasPendingEdit);
         Assert.Null(setup.Tab.ValidationMessage);
+        Assert.Equal(Texts.GridEditDiscarded, setup.Tab.Notice);                            // the one case besides Esc: the user is told
         Assert.True(setup.Tab.TryCommitPendingEdit());
+    });
+
+    [Fact] public void A_cell_that_is_opened_and_not_changed_is_no_pending_change() => WithGrid(setup =>
+    {
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));                        // F2, nothing typed
+        Assert.False(setup.Tab.HasPendingEdit);
+
+        box.Text = "11";
+        Assert.True(setup.Tab.HasPendingEdit);
+        box.Text = "10";                                                                    // the old text again: the change is taken back
+        Assert.False(setup.Tab.HasPendingEdit);
+
+        // The cell is still in edit mode, so the keys belong to it.
+        Assert.False(setup.Grid.HandleKey(Key.Insert, ModifierKeys.None, true));
+        Assert.True(setup.Tab.TryCommitPendingEdit());
+        Assert.False(setup.Tab.IsModified);
+        Assert.False(setup.History.CanUndo);
+    });
+
+    [Fact] public void The_editor_undoes_its_own_typing_with_Ctrl_Z_and_the_history_is_untouched() => WithGrid(setup =>
+    {
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        box.Focus();
+        box.SelectAll();
+        box.SelectedText = "99";                                                            // typed
+        Assert.Equal("99", box.Text);
+        Assert.True(box.CanUndo);
+
+        Assert.True(setup.Grid.HandleKey(Key.Z, ModifierKeys.Control, true));
+
+        Assert.Equal("10", box.Text);                                                       // the text is back
+        Assert.False(setup.History.CanUndo);
+        Assert.Equal(10, setup.Document.Rows[1][Cost]);
+    });
+
+    [Fact] public void A_real_key_event_reaches_the_key_handling_of_the_grid() => WithGrid(setup =>
+    {
+        Select(setup, 1);
+        var insert = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(setup.Grid)!, 0, Key.Insert) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+
+        setup.Grid.RaiseEvent(insert);                                                      // no modifier: the host can do this one
+        Assert.True(insert.Handled);
+        Assert.Equal(4, setup.Document.Rows.Count);
+
+        var other = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(setup.Grid)!, 0, Key.A) { RoutedEvent = Keyboard.PreviewKeyDownEvent };
+        setup.Grid.RaiseEvent(other);
+        Assert.False(other.Handled);
+        // What the host cannot do: a key with Ctrl. Keyboard.Modifiers reads the real keyboard, which no test can press; that part is
+        // tested through HandleKey, which takes the modifiers as an argument.
+    });
+
+    private static void RaiseRightDown(UIElement target) =>
+        target.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right) { RoutedEvent = Mouse.PreviewMouseDownEvent, Source = target });
+
+    private static DataGridCell CellOf(Setup setup, int row) =>
+        Descendants<DataGridCell>(Descendants<DataGridRow>(setup.Grid).First(r => r.GetIndex() == row)).First();
+
+    [Fact] public void A_right_click_on_another_row_commits_the_cell_and_selects_the_row_under_the_mouse() => WithGrid(setup =>
+    {
+        Select(setup, 0);
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        box.Text = "42";
+
+        RaiseRightDown(CellOf(setup, 2));
+
+        Assert.Equal(42, setup.Document.Rows[1][Cost]);                                     // committed
+        Assert.False(setup.Tab.HasPendingEdit);
+        Assert.Equal([2], setup.Tab.SelectedRows);                                          // the row that was pointed at, so Delete acts on it
+    });
+
+    [Fact] public void A_right_click_on_another_row_does_nothing_while_the_cell_holds_an_invalid_value() => WithGrid(setup =>
+    {
+        Select(setup, 0);
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        box.Text = "abc";
+
+        RaiseRightDown(CellOf(setup, 2));
+
+        Assert.Same(box, setup.Content(1, Cost));                                           // the editor and its message stay
+        Assert.Equal([0], setup.Tab.SelectedRows);
+        Assert.Equal(setup.Tab.CheckCell(Cost, "abc"), setup.Tab.ValidationMessage);
+        Assert.Equal(10, setup.Document.Rows[1][Cost]);
+    });
+
+    [Fact] public void The_validation_message_follows_a_language_switch() => Sta.RunAsync(() =>
+    {
+        var ui = new UiText(System.IO.Path.Combine(RepoRoot.Find(), "locales"));
+        var setup = Create(texts: new AppTexts(ui));
+        try
+        {
+            var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+            box.Text = "abc";
+            Assert.False(setup.Grid.CommitEdit(DataGridEditingUnit.Cell, true));
+            var english = setup.Tab.ValidationMessage;
+            Assert.StartsWith("Expected a whole number", english);
+
+            ui.Load("de");
+
+            Assert.StartsWith("Erwartet wird eine ganze Zahl", setup.Tab.ValidationMessage);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+
+        return Task.CompletedTask;
     });
 
     [Fact] public void A_read_only_grid_copies_with_Ctrl_C_and_takes_no_other_key() => Sta.RunAsync(() =>
@@ -465,7 +589,7 @@ public class EditableGridTests
         return Task.CompletedTask;
     });
 
-    [Fact] public void One_grid_shows_the_tabs_one_after_another() => WithGrid(setup =>
+    [Fact] public void One_grid_shows_the_tabs_one_after_another_and_a_typed_value_is_committed_when_the_tab_is_left() => WithGrid(setup =>
     {
         var second = NewTab(2, out var secondDocument, out _, setup.Clipboard);
         Select(setup, 1);
@@ -473,7 +597,8 @@ public class EditableGridTests
         box.Text = "77";                                                                    // typed into the first tab, not committed
         Assert.NotNull(setup.Tab.CommitPendingEdit);
 
-        // What the template does when another editable tab is selected: the data context changes, the bindings follow.
+        // What the template does when another editable tab is selected: the data context changes, the bindings follow. (In the app the
+        // tab list has asked the tab before; this is the second line of defence.)
         setup.Grid.DataContext = second;
         Pump(setup.Window);
 
@@ -481,8 +606,13 @@ public class EditableGridTests
         Assert.Equal(3, setup.Grid.Columns.Count);                                          // the same definition: the columns stay
         Assert.Null(setup.Tab.CommitPendingEdit);                                           // the first tab is let go
         Assert.NotNull(second.CommitPendingEdit);
-        Assert.Equal(20, setup.Document.Rows[2][Cost]);                                     // the edit of the first tab was dropped, not carried over
+        Assert.Equal(77, setup.Document.Rows[2][Cost]);                                     // the typed value is in the first document: not dropped
+        Assert.True(setup.Tab.IsModified);
+        setup.History.Undo();                                                               // as one step
+        Assert.Equal(20, setup.Document.Rows[2][Cost]);
+        Assert.False(setup.History.CanUndo);
         Assert.False(setup.Tab.HasPendingEdit);
+        Assert.Null(setup.Tab.Notice);
         Assert.Empty(setup.Tab.SelectedRows);                                               // the first tab forgot a selection the grid does not show
         Assert.Empty(second.SelectedRows);
 
@@ -496,7 +626,7 @@ public class EditableGridTests
         Assert.True(second.IsModified);
     });
 
-    [Fact] public void A_cell_that_is_still_being_edited_is_dropped_when_the_grid_goes_away() => WithGrid(setup =>
+    [Fact] public void A_value_that_cannot_be_committed_is_dropped_with_a_notice_when_the_grid_goes_away() => WithGrid(setup =>
     {
         var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
         box.Text = "abc";
@@ -510,6 +640,19 @@ public class EditableGridTests
         Assert.Null(setup.Tab.ValidationMessage);
         Assert.Null(setup.Tab.CommitPendingEdit);
         Assert.Equal(10, setup.Document.Rows[1][Cost]);
+        Assert.Equal(Texts.GridEditDiscarded, setup.Tab.Notice);                            // not silent
+    });
+
+    [Fact] public void A_valid_value_is_committed_when_the_grid_goes_away() => WithGrid(setup =>
+    {
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        box.Text = "42";
+
+        setup.Window.Content = null;
+        Pump(setup.Window);
+
+        Assert.Equal(42, setup.Document.Rows[1][Cost]);
+        Assert.Null(setup.Tab.Notice);
     });
 
     [Fact] public void The_read_only_grid_is_unchanged() => Sta.RunAsync(() =>

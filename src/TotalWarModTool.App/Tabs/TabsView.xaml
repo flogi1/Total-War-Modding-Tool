@@ -250,8 +250,9 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <TabControl ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
-                MouseDown="OnTabControlMouseDown">
+    <TabControl x:Name="TabHost" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab, Mode=TwoWay}"
+                MouseDown="OnTabControlMouseDown" PreviewMouseLeftButtonDown="OnTabControlPreviewMouseDown"
+                PreviewKeyDown="OnTabControlPreviewKeyDown" SelectionChanged="OnTabControlSelectionChanged">
         <!--
             The header of a tab: the mark of unsaved changes (a dot in the colour of the text), the mark of an outdated tab (the colour of a
             warning), the title and the close button. The two marks are independent. Only an editable tab can be modified.

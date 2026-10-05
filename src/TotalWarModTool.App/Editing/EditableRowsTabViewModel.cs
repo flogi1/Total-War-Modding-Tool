@@ -29,11 +29,14 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     private string _header;
     private bool _pasting;
     private bool _hasPendingEdit;
-    private string? _validationMessage;
+    private Func<string?>? _validation;
     private bool _disposed;
 
     /// <summary>The number of rows from which a change of the document rebuilds <see cref="Rows"/> in one pass (see <see cref="LargeChangeRows"/>).</summary>
     internal const int DefaultLargeChangeRows = 2_000;
+
+    /// <summary>The longest text that a paste reads, in characters; a longer one is refused before it is parsed.</summary>
+    public const int DefaultMaxPasteChars = 20_000_000;
 
     /// <param name="clipboard">Where copy and paste go; null disables both commands.</param>
     public EditableRowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close,
@@ -119,15 +122,17 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     public Func<bool>? CommitPendingEdit { get; set; }
 
     /// <summary>
-    /// True while a cell is in edit mode in the grid (set by the view). The text that is typed is not part of the document yet, but saving
-    /// has to take it along, so the save commands are enabled by it.
+    /// True while a cell is in edit mode in the grid and its text differs from the value of the cell (set by the view). The text that is
+    /// typed is not part of the document yet, but saving has to take it along, so the save commands are enabled by it. A cell that is opened
+    /// and not changed is no change.
     /// </summary>
     public bool HasPendingEdit => _hasPendingEdit;
 
     /// <summary>
-    /// The message of the cell that holds an invalid value, shown in a line under the header; null while no cell has an error. Set by the view.
+    /// The message of the cell that holds an invalid value, shown in a line under the header, in the current language; null while no cell has
+    /// an error. Set by the view.
     /// </summary>
-    public string? ValidationMessage => _validationMessage;
+    public string? ValidationMessage => _validation?.Invoke();
 
     /// <summary>
     /// Commits the pending cell edit before an action that needs the document as the user sees it (save, close, build). True when nothing is
@@ -145,13 +150,63 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     }
 
     /// <summary>The view tells the message of the cell with an error, or null when there is none any more.</summary>
-    internal void SetValidationMessage(string? message) => SetProperty(ref _validationMessage, message, nameof(ValidationMessage));
+    internal void SetValidationMessage(string? message) => SetValidationCheck(message is null ? null : () => message);
+
+    /// <summary>
+    /// The view tells how to work out the message of the cell with an error (null: no error any more). The function is asked again when
+    /// the language changes, like the notice.
+    /// </summary>
+    internal void SetValidationCheck(Func<string?>? message)
+    {
+        var before = ValidationMessage;
+        _validation = message;
+        if (before != ValidationMessage)
+        {
+            OnPropertyChanged(nameof(ValidationMessage));
+        }
+    }
+
+    /// <summary>The view dropped an edit that was not committed (the row went away under it, the tab was left some other way): the user is told.</summary>
+    internal void NoteDiscardedEdit() => SetNotice(t => t.GridEditDiscarded);
+
+    /// <summary>Writes a typed text to a cell the way the grid does; false when the text is not a value of the column (nothing changes).</summary>
+    internal bool TryApplyText(EditRow row, int column, string text)
+    {
+        if (!_rows.Contains(row))
+        {
+            return false;                                                                   // the row is no longer part of the tab
+        }
+
+        try
+        {
+            SetCellFromGrid(row, column, text);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    protected override void RefreshMoreTexts()
+    {
+        if (_validation is not null)
+        {
+            OnPropertyChanged(nameof(ValidationMessage));
+        }
+    }
+
+    // The cell is committed before the text is built from the document; a value that cannot be committed keeps the grid on the screen.
+    protected override bool CanShowText() => TryCommitPendingEdit();
 
     /// <summary>
     /// A change of more than this many rows (an insert, a removal) rebuilds <see cref="Rows"/> in one pass with a single reset, instead
     /// of one collection operation per row (which costs the number of changed rows times the number of rows). Settable for tests.
     /// </summary>
     internal int LargeChangeRows { get; set; } = DefaultLargeChangeRows;
+
+    /// <summary>The limit of a paste in characters; settable so that tests need no twenty million characters.</summary>
+    internal int MaxPasteChars { get; set; } = DefaultMaxPasteChars;
 
     internal override bool IsTableEntry => _document.Kind == DocumentKind.Table;
 
@@ -419,6 +474,14 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         if (clipboard.GetText() is not { } text)
         {
             SetNotice(t => t.GridPasteNoText);
+            return;
+        }
+
+        if (text.Length > MaxPasteChars)
+        {
+            var length = text.Length;
+            var max = MaxPasteChars;
+            SetNotice(t => t.GridPasteTooLarge(length, max));
             return;
         }
 

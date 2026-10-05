@@ -297,6 +297,8 @@
   "grid.paste.refusedAtLine": "Nothing was pasted. Line {0} of the text on the clipboard: {1} Detail: {2}",
   "grid.paste.missingColumns": "Columns that the pasted text does not have got their default value: {0}.",
   "grid.paste.extraColumns": "Columns of the pasted text that this table does not have were left out: {0}.",
+  "grid.paste.tooLarge": "The text on the clipboard is too long to paste: {0} characters. At most {1} characters can be pasted at once.",
+  "grid.editDiscarded": "The value that was being typed into a cell was discarded, because the rows or the tab changed under it. Type it again if you still need it.",
   "edit.pendingInvalid.title": "Invalid value in a cell",
   "edit.pendingInvalid.message": "A cell still holds a value that is not valid. Correct the value, or press Escape to discard it, then try again."
 }

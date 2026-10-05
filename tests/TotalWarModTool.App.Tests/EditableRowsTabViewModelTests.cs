@@ -973,4 +973,75 @@ public class EditableRowsTabViewModelTests
         tab.SetPendingEdit(false);                                      // the edit is over: the message goes with it
         Assert.Equal((false, null), (tab.HasPendingEdit, tab.ValidationMessage));
     }
+
+    // ---- the switch to the text view, a large paste, a discarded edit ------------------------------------------------------------------
+
+    [Fact] public void The_switch_to_the_text_view_commits_the_pending_cell_first_and_an_invalid_value_refuses_it()
+    {
+        var (tab, document, _) = Make();
+        var committed = 0;
+        var accept = false;
+        var raised = new List<string?>(); tab.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        tab.CommitPendingEdit = () =>
+        {
+            committed++;
+            if (accept)
+            {
+                tab.Rows[1][Cost] = "77";                                   // what the grid does when it commits
+            }
+
+            return accept;
+        };
+
+        tab.ShowText = true;                                                // an invalid value: the grid stays
+
+        Assert.Equal((false, 1), (tab.ShowText, committed));
+        Assert.Contains(nameof(RowsTabViewModel.ShowText), raised);          // the switch that was clicked goes back
+        Assert.Null(tab.Text);
+
+        accept = true;
+        tab.ShowText = true;                                                // valid: committed, then the text is built from the document
+
+        Assert.True(tab.ShowText);
+        Assert.Equal(77, document.Rows[1][Cost]);
+        Assert.Contains("77", tab.Text);
+
+        tab.ShowText = false;                                               // back to the grid: nothing is asked
+        Assert.Equal(2, committed);
+    }
+
+    [Fact] public void A_text_that_is_too_long_is_refused_before_it_is_read()
+    {
+        var clipboard = new FakeClipboard { Text = TextOf(Row("p", 1), Row("q", 2)) };
+        var (tab, document, history) = Make(clipboard: clipboard);
+        tab.MaxPasteChars = clipboard.Text.Length - 1;
+
+        tab.PasteRowsCommand.Execute(null);
+
+        Assert.Equal(Texts.GridPasteTooLarge(clipboard.Text.Length, clipboard.Text.Length - 1), tab.Notice);
+        Assert.Equal(3, document.Rows.Count);
+        Assert.False(history.CanUndo);
+
+        tab.MaxPasteChars = clipboard.Text.Length;                           // exactly the limit is still read
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal(5, document.Rows.Count);
+    }
+
+    [Fact] public void A_discarded_edit_is_reported_in_the_notice_and_a_text_is_applied_only_to_a_row_of_the_tab()
+    {
+        var (tab, document, _) = Make();
+        var row = tab.Rows[1];
+
+        Assert.True(tab.TryApplyText(row, Cost, "42"));
+        Assert.Equal(42, document.Rows[1][Cost]);
+        Assert.True(tab.TryApplyText(row, Cost, "42"));                     // the same value again: no change, no second step
+        Assert.False(tab.TryApplyText(row, Cost, "abc"));                   // not a value of the column
+        Assert.Equal(42, document.Rows[1][Cost]);
+
+        tab.NoteDiscardedEdit();
+        Assert.Equal(Texts.GridEditDiscarded, tab.Notice);
+
+        tab.ReplaceDocument(RowsDocument.ForTable("units_tables", 3, "p", Def, [Row("z", 99)]));
+        Assert.False(tab.TryApplyText(row, Cost, "5"));                     // the row left the tab
+    }
 }
