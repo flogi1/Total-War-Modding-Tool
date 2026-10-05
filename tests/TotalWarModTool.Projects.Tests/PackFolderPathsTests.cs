@@ -66,9 +66,75 @@ public class PackFolderPathsTests
         }
     }
 
+    [Fact] public void ResolveForWrite_gives_the_same_full_path_as_Resolve_for_a_plain_file()
+    {
+        using var dir = new TempDir();
+
+        var read = PackFolderPaths.Resolve(dir.Path, @"db\a\x.tsv");
+        var write = PackFolderPaths.ResolveForWrite(dir.Path, "db/a/x.tsv");
+
+        Assert.Equal(PackPathProblem.None, write.Problem);
+        Assert.Equal(read.FullPath, write.FullPath);
+    }
+
+    // Resolve is the reader's rule and stays as it was; the writer's rule adds the Windows file name rules.
+    [Theory]
+    [InlineData("a.tsv:stream")]
+    [InlineData("a::$DATA")]
+    [InlineData("NUL.tsv")]
+    [InlineData("x.tsv.")]
+    [InlineData("x.tsv ")]
+    [InlineData("a\\\\b.tsv")]
+    [InlineData(".")]
+    public void ResolveForWrite_refuses_names_that_Resolve_leaves_to_the_reader(string relativeFile)
+    {
+        using var dir = new TempDir();
+
+        var write = PackFolderPaths.ResolveForWrite(dir.Path, relativeFile);
+
+        Assert.Equal(PackPathProblem.UnsafePath, write.Problem);
+        Assert.False(string.IsNullOrWhiteSpace(write.Detail));
+        Assert.Null(write.FullPath);
+    }
+
+    [Fact] public void A_path_that_is_the_pack_folder_itself_is_unsafe()
+    {
+        using var dir = new TempDir();
+
+        Assert.Equal(PackPathProblem.UnsafePath, PackFolderPaths.Resolve(dir.Path, ".").Problem);
+        Assert.Equal(PackPathProblem.UnsafePath, PackFolderPaths.ResolveForWrite(dir.Path, ".").Problem);
+    }
+
+    [Fact] public void ResolveForWrite_names_a_linked_folder_like_Resolve()
+    {
+        using var dir = new TempDir();
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        Directory.CreateDirectory(Path.Combine(dir.Path, "pack"));
+        var link = Path.Combine(dir.Path, "pack", "linked");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var write = PackFolderPaths.ResolveForWrite(dir.Path, @"linked\x.tsv");
+
+            Assert.Equal(PackPathProblem.Link, write.Problem);
+            Assert.Equal(@"pack\linked", write.LinkPath);
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
+
     [Fact] public void Null_arguments_are_thrown()
     {
         Assert.ThrowsAny<ArgumentException>(() => PackFolderPaths.Resolve(" ", "a"));
         Assert.Throws<ArgumentNullException>(() => PackFolderPaths.Resolve("p", null!));
+        Assert.ThrowsAny<ArgumentException>(() => PackFolderPaths.ResolveForWrite(" ", "a"));
+        Assert.Throws<ArgumentNullException>(() => PackFolderPaths.ResolveForWrite("p", null!));
     }
 }

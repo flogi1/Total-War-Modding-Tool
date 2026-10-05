@@ -1,3 +1,6 @@
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using TotalWarModTool.PackFiles;
 
@@ -98,20 +101,38 @@ public class ProjectFileWriterTests
         Assert.Empty(Directory.GetFileSystemEntries(other.Path));
     }
 
+    // "{tmp}" stands for the temp dir of the test. Every rooted row points into that temp dir, so that broken code would write
+    // there and not to a real drive or share. The rows that cannot be redirected (a drive-relative path, a path on the root of the
+    // current drive, a UNC path with a host that never resolves) are asserted on the result and on the unchanged temp dir only.
     [Theory]
     [InlineData("")]
     [InlineData("..\\x.tsv")]
     [InlineData("a/../../x")]
-    [InlineData("C:\\x.tsv")]
-    [InlineData("\\x")]
+    [InlineData("{tmp}\\outside.tsv")]
+    [InlineData("{tmp}\\pack\\x.tsv")]
+    [InlineData("\\\\?\\{tmp}\\outside.tsv")]
+    [InlineData("\\\\?\\{tmp}\\pack\\x.tsv")]
+    [InlineData("C:x")]
+    [InlineData("\\twmt-test-never-written.tsv")]
+    [InlineData("\\\\twmt-test-host.invalid\\share\\x.tsv")]
     [InlineData("a:stream")]
+    [InlineData("a::$DATA")]
+    [InlineData("a.tsv:stream")]
+    [InlineData("x.tsv.")]
+    [InlineData("x.tsv ")]
+    [InlineData("NUL.tsv")]
+    [InlineData("a\\\\b")]
     [InlineData("a\\\\b.tsv")]
+    [InlineData(".")]
+    [InlineData("sub\\.")]
     public void Unsafe_paths_are_refused_without_touching_the_disk(string relativeFile)
     {
         using var dir = new TempDir();
         Put(dir.Path, @"a\keep.tsv", [1]);
-        File.WriteAllBytes(Path.Combine(dir.Path, "x.tsv"), [2]);
-        File.WriteAllBytes(Path.Combine(dir.Path, "x"), [3]);
+        Directory.CreateDirectory(PackFile(dir.Path, "sub"));
+        var outside = Path.Combine(dir.Path, "outside.tsv");
+        File.WriteAllBytes(outside, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        relativeFile = relativeFile.Replace("{tmp}", dir.Path);
         var before = Snapshot(dir.Path);
 
         var result = ProjectFileWriter.WriteText(dir.Path, relativeFile, "changed");
@@ -120,7 +141,7 @@ public class ProjectFileWriterTests
         Assert.False(string.IsNullOrWhiteSpace(result.Detail));
         Assert.Null(result.Fingerprint);
         Assert.Equal(before, Snapshot(dir.Path));
-        Assert.Equal([2], File.ReadAllBytes(Path.Combine(dir.Path, "x.tsv")));
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], File.ReadAllBytes(outside));
         Assert.Null(ProjectFileWriter.Fingerprint(dir.Path, relativeFile));
     }
 
@@ -133,7 +154,7 @@ public class ProjectFileWriterTests
         Assert.Throws<ArgumentNullException>(() => ProjectFileWriter.WriteText(dir.Path, "a.tsv", null!));
     }
 
-    [Fact] public void A_linked_pack_folder_a_linked_sub_folder_and_a_linked_file_are_refused()
+    [Fact] public void A_linked_pack_folder_and_a_linked_sub_folder_are_refused()
     {
         using var dir = new TempDir();
         var outside = Path.Combine(dir.Path, "outside");
@@ -182,36 +203,116 @@ public class ProjectFileWriterTests
             Directory.Delete(folderLink);
         }
 
-        // A linked file: a symbolic link needs a privilege that is not always there, then this part is skipped.
-        var fileLink = PackFile(project, @"plain\x.tsv");
-        var fileLinkCreated = false;
+        Assert.Equal([7, 7, 7], File.ReadAllBytes(outsideFile));   // the link target is byte-identical
+        Assert.Equal(before, Snapshot(outside));
+    }
+
+    // Its own test on purpose: a symbolic link to a file needs administrator rights (or developer mode) on Windows. Where it cannot be
+    // created this test returns early, and a green run of the junction test above still proves that one ran.
+    [Fact] public void A_linked_file_is_refused()
+    {
+        using var dir = new TempDir();
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        var outsideFile = Path.Combine(outside, "x.tsv");
+        File.WriteAllBytes(outsideFile, [7, 7, 7]);
+        Directory.CreateDirectory(PackFile(dir.Path, "plain"));
+        var fileLink = PackFile(dir.Path, @"plain\x.tsv");
         try
         {
             File.CreateSymbolicLink(fileLink, outsideFile);
-            fileLinkCreated = true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // not possible in this environment
+            return;   // file links cannot be created without the privilege
         }
 
-        if (fileLinkCreated)
+        try
         {
-            try
-            {
-                var viaFile = ProjectFileWriter.WriteText(project, @"plain\x.tsv", "changed");
-                Assert.Equal(FileWriteProblem.Link, viaFile.Problem);
-                Assert.Null(viaFile.Fingerprint);
-                Assert.Null(ProjectFileWriter.Fingerprint(project, @"plain\x.tsv"));
-            }
-            finally
-            {
-                File.Delete(fileLink);
-            }
+            var result = ProjectFileWriter.WriteText(dir.Path, @"plain\x.tsv", "changed");
+
+            Assert.Equal(FileWriteProblem.Link, result.Problem);
+            Assert.Null(result.Fingerprint);
+            Assert.Null(ProjectFileWriter.Fingerprint(dir.Path, @"plain\x.tsv"));
+        }
+        finally
+        {
+            File.Delete(fileLink);   // the link itself
         }
 
-        Assert.Equal([7, 7, 7], File.ReadAllBytes(outsideFile));   // the link target is byte-identical
-        Assert.Equal(before, Snapshot(outside));
+        Assert.Equal([7, 7, 7], File.ReadAllBytes(outsideFile));
+    }
+
+    // A part of the way whose attributes cannot be read is refused for writes and is not taken for "no link". The attribute read is made
+    // to fail with access rules that deny "read attributes" on the file and "list" on its folder (either right alone is enough for the
+    // read to succeed); where the rules cannot be set the test returns early.
+    [Fact, SupportedOSPlatform("windows")] public void A_path_part_that_cannot_be_checked_is_refused_for_writes_only()
+    {
+        using var dir = new TempDir();
+        var file = Put(dir.Path, @"a\x.tsv", [1, 2, 3]);
+        var fileInfo = new FileInfo(file);
+        var folderInfo = new DirectoryInfo(Path.GetDirectoryName(file)!);
+        var user = WindowsIdentity.GetCurrent().User!;
+        var fileRule = new FileSystemAccessRule(user, FileSystemRights.ReadAttributes, AccessControlType.Deny);
+        var folderRule = new FileSystemAccessRule(user, FileSystemRights.ListDirectory, AccessControlType.Deny);
+        FileSecurity fileSecurity;
+        DirectorySecurity folderSecurity;
+        try
+        {
+            fileSecurity = fileInfo.GetAccessControl();
+            fileSecurity.AddAccessRule(fileRule);
+            fileInfo.SetAccessControl(fileSecurity);
+            folderSecurity = folderInfo.GetAccessControl();
+            folderSecurity.AddAccessRule(folderRule);
+            folderInfo.SetAccessControl(folderSecurity);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException or InvalidOperationException)
+        {
+            return;   // access rules cannot be set in this environment (a half-set rule is left to the temp dir cleanup)
+        }
+
+        try
+        {
+            if (!ReadAttributesFails(file))
+            {
+                return;   // the rules do not make the read fail on this system
+            }
+
+            var read = PackFolderPaths.Resolve(dir.Path, @"a\x.tsv");
+            var write = PackFolderPaths.ResolveForWrite(dir.Path, @"a\x.tsv");
+            var result = ProjectFileWriter.WriteText(dir.Path, @"a\x.tsv", "changed");
+
+            Assert.Equal(PackPathProblem.None, read.Problem);   // the opener's rule is unchanged
+            Assert.Equal(PackPathProblem.Link, write.Problem);
+            Assert.Equal(@"pack\a\x.tsv", write.LinkPath);
+            Assert.Contains("cannot check the folder for links", write.Detail);
+            Assert.Equal(FileWriteProblem.Link, result.Problem);
+            Assert.Contains("cannot check the folder for links", result.Detail);
+            Assert.Null(ProjectFileWriter.Fingerprint(dir.Path, @"a\x.tsv"));
+        }
+        finally
+        {
+            folderSecurity.RemoveAccessRule(folderRule);
+            folderInfo.SetAccessControl(folderSecurity);
+            fileSecurity.RemoveAccessRule(fileRule);
+            fileInfo.SetAccessControl(fileSecurity);
+        }
+
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(file));
+        Assert.Empty(TempFilesBelow(dir.Path));
+    }
+
+    private static bool ReadAttributesFails(string file)
+    {
+        try
+        {
+            File.GetAttributes(file);
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
     }
 
     [Fact] public void A_locked_file_is_reported_and_left_unchanged()
@@ -297,5 +398,71 @@ public class ProjectFileWriterTests
 
         Assert.Equal(FileFingerprint.TryRead(file), fingerprint);
         Assert.Equal(2, fingerprint!.Length);
+    }
+
+    [Fact] public void Files_that_already_have_a_temp_name_are_never_overwritten_or_deleted()
+    {
+        using var dir = new TempDir();
+        var file = Put(dir.Path, "x.tsv", [1]);
+        var takenFile = Put(dir.Path, "x.tsv.deadbeef.tmp", [9, 9]);
+        var takenFolder = PackFile(dir.Path, "x.tsv.feedface.tmp");
+        Directory.CreateDirectory(takenFolder);
+        var names = new Queue<string>(["deadbeef", "feedface", "cafebabe"]);
+
+        var result = ProjectFileWriter.WriteText(dir.Path, "x.tsv", "new", names.Dequeue);
+
+        Assert.Equal(FileWriteProblem.None, result.Problem);
+        Assert.Equal(Utf8NoBom.GetBytes("new"), File.ReadAllBytes(file));
+        Assert.Equal([9, 9], File.ReadAllBytes(takenFile));
+        Assert.True(Directory.Exists(takenFolder));
+        Assert.Equal([takenFile], TempFilesBelow(dir.Path));   // the one of this write is gone, the strangers stay
+    }
+
+    [Fact] public void When_every_temp_name_is_taken_the_write_is_Failed_and_nothing_is_touched()
+    {
+        using var dir = new TempDir();
+        var file = Put(dir.Path, "x.tsv", [1]);
+        var taken = Put(dir.Path, "x.tsv.deadbeef.tmp", [9, 9]);
+
+        var result = ProjectFileWriter.WriteText(dir.Path, "x.tsv", "new", () => "deadbeef");
+
+        Assert.Equal(FileWriteProblem.Failed, result.Problem);
+        Assert.False(string.IsNullOrWhiteSpace(result.Detail));
+        Assert.Null(result.Fingerprint);
+        Assert.Equal([1], File.ReadAllBytes(file));
+        Assert.Equal([9, 9], File.ReadAllBytes(taken));
+    }
+
+    [Fact] public void Text_with_a_lone_surrogate_is_Failed_and_nothing_is_written()
+    {
+        using var dir = new TempDir();
+        var file = Put(dir.Path, "x.tsv", [1, 2, 3]);
+        var before = Snapshot(dir.Path);
+        var lonelyHigh = "ab" + (char)0xD800 + "cd";
+        var lonelyLow = "ab" + (char)0xDC00;
+
+        foreach (var text in new[] { lonelyHigh, lonelyLow })
+        {
+            var result = ProjectFileWriter.WriteText(dir.Path, "x.tsv", text);
+
+            Assert.Equal(FileWriteProblem.Failed, result.Problem);
+            Assert.Contains("UTF-16", result.Detail);
+            Assert.Null(result.Fingerprint);
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(file));
+            Assert.Empty(TempFilesBelow(dir.Path));
+            Assert.Equal(before, Snapshot(dir.Path));
+        }
+    }
+
+    [Fact] public void A_well_formed_surrogate_pair_is_written_as_one_character()
+    {
+        using var dir = new TempDir();
+        var file = Put(dir.Path, "x.tsv", [1]);
+        var text = "a" + char.ConvertFromUtf32(0x1F600) + "b";
+
+        var result = ProjectFileWriter.WriteText(dir.Path, "x.tsv", text);
+
+        Assert.Equal(FileWriteProblem.None, result.Problem);
+        Assert.Equal([(byte)'a', 0xF0, 0x9F, 0x98, 0x80, (byte)'b'], File.ReadAllBytes(file));
     }
 }

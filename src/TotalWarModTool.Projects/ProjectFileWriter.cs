@@ -35,21 +35,30 @@ public sealed record FileWriteResult(FileWriteProblem Problem, string? Detail, F
 /// </summary>
 public static class ProjectFileWriter
 {
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    private const int TempNameAttempts = 5;
+
+    // Strict on purpose: a lone surrogate is an error, never a U+FFFD in the file.
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     /// <summary>
     /// Writes <paramref name="text"/> as UTF-8 without BOM to pack\&lt;relativeFile&gt; of the project, atomically (temp file next to the
-    /// target, then replace). The text is written as it comes, line endings included. The folder of the file must exist; no folder is
-    /// created. A missing file is created. Never throws for the file system; only argument errors are thrown. In every case other
-    /// than success the old file is unchanged and no temp file of this write is left.
+    /// target, then replace). The text is written as it comes, line endings included; text that is not well-formed UTF-16 (a lone
+    /// surrogate) is refused as <see cref="FileWriteProblem.Failed"/>. The path is checked by <see cref="PackFolderPaths.ResolveForWrite"/>.
+    /// The folder of the file must exist; no folder is created. A missing file is created. The temp file is created new (a file that
+    /// already has that name is never overwritten or deleted; another name is tried). Never throws for the file system; only argument
+    /// errors are thrown. In every case other than success the old file is unchanged and no temp file of this write is left.
     /// </summary>
-    public static FileWriteResult WriteText(string projectFolder, string relativeFile, string text)
+    public static FileWriteResult WriteText(string projectFolder, string relativeFile, string text) =>
+        WriteText(projectFolder, relativeFile, text, NewTempSuffix);
+
+    /// <summary>The overload with the source of the 8-character temp name part, so that a test can provoke a name collision.</summary>
+    internal static FileWriteResult WriteText(string projectFolder, string relativeFile, string text, Func<string> tempSuffix)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentNullException.ThrowIfNull(relativeFile);
         ArgumentNullException.ThrowIfNull(text);
 
-        var check = Check(projectFolder, relativeFile);
+        var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
         if (check.Problem == PackPathProblem.UnsafePath)
         {
             return Failure(FileWriteProblem.UnsafePath, check.Detail);
@@ -57,7 +66,17 @@ public static class ProjectFileWriter
 
         if (check.Problem == PackPathProblem.Link)
         {
-            return Failure(FileWriteProblem.Link, $"links are not supported: the path passes through the link '{check.LinkPath}'");
+            return Failure(FileWriteProblem.Link, check.Detail ?? $"links are not supported: the path passes through the link '{check.LinkPath}'");
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = Utf8NoBom.GetBytes(text);
+        }
+        catch (EncoderFallbackException)
+        {
+            return Failure(FileWriteProblem.Failed, "the text is not well-formed UTF-16 (it has an unpaired surrogate character); nothing was written");
         }
 
         var target = check.FullPath!;
@@ -67,17 +86,22 @@ public static class ProjectFileWriter
             return Failure(FileWriteProblem.Failed, "the folder of the file does not exist: " + Path.GetRelativePath(projectFolder, directory));
         }
 
-        var temp = target + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+        string? temp = null;   // set only for a temp file that this call created: only that one is ever deleted
         var replaced = false;
         try
         {
             try
             {
-                File.WriteAllText(temp, text, Utf8NoBom);
+                temp = CreateTempFile(target, bytes, tempSuffix);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
             {
                 return Failure(FileWriteProblem.Failed, "the temp file could not be written: " + ex.Message);
+            }
+
+            if (temp is null)
+            {
+                return Failure(FileWriteProblem.Failed, "no free name for the temp file was found");
             }
 
             try
@@ -93,7 +117,7 @@ public static class ProjectFileWriter
         }
         finally
         {
-            if (!replaced)
+            if (temp is not null && !replaced)
             {
                 TryDelete(temp);
             }
@@ -104,25 +128,55 @@ public static class ProjectFileWriter
 
     /// <summary>
     /// The fingerprint of pack\&lt;relativeFile&gt;, or null when the file does not exist or cannot be asked. Also null for an unsafe path
-    /// or a path through a link: nothing is read through a link.
+    /// (<see cref="PackFolderPaths.ResolveForWrite"/>) or a path through a link: nothing is read through a link.
     /// </summary>
     public static FileFingerprint? Fingerprint(string projectFolder, string relativeFile)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentNullException.ThrowIfNull(relativeFile);
 
-        var check = Check(projectFolder, relativeFile);
+        var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
         return check.Problem == PackPathProblem.None ? FileFingerprint.TryRead(check.FullPath!) : null;
     }
 
-    // The writer is stricter than the reader: a file name that Windows would not accept as it is (a stream suffix such as "a:b",
-    // a reserved device name, a trailing dot or space) is no place to write.
-    private static PackFolderPathCheck Check(string projectFolder, string relativeFile)
+    private static string NewTempSuffix() => Guid.NewGuid().ToString("N")[..8];
+
+    /// <summary>
+    /// Creates <c>target.suffix.tmp</c> with <see cref="FileMode.CreateNew"/> and writes the bytes. Returns its path, or null when every
+    /// name was taken. A name that is taken (file or folder) is never touched. A write error after the creation deletes the new file.
+    /// </summary>
+    private static string? CreateTempFile(string target, byte[] bytes, Func<string> tempSuffix)
     {
-        var reason = ProjectLayout.UnsafePathReason(relativeFile.Replace('\\', '/'));
-        return reason is null
-            ? PackFolderPaths.Resolve(projectFolder, relativeFile)
-            : new PackFolderPathCheck(PackPathProblem.UnsafePath, null, null, reason);
+        for (var attempt = 0; attempt < TempNameAttempts; attempt++)
+        {
+            var temp = target + "." + tempSuffix() + ".tmp";
+            FileStream stream;
+            try
+            {
+                stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && (File.Exists(temp) || Directory.Exists(temp)))
+            {
+                continue;   // the name is taken by something that is not ours
+            }
+
+            try
+            {
+                using (stream)
+                {
+                    stream.Write(bytes);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                TryDelete(temp);
+                throw;
+            }
+
+            return temp;
+        }
+
+        return null;
     }
 
     private static FileWriteResult Failure(FileWriteProblem problem, string? detail) => new(problem, detail, null);
@@ -133,7 +187,7 @@ public static class ProjectFileWriter
         {
             File.Delete(path);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
             // Cleanup is best effort; the problem that is reported is the one that matters.
         }
