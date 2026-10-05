@@ -81,6 +81,35 @@ public sealed class TabsViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Replaces an open tab by the tab that <see cref="Add"/> would build for the entry, at the same place. The new tab is selected when the
+    /// old one was; the old one is disposed without asking. Used when a reload turns a tab into a different kind (an editable table that can
+    /// no longer be read becomes a hint). False when the tab is not open.
+    /// </summary>
+    public bool Replace(TabViewModel old, TabSource source, OpenedEntry entry, ResolvedSchema? schema)
+    {
+        ArgumentNullException.ThrowIfNull(old);
+        var index = Tabs.IndexOf(old);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close);
+        var wasSelected = ReferenceEquals(SelectedTab, old);
+
+        // The new tab is in the list before the old one leaves, and it is selected before that, so the tab control never has to pick one.
+        Tabs.Insert(index, tab);
+        if (wasSelected)
+        {
+            SelectedTab = tab;
+        }
+
+        Tabs.RemoveAt(index + 1);
+        old.Dispose();
+        return true;
+    }
+
+    /// <summary>
     /// Closes the tab after <see cref="CanClose"/> agreed (the variant the close commands use). A tab that is not open is ignored without asking.
     /// </summary>
     public void Close(TabViewModel tab)

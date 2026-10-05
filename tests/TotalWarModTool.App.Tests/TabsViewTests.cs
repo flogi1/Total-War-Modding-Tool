@@ -283,6 +283,54 @@ public class TabsViewTests
         Assert.Equal((Visibility.Collapsed, Visibility.Visible), (modified.Visibility, stale.Visibility));
     });
 
+    [Fact] public void A_stale_editable_tab_shows_the_reload_button() => Sta.Run(() =>
+    {
+        var setup = Create();
+        var document = TotalWarModTool.Editing.RowsDocument.ForLoc("text/db/a.loc", [new LocRow("k", "Text", false)]);
+        var tab = new EditableRowsTabViewModel(TabSource.ForProject(Guid.NewGuid(), "Project"), "text/db/a.loc.tsv", Texts, setup.ViewModel.Close, document,
+            new TotalWarModTool.UndoRedo.ActionHistory());
+        var reloads = 0;
+        tab.ReloadHandler = _ => reloads++;
+        setup.ViewModel.Tabs.Add(tab);
+        setup.ViewModel.SelectedTab = tab;
+        Pump(setup.Window);
+        Button? ReloadButton() => Descendants<Button>(setup.View).SingleOrDefault(button => button.Name == "ReloadButton");
+        TextBlock? Line() => Descendants<TextBlock>(setup.View).FirstOrDefault(text => text.Text == Texts.TabStaleChanged);
+
+        // Nothing happened outside: no line, no button.
+        Assert.True(ReloadButton() is null || !ReloadButton()!.IsVisible);
+        Assert.Null(Line());
+
+        // The file was changed outside: the line says so and the button reads the file again.
+        tab.SetOutsideChange(OutsideChange.Changed);
+        Pump(setup.Window);
+        Assert.NotNull(Line());
+        var button = ReloadButton();
+        Assert.NotNull(button);
+        Assert.True(button.IsVisible);
+        Assert.Equal(Texts.TabReload, button.Content);
+        Assert.True(button.IsEnabled);
+        ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)!).Invoke();
+        Pump(setup.Window);                                                        // the automation peer posts the click
+        Assert.Equal(1, reloads);
+
+        // Own changes: the line stays, the button goes (a reload would throw them away).
+        tab.Rows[0][0] = "other";
+        Pump(setup.Window);
+        Assert.NotNull(Line());
+        Assert.False(ReloadButton()!.IsVisible);
+
+        tab.Document.MarkSaved();
+        Pump(setup.Window);
+        Assert.True(ReloadButton()!.IsVisible);
+
+        // The mark is gone (a reload or a save): the line is gone too.
+        tab.SetOutsideChange(OutsideChange.None);
+        Pump(setup.Window);
+        Assert.False(ReloadButton()!.IsVisible);
+        Assert.False(Line()?.IsVisible ?? false);
+    });
+
     [Fact] public void Text_tab_is_a_read_only_monospace_box_with_a_notice_only_when_truncated() => Sta.Run(() =>
     {
         var setup = Create();

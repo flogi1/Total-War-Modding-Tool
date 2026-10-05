@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Localization;
@@ -16,6 +17,9 @@ namespace TotalWarModTool.App;
 /// <summary>The composition root: the only place that creates the services and passes them on.</summary>
 public partial class App : Application
 {
+    // How long the window must stay activated before the open project files are checked for outside changes.
+    private static readonly TimeSpan ActivationCheckDelay = TimeSpan.FromMilliseconds(300);
+
     private SettingsAutoSaver? _autoSaver;
     private DebouncedSaver? _gameSettingsSaver;
     private DebouncedSaver? _sessionSaver;
@@ -200,6 +204,22 @@ public partial class App : Application
                 closing.Cancel = true;
             }
         };
+        // Another program may have changed the project files that are open: looked at when the window is activated again. The timer waits a
+        // moment and restarts on every activation, so a burst of them (a dialog closing, a click into the window) checks once. The decision
+        // what to check stays in the controller, which also skips the round while an operation runs. An async handler on purpose: the
+        // check never throws, a surprise reaches the global handler.
+        var activationTimer = new DispatcherTimer { Interval = ActivationCheckDelay };
+        activationTimer.Tick += async (_, _) =>
+        {
+            activationTimer.Stop();
+            await documents.CheckExternalChangesAsync();
+        };
+        window.Activated += (_, _) =>
+        {
+            activationTimer.Stop();
+            activationTimer.Start();
+        };
+
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
 

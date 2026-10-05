@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows.Input;
 using TotalWarModTool.Editing;
 using TotalWarModTool.Operations;
+using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Tables;
 
@@ -102,6 +103,9 @@ public sealed partial class DocumentsController
     /// Writes the modified tabs among <paramref name="tabs"/> through the runner (one run, "file n / total", cancellable between two files) and
     /// marks every written one as saved. A tab that was not modified counts as saved and is not written. True when every tab was saved.
     /// Problems and a cancel are shown in one message; the tabs that were not written stay modified. Nothing runs while another operation does.
+    /// Before the run, a file that was changed or deleted outside since its tab read it is asked about (one question per file): the tab is
+    /// written (overwrite, create again), reloaded (its changes are dropped) or skipped. A reloaded or skipped tab is not saved, so the result
+    /// is false, but that is the user's choice and gets no message.
     /// </summary>
     public async Task<bool> SaveAsync(IReadOnlyList<EditableRowsTabViewModel> tabs)
     {
@@ -120,7 +124,25 @@ public sealed partial class DocumentsController
         }
 
         var withProject = ListsSeveralProjects(modified);
-        var items = modified.Select(tab => NewItem(tab, withProject)).ToList();
+        var (toWrite, toReload) = ResolveOutsideChanges(modified, withProject);
+        foreach (var tab in toReload)
+        {
+            await ReloadAsync(tab);
+        }
+
+        // Nothing is left to write (every file was reloaded or skipped), or a run started during the questions.
+        if (toWrite.Count == 0)
+        {
+            return false;
+        }
+
+        if (!CanStartSave())
+        {
+            _dialogs.ShowMessage(_texts.SaveFailedTitle, _texts.ProjectBusy);
+            return false;
+        }
+
+        var items = toWrite.Select(tab => NewItem(tab, withProject)).ToList();
         var outcome = await _runner.RunAsync(_texts.OperationSaveFiles, (progress, cancellation) => WriteFiles(items, progress, cancellation));
 
         // A failed run without a value was reported by the runner already. A run that is reported as failed but has its value (its window
@@ -146,7 +168,9 @@ public sealed partial class DocumentsController
                 result.Item.Document.MarkSaved();
                 if (ReferenceEquals(result.Item.Tab.Document, result.Item.Document))
                 {
-                    result.Item.Tab.SavedFingerprint = result.Write!.Fingerprint;
+                    // The fingerprint of the own write is the new state of the file, so that the write is not taken for an outside change.
+                    _known[result.Item.Tab] = result.Write!.Fingerprint ?? TryFingerprint(result.Item.Folder!, result.Item.RelativeFile);
+                    result.Item.Tab.SetOutsideChange(OutsideChange.None);
                 }
 
                 saved++;
@@ -175,7 +199,75 @@ public sealed partial class DocumentsController
             _dialogs.ShowMessage(_texts.SaveCancelledTitle, _texts.SaveCancelledMessage(saved, items.Count));
         }
 
-        return problems.Count == 0 && !incomplete;
+        // A tab that was reloaded or skipped is not saved, whatever else happened.
+        return problems.Count == 0 && !incomplete && toWrite.Count == modified.Count;
+    }
+
+    // The questions before a save: what to do with a file that was changed or deleted outside since its tab read it. Returns the tabs to write
+    // and the tabs to reload; a tab in neither list is skipped (the user said cancel or no), and stays modified. Asks synchronously, on the UI thread,
+    // so nothing can change between the question and what follows.
+    private (List<EditableRowsTabViewModel> ToWrite, List<EditableRowsTabViewModel> ToReload) ResolveOutsideChanges(
+        IReadOnlyList<EditableRowsTabViewModel> modified, bool withProject)
+    {
+        var toWrite = new List<EditableRowsTabViewModel>();
+        var toReload = new List<EditableRowsTabViewModel>();
+        foreach (var tab in modified)
+        {
+            switch (OutsideStateOf(tab))
+            {
+                case OutsideChange.Changed:
+                    switch (_dialogs.AskConflict(DisplayName(tab, withProject)))
+                    {
+                        case ConflictChoice.Overwrite:
+                            toWrite.Add(tab);
+                            break;
+                        case ConflictChoice.Reload:
+                            toReload.Add(tab);
+                            break;
+                    }
+
+                    break;
+                case OutsideChange.Deleted:
+                    if (_dialogs.AskCreateAgain(DisplayName(tab, withProject)))
+                    {
+                        toWrite.Add(tab);
+                    }
+
+                    break;
+                default:
+                    toWrite.Add(tab);
+                    break;
+            }
+        }
+
+        return (toWrite, toReload);
+    }
+
+    // The file of the tab as it is now against the state the tab knows: gone, another one, or as known (None). A tab that is not followed, a tab
+    // whose project left the list (the save reports that) and a file that cannot be asked ("cannot tell") are None.
+    private OutsideChange OutsideStateOf(EditableRowsTabViewModel tab)
+    {
+        if (!_known.TryGetValue(tab, out var known) || FolderOf(tab.ProjectId) is not { } folder)
+        {
+            return OutsideChange.None;
+        }
+
+        FileFingerprint? current;
+        try
+        {
+            current = ProjectFileWriter.Fingerprint(folder, tab.RelativeFile);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return OutsideChange.None;
+        }
+
+        if (current is null)
+        {
+            return OutsideChange.Deleted;
+        }
+
+        return Equals(current, known) ? OutsideChange.None : OutsideChange.Changed;
     }
 
     private SaveItem NewItem(EditableRowsTabViewModel tab, bool withProject)

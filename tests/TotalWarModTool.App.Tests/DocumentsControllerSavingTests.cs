@@ -110,8 +110,8 @@ public class DocumentsControllerSavingTests
             Assert.Contains("50", setup.Read(FileA));
             Assert.False(a.IsModified);
             Assert.False(setup.Controller.HasModifiedTabs);
-            Assert.Equal(ProjectFileWriter.Fingerprint(setup.Project.Folder, FileA), a.SavedFingerprint);
-            Assert.NotNull(a.SavedFingerprint);
+            Assert.Equal(ProjectFileWriter.Fingerprint(setup.Project.Folder, FileA), setup.Controller.KnownFingerprint(a));
+            Assert.NotNull(setup.Controller.KnownFingerprint(a));
             Assert.Equal(originalB, setup.Read(FileB));
             Assert.Empty(setup.Dialogs.Messages);
 
@@ -133,6 +133,8 @@ public class DocumentsControllerSavingTests
             var b = await OpenAsync(setup, FileB);
             var c = await OpenAsync(setup, FileC);
             var originalC = setup.Read(FileC);
+            var knownC = setup.Controller.KnownFingerprint(c);
+            Assert.NotNull(knownC);                                                 // taken when the tab was opened
             a.Rows[0][Value] = "50";
             b.Rows[0][Value] = "8";
             var runs = setup.Game.Runner.Titles.Count; var reports = setup.Game.Runner.Reports.Count;
@@ -148,9 +150,9 @@ public class DocumentsControllerSavingTests
             Assert.False(a.IsModified);
             Assert.False(b.IsModified);
             Assert.False(setup.Controller.HasModifiedTabs);
-            Assert.NotNull(a.SavedFingerprint);
-            Assert.NotNull(b.SavedFingerprint);
-            Assert.Null(c.SavedFingerprint);
+            Assert.NotNull(setup.Controller.KnownFingerprint(a));
+            Assert.Equal(ProjectFileWriter.Fingerprint(setup.Project.Folder, FileB), setup.Controller.KnownFingerprint(b));
+            Assert.Equal(knownC, setup.Controller.KnownFingerprint(c));        // not written: still the state at open
         }
     }
 
@@ -160,6 +162,7 @@ public class DocumentsControllerSavingTests
         using (setup)
         {
             var original = setup.Read(FileA);
+            var knownA = setup.Controller.KnownFingerprint(a);
             a.Rows[0][Value] = "50";
             b.Rows[0][Value] = "8";
 
@@ -175,7 +178,7 @@ public class DocumentsControllerSavingTests
             Assert.DoesNotContain("db/x_tables/b.tsv", message);
             Assert.True(a.IsModified);
             Assert.Equal(original, setup.Read(FileA));
-            Assert.Null(a.SavedFingerprint);
+            Assert.Equal(knownA, setup.Controller.KnownFingerprint(a));        // not written: still the state at open
 
             // The other file was written and is saved.
             Assert.False(b.IsModified);

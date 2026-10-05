@@ -6,6 +6,18 @@ using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
 
+/// <summary>What happened to the file of a project tab outside the tool, after the tab read it.</summary>
+internal enum OutsideChange
+{
+    None,
+
+    /// <summary>Another program wrote the file.</summary>
+    Changed,
+
+    /// <summary>The file is gone.</summary>
+    Deleted,
+}
+
 /// <summary>
 /// One open entry. Created by <see cref="TabFactory"/>; <see cref="CloseCommand"/> hands the tab to the owner of the tab list.
 /// Texts that come from <see cref="AppTexts"/> are computed again when the language changes (<see cref="RefreshTexts"/>); data stays as it is.
@@ -14,11 +26,17 @@ namespace TotalWarModTool.App;
 public abstract class TabViewModel : ObservableObject, IDisposable
 {
     private readonly AppTexts _texts;
+
+    // The marks that are set. What is shown is the strongest of them (_stale); clearing the outside marks brings back a schema mark under them.
+    private bool _schemaStale;
+    private bool _packStale;
+    private OutsideChange _outside;
     private StaleKind _stale;
     private string _staleText = string.Empty;
     private bool _disposed;
 
-    private enum StaleKind { None, Schema, Pack }
+    // In the order of strength: a later one wins over every earlier one.
+    private enum StaleKind { None, Schema, Pack, ChangedOutside, DeletedOutside }
 
     protected TabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close)
     {
@@ -48,8 +66,14 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     /// <summary>"&lt;source name&gt;: &lt;entry path&gt;"; both are data, not UI texts.</summary>
     public string ToolTip { get; }
 
-    /// <summary>True when the pack changed on disk or the schema changed after the tab was opened; the tab shows the old content.</summary>
+    /// <summary>
+    /// True when the pack changed on disk, the schema changed or the file of a project tab was changed or deleted outside after the tab
+    /// was opened; the tab shows the old content.
+    /// </summary>
     public bool IsStale => _stale != StaleKind.None;
+
+    /// <summary>True when the file of a project tab was changed or deleted outside (not the pack or the schema); see <see cref="SetOutsideChange"/>.</summary>
+    public bool IsStaleOutside => _outside != OutsideChange.None;
 
     /// <summary>The tooltip of the stale mark in the current language: what changed. Empty while the tab is not stale.</summary>
     public string StaleText => _staleText;
@@ -79,20 +103,44 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     internal virtual bool IsTableEntry => false;
 
     /// <summary>The pack changed. This wins over a change of the schema.</summary>
-    internal void MarkStale() => SetStale(StaleKind.Pack);
-
-    /// <summary>The schema changed. Does not replace a mark that is already there.</summary>
-    internal void MarkSchemaStale()
+    internal void MarkStale()
     {
-        if (_stale == StaleKind.None)
-        {
-            SetStale(StaleKind.Schema);
-        }
+        _packStale = true;
+        UpdateStale();
     }
 
-    private void SetStale(StaleKind kind)
+    /// <summary>The schema changed. A mark of another kind that is already there stays what is shown, and the schema mark stays under it.</summary>
+    internal void MarkSchemaStale()
     {
-        if (_stale == kind)
+        _schemaStale = true;
+        UpdateStale();
+    }
+
+    /// <summary>
+    /// Sets what happened to the file of a project tab outside: it was changed, it was deleted, or nothing (<see cref="OutsideChange.None"/>
+    /// clears both, which a reload or a successful save does). The new value replaces the old one; deleted wins over changed, both win over
+    /// the schema mark, and clearing them leaves the schema mark.
+    /// </summary>
+    internal void SetOutsideChange(OutsideChange change)
+    {
+        _outside = change;
+        UpdateStale();
+    }
+
+    /// <summary>Called after what <see cref="IsStale"/> and <see cref="IsStaleOutside"/> report has changed.</summary>
+    protected virtual void OnStaleChanged()
+    {
+    }
+
+    private void UpdateStale()
+    {
+        var kind = _outside switch
+        {
+            OutsideChange.Deleted => StaleKind.DeletedOutside,
+            OutsideChange.Changed => StaleKind.ChangedOutside,
+            _ => _packStale ? StaleKind.Pack : _schemaStale ? StaleKind.Schema : StaleKind.None,
+        };
+        if (kind == _stale)
         {
             return;
         }
@@ -100,16 +148,21 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         var wasStale = IsStale;
         _stale = kind;
         SetProperty(ref _staleText, StaleTextFor(kind), nameof(StaleText));
-        if (!wasStale)
+        if (wasStale != IsStale)
         {
             OnPropertyChanged(nameof(IsStale));
         }
+
+        OnPropertyChanged(nameof(IsStaleOutside));
+        OnStaleChanged();
     }
 
     private string StaleTextFor(StaleKind kind) => kind switch
     {
         StaleKind.Pack => _texts.TabStale,
         StaleKind.Schema => _texts.TabStaleSchema,
+        StaleKind.ChangedOutside => _texts.TabStaleChanged,
+        StaleKind.DeletedOutside => _texts.TabStaleDeleted,
         _ => string.Empty,
     };
 

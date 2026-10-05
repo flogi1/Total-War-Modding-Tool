@@ -27,6 +27,32 @@
             </StackPanel>
         </DataTemplate>
 
+        <!--
+            The line of a project tab whose file was changed or deleted outside: what happened (the same text as the tool tip of the mark) and the
+            button that reads the file again. The button shows only while the tab has no changes of its own (CanReload). DataContext is the tab.
+        -->
+        <DataTemplate x:Key="OutsideChangeBar">
+            <DockPanel Margin="6,2,6,4" LastChildFill="True">
+                <Button x:Name="ReloadButton" DockPanel.Dock="Right" Margin="12,0,0,0" Padding="10,2" VerticalAlignment="Center"
+                        Command="{Binding ReloadCommand}"
+                        Content="{Binding DataContext.Texts.TabReload, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        Visibility="{Binding CanReload, Converter={StaticResource BoolToVisibility}}" />
+                <TextBlock Text="{Binding StaleText}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource Theme.Warning}" />
+            </DockPanel>
+        </DataTemplate>
+
+        <!--
+            An editable table or loc file of a project: the line of an outside change above the header. The editable grid takes the rest of
+            the tab with the grid task of the plan.
+        -->
+        <DataTemplate DataType="{x:Type local:EditableRowsTabViewModel}">
+            <DockPanel>
+                <ContentPresenter x:Name="OutsideChange" DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource OutsideChangeBar}"
+                                  Visibility="{Binding IsStaleOutside, Converter={StaticResource BoolToVisibility}}" />
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
+            </DockPanel>
+        </DataTemplate>
+
         <!-- A table: the line above the grid with the switch beside it, the notice (only in the text view), then the grid or the text. The grid builds its columns from the names. -->
         <DataTemplate DataType="{x:Type local:TableTabViewModel}">
             <DockPanel>

@@ -318,6 +318,9 @@ public sealed partial class ProjectsController
         }
     }
 
+    /// <summary>The schema of the workspace that <see cref="OpenFileAsync"/> decodes tables with; null when there is none. The hint tabs show what it knows.</summary>
+    public ResolvedSchema? Schema => _workspace.Schema;
+
     /// <summary>Opens one file of the pack folder of a project with the current schema, through the runner. Null for an unknown project, when nothing can be started or the run did not finish.</summary>
     public async Task<OpenedEntry?> OpenFileAsync(Guid id, string relativeFile)
     {

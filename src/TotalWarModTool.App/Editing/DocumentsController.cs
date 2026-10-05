@@ -96,37 +96,54 @@ public sealed partial class DocumentsController
     // ---- opening ---------------------------------------------------------------------------------------------------------------------
 
     // An entry of a project that is a table or loc file in text form and was read without a problem gets an editable tab; everything else
-    // keeps the tab the factory makes (null).
+    // keeps the tab the factory makes (null). Called for every entry that is opened, so it also notes the state of the file of a project
+    // entry for the tab that is made next (see Track).
     private TabViewModel? CreateEditableTab(TabSource source, OpenedEntry entry, Action<TabViewModel> close)
     {
-        if (!TabSource.TryGetProjectId(source.Key, out _) || entry.ReadProblem != EntryProblem.None)
+        if (!TabSource.TryGetProjectId(source.Key, out var projectId))
         {
             return null;
         }
 
-        var (packPath, kind) = ProjectLayout.FromRelativeFile(entry.EntryPath.Replace('/', '\\'));
+        NoteOpening(projectId, source, entry);
+        if (entry.ReadProblem != EntryProblem.None)
+        {
+            return null;
+        }
+
         try
         {
-            RowsDocument document;
-            switch (kind)
+            if (CreateDocument(entry) is not { } document)
             {
-                case ProjectFileKind.Table when entry.Table is { Status: TableDecodeStatus.Ok, Definition: { } definition } table:
-                    document = RowsDocument.ForTable(table.TableName, table.Version, packPath, definition, table.Rows);
-                    break;
-                case ProjectFileKind.Loc when entry.Loc is { Status: LocDecodeStatus.Ok } loc:
-                    document = RowsDocument.ForLoc(packPath, loc.Rows);
-                    break;
-                default:
-                    return null;
+                return null;
             }
 
-            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history);
+            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history)
+            {
+                ReloadHandler = tab => RunDetached(() => ReloadAsync(tab), "Reloading a tab"),
+            };
         }
         catch (ArgumentException ex)
         {
             // An unsupported field type or a row with a wrong cell count: the file is shown read-only instead.
             _log.Warn($"The file \"{DisplayText.Safe(entry.EntryPath)}\" cannot be edited and is shown read-only: {DisplayText.Safe(ex.Message)}");
             return null;
+        }
+    }
+
+    // The document of an entry that can be edited (a table or loc file in text form that was decoded), else null. Throws ArgumentException for
+    // content that the document cannot carry.
+    private static RowsDocument? CreateDocument(OpenedEntry entry)
+    {
+        var (packPath, kind) = ProjectLayout.FromRelativeFile(entry.EntryPath.Replace('/', '\\'));
+        switch (kind)
+        {
+            case ProjectFileKind.Table when entry.Table is { Status: TableDecodeStatus.Ok, Definition: { } definition } table:
+                return RowsDocument.ForTable(table.TableName, table.Version, packPath, definition, table.Rows);
+            case ProjectFileKind.Loc when entry.Loc is { Status: LocDecodeStatus.Ok } loc:
+                return RowsDocument.ForLoc(packPath, loc.Rows);
+            default:
+                return null;
         }
     }
 
@@ -205,6 +222,7 @@ public sealed partial class DocumentsController
             added.PropertyChanged += OnTabPropertyChanged;
         }
 
+        SyncFingerprints();
         UpdateModified();
     }
 

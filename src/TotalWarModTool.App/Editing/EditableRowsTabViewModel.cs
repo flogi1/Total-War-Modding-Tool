@@ -4,7 +4,6 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
 using TotalWarModTool.Editing;
-using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
 using TotalWarModTool.UndoRedo;
@@ -24,6 +23,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     private readonly RowCollection _rows;
     private readonly RelayCommand _deleteRowsCommand;
     private readonly RelayCommand _duplicateRowsCommand;
+    private readonly RelayCommand _reloadCommand;
     private RowsDocument _document;
     private string _header;
     private IReadOnlyList<int> _selectedRows = [];
@@ -48,6 +48,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         _deleteRowsCommand = new RelayCommand(DeleteRows, HasSelection);
         _duplicateRowsCommand = new RelayCommand(DuplicateRows, HasSelection);
         InsertRowCommand = new RelayCommand(InsertRow);
+        _reloadCommand = new RelayCommand(() => ReloadHandler?.Invoke(this), () => CanReload);
         Subscribe(document);
     }
 
@@ -71,11 +72,17 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     /// <summary>True while the document differs from the state at its last save. Raises <c>PropertyChanged</c>; the tab header shows a mark.</summary>
     public override bool IsModified => _document.IsModified;
 
+    /// <summary>What the reload button does; set by <see cref="DocumentsController"/>. Without it the command does nothing.</summary>
+    internal Action<EditableRowsTabViewModel>? ReloadHandler { get; set; }
+
+    /// <summary>Reads the file again and replaces the content of the tab. Enabled when <see cref="CanReload"/>.</summary>
+    public ICommand ReloadCommand => _reloadCommand;
+
     /// <summary>
-    /// The state of the file right after the last save of this tab (null before the first save). A later check for outside changes compares
-    /// the file with it.
+    /// True when the file was changed or deleted outside and the tab has no changes of its own: only then is the reload button offered. A tab with
+    /// changes is reloaded only through the question that comes with saving it.
     /// </summary>
-    internal FileFingerprint? SavedFingerprint { get; set; }
+    public bool CanReload => IsStaleOutside && !IsModified;
 
     /// <summary>The rows the user selected, as indexes; set by the view. Indexes outside the rows are ignored by the commands.</summary>
     public IReadOnlyList<int> SelectedRows
@@ -135,6 +142,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         OnPropertyChanged(nameof(Document));
         OnPropertyChanged(nameof(Columns));
         OnPropertyChanged(nameof(IsModified));
+        RaiseReloadChanged();
         OnPropertyChanged(nameof(IsTableEntry));
         OnPropertyChanged(nameof(SelectedRows));
         RaiseSelectionCommandsChanged();
@@ -279,7 +287,19 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         _rows.ReplaceAll(rows);
     }
 
-    private void OnModifiedChanged(object? sender, EventArgs e) => OnPropertyChanged(nameof(IsModified));
+    private void OnModifiedChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(IsModified));
+        RaiseReloadChanged();
+    }
+
+    protected override void OnStaleChanged() => RaiseReloadChanged();
+
+    private void RaiseReloadChanged()
+    {
+        OnPropertyChanged(nameof(CanReload));
+        _reloadCommand.RaiseCanExecuteChanged();
+    }
 
     private string HeaderText() => _document.Kind == DocumentKind.Table
         ? Texts.TabTableHeader(_document.TableName, _document.Version, _document.Rows.Count)

@@ -13,6 +13,19 @@ public enum SaveChoice
     Cancel,
 }
 
+/// <summary>The answer to the question what to do with a file that was changed outside while the tab has changes of its own.</summary>
+public enum ConflictChoice
+{
+    /// <summary>Write the content of the tab over the outside version.</summary>
+    Overwrite,
+
+    /// <summary>Throw the changes of the tab away and read the outside version.</summary>
+    Reload,
+
+    /// <summary>Do nothing with this file; the tab stays modified.</summary>
+    Cancel,
+}
+
 /// <summary>Everything the editing commands ask or tell the user. The fake in the tests records the calls.</summary>
 public interface IEditDialogs
 {
@@ -30,4 +43,16 @@ public interface IEditDialogs
     /// continue"; closing the question counts as cancel (false).
     /// </summary>
     bool AskSaveAllBeforeBuild(IReadOnlyList<string> files);
+
+    /// <summary>
+    /// Asked before a file is saved that was changed outside since the tab read it; the tab has changes of its own. <paramref name="file"/> is
+    /// a display name (already escaped). Closing the question counts as <see cref="ConflictChoice.Cancel"/>.
+    /// </summary>
+    ConflictChoice AskConflict(string file);
+
+    /// <summary>
+    /// Asked before a file is saved that was deleted outside: write it again from the tab? <paramref name="file"/> as for
+    /// <see cref="AskConflict"/>. True to write it; closing the question counts as no (false).
+    /// </summary>
+    bool AskCreateAgain(string file);
 }

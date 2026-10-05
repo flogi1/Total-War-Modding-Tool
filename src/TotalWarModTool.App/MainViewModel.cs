@@ -54,6 +54,13 @@ public sealed class MainViewModel : ObservableObject
                 projects.Reload();
                 await Explorer.RefreshProjectFilesAsync();
             }
+
+            // Also the open project files: a file that another program changed does not change the state of its project, so
+            // ProjectsController.Changed is not raised for it. Silent, like the check when the window is activated.
+            if (documents is not null)
+            {
+                await documents.CheckExternalChangesAsync();
+            }
         }, () => workspace.CanStartOperation && workspace.Profile is not null);
         workspace.PackChanged += (_, pack) => Tabs.MarkStale(pack.Path);
         _seenSchema = workspace.Schema;

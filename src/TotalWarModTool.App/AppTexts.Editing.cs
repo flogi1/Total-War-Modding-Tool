@@ -115,6 +115,33 @@ public sealed partial class AppTexts
     public string SaveCancelledMessage(int saved, int total) =>
         F("save.cancelled.message", "Saving was cancelled. {0} of {1} files were saved; the others are still modified.", saved, total);
 
+    // ---- changes of the files from outside ----------------------------------------------------------------------------------------
+
+    /// <summary>The tool tip of the stale mark and the line in the tab: the file of a project tab was changed by another program.</summary>
+    public string TabStaleChanged => T("tab.staleChanged", "The file was changed outside. This tab shows the old content.");
+
+    /// <summary>The tool tip of the stale mark and the line in the tab: the file of a project tab was deleted by another program.</summary>
+    public string TabStaleDeleted => T("tab.staleDeleted", "The file was deleted outside. This tab shows the content from before.");
+
+    /// <summary>The button that reads the file of a stale tab again; also the "reload" answer of the conflict question.</summary>
+    public string TabReload => T("tab.reload", "Reload");
+
+    /// <summary>The title of the message when a tab cannot be reloaded because another operation runs.</summary>
+    public string ReloadFailedTitle => T("reload.failed.title", "Reload not possible");
+
+    public string ConflictTitle => T("conflict.title", "File changed outside");
+
+    public string ConflictMessage => T("conflict.message",
+        "The file was changed outside since you opened it. Overwrite replaces that version with yours. Reload drops your changes and shows the outside version.");
+
+    public string ConflictOverwrite => T("conflict.overwrite", "Overwrite");
+
+    public string DeletedTitle => T("deleted.title", "File deleted outside");
+
+    public string DeletedMessage => T("deleted.message", "The file was deleted outside. Create it again with the content of this tab?");
+
+    public string DeletedCreateAgain => T("deleted.createAgain", "Create again");
+
     public string ActionFailedTitle => T("action.failed.title", "Action failed");
 
     /// <param name="reason">Why the action failed; technical text of the exception, escaped. Data, not a UI text.</param>

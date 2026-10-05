@@ -475,6 +475,29 @@ public class MainViewModelWorkspaceTests
         Assert.True(m.Main.Explorer.Groups[0].Children.OfType<ProjectNode>().Single().HasProblem);
     }
 
+    [Fact] public async Task Refresh_also_checks_the_open_project_files_for_outside_changes()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c, withDocuments: true);
+        await c.LoadAsync();
+        var definition = new TotalWarModTool.Schema.TableDefinition(0, [new TotalWarModTool.Schema.FieldDefinition("value", TotalWarModTool.Schema.FieldType.I32, "I32", false, null)]);
+        string Table(int value) => TotalWarModTool.Tables.TableTsv.Write("x_tables", 0, "db/x_tables/a", definition, [[value]]).Text!;
+        var state = game.NewProject(m.Projects, "Alpha", (@"db\x_tables\a.tsv", Table(42)));
+        await m.Main.OpenProjectFileAsync(state.Id, @"db\x_tables\a.tsv");
+        var tab = Assert.Single(m.Main.Tabs.Tabs);
+        Assert.False(tab.IsStale);
+
+        // The project itself does not change, so no event of the project list would tell: only the check after F5 finds it.
+        var path = Path.Combine(state.Folder, "pack", "db", "x_tables", "a.tsv");
+        var before = File.GetLastWriteTimeUtc(path);
+        File.WriteAllText(path, Table(43));
+        File.SetLastWriteTimeUtc(path, before.AddMinutes(5));
+        m.Main.RefreshCommand.Execute(null);
+
+        await WaitUntil(() => tab.IsStale);
+        Assert.Equal(game.Texts.TabStaleChanged, tab.StaleText);
+    }
+
     [Fact] public async Task The_project_status_shows_the_first_line_and_the_whole_text_as_tool_tip()
     {
         using var game = new TestGame();
