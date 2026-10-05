@@ -478,6 +478,43 @@ public class DocumentsControllerSavingTests
         }
     }
 
+    [Fact] public async Task A_failure_of_the_question_also_tells_the_user()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            a.Rows[0][Value] = "50";
+            setup.Dialogs.WhileAsking = () => throw new InvalidOperationException("the dialog broke");
+
+            setup.Tabs.Close(a);                                                // the close button must not do nothing silently
+
+            var (title, message) = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.ActionFailedTitle, title);
+            Assert.Equal(setup.Game.Texts.ActionFailedMessage("the dialog broke"), message);
+            Assert.Contains(a, setup.Tabs.Tabs);
+        }
+    }
+
+    [Fact] public async Task When_the_message_about_a_failure_cannot_be_shown_either_it_is_only_logged()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            a.Rows[0][Value] = "50";
+            setup.Dialogs.WhileAsking = () => throw new InvalidOperationException("the dialog broke");
+            setup.Dialogs.ShowMessageFailure = new InvalidOperationException("no window");
+            var errors = setup.Game.Log.Errors.Count;
+
+            setup.Tabs.Close(a);                                                // does not throw
+
+            Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(errors + 2, setup.Game.Log.Errors.Count);              // the failure, then the message that could not be shown
+            Assert.Equal("the dialog broke", setup.Game.Log.Exceptions[^2]!.Message);
+            Assert.Equal("no window", setup.Game.Log.Exceptions[^1]!.Message);
+            Assert.Contains(a, setup.Tabs.Tabs);
+        }
+    }
+
     // ---- closing the app -------------------------------------------------------------------------------------------------------
 
     [Fact] public async Task Closing_the_app_with_modified_tabs_asks_once()
@@ -561,6 +598,39 @@ public class DocumentsControllerSavingTests
             Assert.Single(setup.Dialogs.UnsavedAsks);
             runner.Complete();
             Assert.Equal(1, closed);
+        }
+    }
+
+    [Fact] public async Task A_second_app_close_request_while_the_question_is_open_is_refused_and_after_Cancel_the_next_one_asks_again()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var closed = 0;
+            bool? nested = null;
+            var asksInside = -1;
+            a.Rows[0][Value] = "50";
+            setup.Dialogs.WhileAsking = () =>
+            {
+                if (nested is null)                                             // the question of the first request is open right now
+                {
+                    nested = setup.Controller.RequestAppClose(() => closed++);
+                    asksInside = setup.Dialogs.UnsavedAsks.Count;
+                }
+            };
+
+            Assert.False(setup.Controller.RequestAppClose(() => closed++));     // the fake answers Cancel
+
+            Assert.False(nested);
+            Assert.Equal(1, asksInside);                                        // the second request did not ask a second time
+            Assert.Single(setup.Dialogs.UnsavedAsks);
+            Assert.Equal(0, closed);
+
+            setup.Dialogs.WhileAsking = null;
+            Assert.False(setup.Controller.RequestAppClose(() => closed++));     // the question is over: this one asks again
+
+            Assert.Equal(2, setup.Dialogs.UnsavedAsks.Count);
+            Assert.Equal(0, closed);
         }
     }
 

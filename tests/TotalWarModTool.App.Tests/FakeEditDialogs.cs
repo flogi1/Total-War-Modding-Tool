@@ -15,6 +15,9 @@ internal sealed class FakeEditDialogs : IEditDialogs
     /// <summary>Runs inside a question before the answer is returned: lets a test change the world while the dialog is open, or throw.</summary>
     public Action? WhileAsking { get; set; }
 
+    /// <summary>Thrown by <see cref="ShowMessage"/> after the message was recorded: a window that cannot be shown.</summary>
+    public Exception? ShowMessageFailure { get; set; }
+
     public List<(string Title, string Message)> Messages { get; } = [];
 
     /// <summary>The file list of every <see cref="AskUnsaved"/> call.</summary>
@@ -23,7 +26,14 @@ internal sealed class FakeEditDialogs : IEditDialogs
     /// <summary>The file list of every <see cref="AskSaveAllBeforeBuild"/> call.</summary>
     public List<IReadOnlyList<string>> BuildAsks { get; } = [];
 
-    public void ShowMessage(string title, string message) => Messages.Add((title, message));
+    public void ShowMessage(string title, string message)
+    {
+        Messages.Add((title, message));
+        if (ShowMessageFailure is { } failure)
+        {
+            throw failure;
+        }
+    }
 
     public SaveChoice AskUnsaved(IReadOnlyList<string> files)
     {

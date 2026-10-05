@@ -258,6 +258,8 @@
   "save.problem.refused": "Der Inhalt kann nicht als Text geschrieben werden.",
   "save.cancelled.title": "Speichern abgebrochen",
   "save.cancelled.message": "Das Speichern wurde abgebrochen. {0} von {1} Dateien wurden gespeichert, die übrigen sind weiterhin geändert.",
+  "action.failed.title": "Aktion fehlgeschlagen",
+  "action.failed.message": "Die Aktion konnte nicht abgeschlossen werden. Grund: {0}",
   "unsaved.title": "Ungespeicherte Änderungen",
   "unsaved.message": "In diesen Dateien gibt es Änderungen, die nicht gespeichert sind. Was soll damit geschehen?",
   "unsaved.save": "Speichern",

@@ -5,9 +5,6 @@ namespace TotalWarModTool.App;
 /// <summary>The WPF side of <see cref="IEditDialogs"/>: message boxes and <see cref="ChoiceWindow"/> questions owned by the main window. Wiring only.</summary>
 public sealed class EditDialogs : IEditDialogs
 {
-    // A question lists at most this many files; the rest is one line that says how many are missing.
-    private const int MaxListedFiles = 10;
-
     private readonly AppTexts _texts;
     private readonly Func<Window?> _owner;
 
@@ -49,12 +46,7 @@ public sealed class EditDialogs : IEditDialogs
     // The first button is the safe one (save) and the default; the last is cancel.
     private int Ask(string message, IReadOnlyList<string> files, IReadOnlyList<string> buttons, int cancelIndex)
     {
-        var lines = files.Take(MaxListedFiles).ToList();
-        if (files.Count > MaxListedFiles)
-        {
-            lines.Add(_texts.ReportMoreLines(files.Count - MaxListedFiles));
-        }
-
+        var lines = CappedLines.Of(files, _texts.ReportMoreLines);
         var window = new ChoiceWindow(_texts.UnsavedTitle, message, lines, buttons, defaultIndex: 0, cancelIndex);
         if (_owner() is { IsLoaded: true } owner)
         {

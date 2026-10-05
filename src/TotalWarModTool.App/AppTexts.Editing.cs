@@ -115,6 +115,11 @@ public sealed partial class AppTexts
     public string SaveCancelledMessage(int saved, int total) =>
         F("save.cancelled.message", "Saving was cancelled. {0} of {1} files were saved; the others are still modified.", saved, total);
 
+    public string ActionFailedTitle => T("action.failed.title", "Action failed");
+
+    /// <param name="reason">Why the action failed; technical text of the exception, escaped. Data, not a UI text.</param>
+    public string ActionFailedMessage(string reason) => F("action.failed.message", "The action could not be completed. Reason: {0}", reason);
+
     public string UnsavedTitle => T("unsaved.title", "Unsaved changes");
 
     public string UnsavedMessage => T("unsaved.message", "These files have changes that are not saved. What should happen to them?");

@@ -258,6 +258,8 @@
   "save.problem.refused": "The content cannot be written as text.",
   "save.cancelled.title": "Saving cancelled",
   "save.cancelled.message": "Saving was cancelled. {0} of {1} files were saved; the others are still modified.",
+  "action.failed.title": "Action failed",
+  "action.failed.message": "The action could not be completed. Reason: {0}",
   "unsaved.title": "Unsaved changes",
   "unsaved.message": "These files have changes that are not saved. What should happen to them?",
   "unsaved.save": "Save",

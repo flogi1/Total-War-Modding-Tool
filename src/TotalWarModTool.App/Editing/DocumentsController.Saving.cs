@@ -11,9 +11,6 @@ namespace TotalWarModTool.App;
 // Saving the modified tabs and the guards for unsaved changes: closing a tab, closing the app, removing a project, building.
 public sealed partial class DocumentsController
 {
-    // A message lists at most this many files; the rest is one line that says how many are missing.
-    private const int MaxMessageLines = 10;
-
     // A project name in a message shows at most this many characters, as elsewhere.
     private const int MaxNameChars = 100;
 
@@ -68,16 +65,34 @@ public sealed partial class DocumentsController
     }
 
     // Starts work whose result nobody awaits (a command, a close request). async void on purpose: the exceptions that such work can meet at
-    // the edge of the app (a dialog, the runner, the window) are logged here, anything else is a surprise and reaches the global handler.
+    // the edge of the app (a dialog, the runner, the window) are logged here and shown to the user, so that a button never silently does
+    // nothing. Anything else is a surprise and reaches the global handler.
     private async void RunDetached(Func<Task> work, string what)
     {
         try
         {
             await work();
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException or Win32Exception)
+        catch (Exception ex) when (IsEdgeFailure(ex))
         {
             _log.Error($"{what} failed unexpectedly.", ex);
+            TellFailure(ex);
+        }
+    }
+
+    private static bool IsEdgeFailure(Exception ex) =>
+        ex is InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException or Win32Exception;
+
+    // A message that cannot be shown either (no window) is only logged: there is nobody left to tell.
+    private void TellFailure(Exception failure)
+    {
+        try
+        {
+            _dialogs.ShowMessage(_texts.ActionFailedTitle, _texts.ActionFailedMessage(Shown(failure.Message, MaxDetailChars)));
+        }
+        catch (Exception ex) when (IsEdgeFailure(ex))
+        {
+            _log.Error("The message about the failure could not be shown.", ex);
         }
     }
 
@@ -146,12 +161,7 @@ public sealed partial class DocumentsController
         RaiseSaveCommandsChanged();
         if (problems.Count > 0)
         {
-            var lines = problems.Take(MaxMessageLines).ToList();
-            if (problems.Count > MaxMessageLines)
-            {
-                lines.Add(_texts.ReportMoreLines(problems.Count - MaxMessageLines));
-            }
-
+            var lines = CappedLines.Of(problems, _texts.ReportMoreLines);
             var message = _texts.SaveFailedSummary(problems.Count) + "\n\n" + string.Join("\n", lines);
             if (incomplete)
             {
