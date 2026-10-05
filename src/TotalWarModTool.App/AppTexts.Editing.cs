@@ -96,6 +96,12 @@ public sealed partial class AppTexts
     public string SaveProblemProjectGone => T("save.problem.projectGone",
         "The project of this file is no longer in the list, so the file cannot be written.");
 
+    public string SaveProblemChangedAgain => T("save.problem.changedAgain",
+        "The file was changed outside again while the save was waiting, so nothing was written. Save again to decide what should happen.");
+
+    public string SaveProblemCannotCheck => T("save.problem.cannotCheck",
+        "The file cannot be checked for outside changes, so nothing was written. Make sure the file and its folders are accessible, then save again.");
+
     public string SaveProblemRefused => T("save.problem.refused", "The content cannot be written as text.");
 
     /// <summary>The text for a write problem; empty for <see cref="FileWriteProblem.None"/>.</summary>

@@ -1,4 +1,5 @@
 using TotalWarModTool.Editing;
+using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
@@ -50,12 +51,15 @@ public class DocumentsControllerExternalTests
         }
     }
 
-    private static async Task<Setup> CreateAsync(params (string RelativeFile, string Text)[] files)
+    private static Task<Setup> CreateAsync(params (string RelativeFile, string Text)[] files) => CreateWithRunnerAsync(null, files);
+
+    // The projects (which read the files) get their own runner when one is given; the documents controller keeps the fake of the game.
+    private static async Task<Setup> CreateWithRunnerAsync(IOperationRunner? projectsRunner, params (string RelativeFile, string Text)[] files)
     {
         var game = new TestGame();
         var workspace = game.NewController();
         await workspace.LoadAsync();
-        var projects = game.NewProjects(workspace);
+        var projects = game.NewProjects(workspace, projectsRunner);
         var project = game.NewProject(projects, "Alpha", files);
         var tabs = new TabsViewModel(game.Texts);
         var history = new ActionHistory();
@@ -511,12 +515,67 @@ public class DocumentsControllerExternalTests
         {
             var a = await OpenAsync(setup, FileA);
             setup.ChangeOutside(FileA, TextOf(FileA, 77));
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
             setup.Game.Runner.IsRunning = true;
 
             await setup.Controller.ReloadAsync(a).WaitAsync(Guard);
 
             Assert.Equal((setup.Game.Texts.ReloadFailedTitle, setup.Game.Texts.ProjectBusy), Assert.Single(setup.Dialogs.Messages));
             Assert.Equal("42", a.Rows[0][Value]);
+        }
+    }
+
+    [Fact] public async Task Reload_does_nothing_for_a_tab_that_is_not_stale_or_that_became_modified_before_the_handler_ran()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            setup.ChangeOutside(FileA, TextOf(FileA, 77));
+            var runs = setup.Game.Runner.Titles.Count;
+
+            await setup.Controller.ReloadAsync(a).WaitAsync(Guard);              // not marked yet: no reload button, no reload
+            Assert.Equal("42", a.Rows[0][Value]);
+
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
+            Assert.True(a.CanReload);
+            a.Rows[0][Value] = "50";                                            // the user typed before the handler of the click ran
+            Assert.False(a.CanReload);
+
+            a.ReloadHandler!(a);
+            await setup.Controller.ReloadAsync(a).WaitAsync(Guard);
+
+            Assert.Equal("50", a.Rows[0][Value]);
+            Assert.True(a.IsModified);
+            Assert.Equal(runs, setup.Game.Runner.Titles.Count);                  // the file was not even read
+            Assert.Empty(setup.Dialogs.Messages);
+        }
+    }
+
+    [Fact] public async Task A_tab_that_becomes_modified_while_its_file_is_read_keeps_its_content()
+    {
+        var runner = new ManualOperationRunner();
+        var setup = await CreateWithRunnerAsync(runner, Table(FileA, 42));
+        using (setup)
+        {
+            var opening = OpenAsync(setup, FileA);
+            await runner.WaitForRun().WaitAsync(Guard);
+            runner.Complete();
+            var a = await opening.WaitAsync(Guard);
+            setup.ChangeOutside(FileA, TextOf(FileA, 77));
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
+            Assert.True(a.CanReload);
+
+            var reload = setup.Controller.ReloadAsync(a);                        // waits for the read
+            await runner.WaitForRun().WaitAsync(Guard);
+            a.Rows[0][Value] = "50";
+            runner.Complete();
+            await reload.WaitAsync(Guard);
+
+            Assert.Equal("50", a.Rows[0][Value]);
+            Assert.True(a.IsModified);
+            Assert.Same(a, setup.Tabs.Tabs[0]);
+            Assert.True(a.IsStaleOutside);
         }
     }
 
@@ -737,6 +796,168 @@ public class DocumentsControllerExternalTests
             Assert.True(await setup.Controller.SaveAsync([a]));
 
             Assert.False(a.IsStale);
+        }
+    }
+
+    // ---- a file that changes while a question is open --------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(ConflictChoice.Overwrite)]
+    [InlineData(ConflictChoice.Cancel)]
+    public async Task A_file_that_changes_while_the_question_for_another_file_is_open_is_not_written(ConflictChoice answer)
+    {
+        var setup = await CreateAsync(Table(FileA, 42), Table(FileB, 7));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            var b = await OpenAsync(setup, FileB);
+            a.Rows[0][Value] = "50";
+            b.Rows[0][Value] = "8";
+            setup.ChangeOutside(FileB, TextOf(FileB, 98));                      // b is asked about; a looks unchanged
+            setup.Dialogs.ConflictAnswer = answer;
+            setup.Dialogs.WhileAsking = () => setup.ChangeOutside(FileA, TextOf(FileA, 99));   // the question for b is open: another program writes a
+
+            Assert.False(await setup.Controller.SaveAsync([a, b]));
+
+            Assert.Equal(["db/x_tables/b.tsv"], setup.Dialogs.ConflictAsks);
+            Assert.Equal(TextOf(FileA, 99), setup.Read(FileA));                  // the outside content is still there
+            Assert.True(a.IsModified);
+            Assert.Equal(setup.Game.Texts.TabStaleChanged, a.StaleText);
+            var (title, message) = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.SaveFailedTitle, title);
+            Assert.Contains("db/x_tables/a.tsv", message);
+            Assert.Contains(setup.Game.Texts.SaveProblemChangedAgain, message);
+            Assert.DoesNotContain("db/x_tables/b.tsv", message);
+            if (answer == ConflictChoice.Overwrite)
+            {
+                Assert.Equal(b.Document.ToText().Text, setup.Read(FileB));
+                Assert.False(b.IsModified);
+            }
+            else
+            {
+                Assert.Equal(TextOf(FileB, 98), setup.Read(FileB));
+                Assert.True(b.IsModified);
+            }
+
+            // The stored state of a is still the old one, so the next save asks.
+            setup.Dialogs.WhileAsking = null;
+            setup.Dialogs.ConflictAnswers.Enqueue(ConflictChoice.Overwrite);
+            Assert.True(await setup.Controller.SaveAsync([a]));
+            Assert.Equal(a.Document.ToText().Text, setup.Read(FileA));
+            Assert.Equal(["db/x_tables/b.tsv", "db/x_tables/a.tsv"], setup.Dialogs.ConflictAsks);
+        }
+    }
+
+    [Fact] public async Task A_file_that_changes_again_while_its_own_Overwrite_question_is_open_is_not_written()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            a.Rows[0][Value] = "50";
+            setup.ChangeOutside(FileA, TextOf(FileA, 98));
+            setup.Dialogs.ConflictAnswer = ConflictChoice.Overwrite;
+            setup.Dialogs.WhileAsking = () => setup.ChangeOutside(FileA, TextOf(FileA, 97));   // newer than what the user was asked about
+
+            Assert.False(await setup.Controller.SaveAsync([a]));
+
+            Assert.Equal(TextOf(FileA, 97), setup.Read(FileA));
+            Assert.True(a.IsModified);
+            Assert.Equal(setup.Game.Texts.TabStaleChanged, a.StaleText);
+            Assert.Contains(setup.Game.Texts.SaveProblemChangedAgain, Assert.Single(setup.Dialogs.Messages).Message);
+        }
+    }
+
+    [Fact] public async Task A_file_that_is_written_again_outside_while_the_create_again_question_is_open_is_not_overwritten()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            a.Rows[0][Value] = "50";
+            setup.DeleteOutside(FileA);
+            setup.Dialogs.CreateAgainAnswer = true;
+            setup.Dialogs.WhileAsking = () => File.WriteAllText(setup.PathOf(FileA), TextOf(FileA, 77));
+
+            Assert.False(await setup.Controller.SaveAsync([a]));
+
+            Assert.Equal(TextOf(FileA, 77), setup.Read(FileA));
+            Assert.True(a.IsModified);
+            Assert.Equal(setup.Game.Texts.TabStaleChanged, a.StaleText);       // it is there again, but not as the tab read it
+            Assert.Contains(setup.Game.Texts.SaveProblemChangedAgain, Assert.Single(setup.Dialogs.Messages).Message);
+        }
+    }
+
+    [Fact] public async Task A_change_found_at_save_time_marks_the_tab_even_when_the_user_cancels()
+    {
+        var setup = await CreateAsync(Table(FileA, 42), Table(FileB, 7));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            var b = await OpenAsync(setup, FileB);
+            a.Rows[0][Value] = "50";
+            b.Rows[0][Value] = "8";
+            setup.ChangeOutside(FileA, TextOf(FileA, 99));
+            setup.DeleteOutside(FileB);
+
+            Assert.False(await setup.Controller.SaveAsync([a]));                // the fake answers Cancel
+            Assert.False(await setup.Controller.SaveAsync([b]));                // and no
+
+            Assert.Equal(setup.Game.Texts.TabStaleChanged, a.StaleText);
+            Assert.Equal(setup.Game.Texts.TabStaleDeleted, b.StaleText);
+            Assert.True(a.IsModified);
+            Assert.True(b.IsModified);
+        }
+    }
+
+    // ---- a file that cannot be told --------------------------------------------------------------------------------------------------
+
+    [Fact] public async Task A_file_that_cannot_be_asked_is_neither_marked_deleted_nor_written_over()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            a.Rows[0][Value] = "50";
+            var path = setup.PathOf(FileA);
+            File.Delete(path);
+            Directory.CreateDirectory(path);                                    // a folder in the place of the file: the state is unknown
+
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
+            Assert.False(a.IsStale);
+
+            Assert.False(await setup.Controller.SaveAsync([a]));
+
+            Assert.Empty(setup.Dialogs.ConflictAsks);
+            Assert.Empty(setup.Dialogs.CreateAgainAsks);
+            var (title, message) = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.SaveFailedTitle, title);
+            Assert.Contains(setup.Game.Texts.SaveProblemCannotCheck, message);
+            Assert.Contains("db/x_tables/a.tsv", message);
+            Assert.True(a.IsModified);
+            Assert.True(Directory.Exists(path));
+            Assert.False(a.IsStale);
+        }
+    }
+
+    [Fact] public async Task A_tab_with_no_known_state_and_a_file_that_cannot_be_asked_is_not_written()
+    {
+        var setup = await CreateAsync();
+        using (setup)
+        {
+            var document = RowsDocument.ForLoc("text/db/a.loc", [new LocRow("k", "Text", false)]);
+            var tab = new EditableRowsTabViewModel(setup.Source, "db/x_tables/a:b.tsv", setup.Game.Texts, _ => { }, document, setup.History);
+            setup.Tabs.Tabs.Add(tab);                                           // an unsafe path (an alternate data stream): nothing can be asked
+            Assert.Null(setup.Controller.KnownFingerprint(tab));
+            tab.Rows[0][0] = "other";
+
+            Assert.False(await setup.Controller.SaveAsync([tab]));
+
+            Assert.Empty(setup.Dialogs.ConflictAsks);
+            Assert.Empty(setup.Dialogs.CreateAgainAsks);
+            Assert.Contains(setup.Game.Texts.SaveProblemCannotCheck, Assert.Single(setup.Dialogs.Messages).Message);
+            Assert.True(tab.IsModified);
+            Assert.False(tab.IsStale);
         }
     }
 

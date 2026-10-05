@@ -255,6 +255,8 @@
   "save.problem.locked": "The file is in use by another program or is read-only. Close it in the other program, then save again.",
   "save.problem.failed": "The file could not be written.",
   "save.problem.projectGone": "The project of this file is no longer in the list, so the file cannot be written.",
+  "save.problem.changedAgain": "The file was changed outside again while the save was waiting, so nothing was written. Save again to decide what should happen.",
+  "save.problem.cannotCheck": "The file cannot be checked for outside changes, so nothing was written. Make sure the file and its folders are accessible, then save again.",
   "save.problem.refused": "The content cannot be written as text.",
   "save.cancelled.title": "Saving cancelled",
   "save.cancelled.message": "Saving was cancelled. {0} of {1} files were saved; the others are still modified.",

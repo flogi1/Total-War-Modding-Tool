@@ -21,11 +21,32 @@ public sealed partial class DocumentsController
     private bool _appCloseConfirmed;
 
     /// <summary>One file to write: the document and the folder are read on the UI thread, so the work on the pool thread touches no tab.</summary>
-    private sealed record SaveItem(EditableRowsTabViewModel Tab, RowsDocument Document, string? Folder, string RelativeFile, string Name);
+    private sealed record SaveItem(EditableRowsTabViewModel Tab, RowsDocument Document, string? Folder, string RelativeFile, string Name, Expectation Expected);
 
-    private enum SaveFailure { None, ProjectGone, Refused, Write }
+    private enum SaveFailure { None, ProjectGone, Refused, Write, ChangedAgain, CannotCheck }
 
-    private sealed record SaveResult(SaveItem Item, SaveFailure Failure, FileWriteResult? Write, string? Detail);
+    /// <param name="Seen">What the check right before the write found; set for <see cref="SaveFailure.ChangedAgain"/> and <see cref="SaveFailure.CannotCheck"/>.</param>
+    private sealed record SaveResult(SaveItem Item, SaveFailure Failure, FileWriteResult? Write, string? Detail, FileProbe? Seen = null);
+
+    private enum ExpectKind { Unchecked, Matches, Absent, CannotCheck }
+
+    /// <summary>
+    /// The state of the file that a write is allowed to replace: the state the user was asked about, or the one the tab knows. The write reads
+    /// the file again right before it and does not write when the file is in another state (another program was faster).
+    /// </summary>
+    private sealed record Expectation(ExpectKind Kind, FileFingerprint? Fingerprint = null)
+    {
+        /// <summary>A tab that is not followed: nothing to compare with.</summary>
+        public static readonly Expectation Unchecked = new(ExpectKind.Unchecked);
+
+        /// <summary>The file was not there when the user answered "create again".</summary>
+        public static readonly Expectation Absent = new(ExpectKind.Absent);
+
+        /// <summary>The file could not be asked and the tab knows no state to compare with: the file is not written.</summary>
+        public static readonly Expectation CannotCheck = new(ExpectKind.CannotCheck);
+
+        public static Expectation Matches(FileFingerprint fingerprint) => new(ExpectKind.Matches, fingerprint);
+    }
 
     /// <summary>Saves the selected tab. Disabled unless it is an editable tab with changes, and while an operation runs.</summary>
     public ICommand SaveCommand => _saveCommand;
@@ -127,7 +148,7 @@ public sealed partial class DocumentsController
         var (toWrite, toReload) = ResolveOutsideChanges(modified, withProject);
         foreach (var tab in toReload)
         {
-            await ReloadAsync(tab);
+            await ReloadCoreAsync(tab, discardChanges: true);
         }
 
         // Nothing is left to write (every file was reloaded or skipped), or a run started during the questions.
@@ -142,7 +163,7 @@ public sealed partial class DocumentsController
             return false;
         }
 
-        var items = toWrite.Select(tab => NewItem(tab, withProject)).ToList();
+        var items = toWrite.Select(entry => NewItem(entry.Tab, withProject, entry.Expected)).ToList();
         var outcome = await _runner.RunAsync(_texts.OperationSaveFiles, (progress, cancellation) => WriteFiles(items, progress, cancellation));
 
         // A failed run without a value was reported by the runner already. A run that is reported as failed but has its value (its window
@@ -177,6 +198,12 @@ public sealed partial class DocumentsController
             }
             else
             {
+                if (result.Failure == SaveFailure.ChangedAgain && result.Seen is { } seen)
+                {
+                    // The file is in a state the tab does not know; the stored fingerprint stays, so that the next save asks.
+                    result.Item.Tab.SetOutsideChange(seen.State == FileProbeState.Missing ? OutsideChange.Deleted : OutsideChange.Changed);
+                }
+
                 problems.Add(_texts.SaveProblemLine(result.Item.Name, ProblemText(result)));
             }
         }
@@ -203,23 +230,30 @@ public sealed partial class DocumentsController
         return problems.Count == 0 && !incomplete && toWrite.Count == modified.Count;
     }
 
-    // The questions before a save: what to do with a file that was changed or deleted outside since its tab read it. Returns the tabs to write
-    // and the tabs to reload; a tab in neither list is skipped (the user said cancel or no), and stays modified. Asks synchronously, on the UI thread,
-    // so nothing can change between the question and what follows.
-    private (List<EditableRowsTabViewModel> ToWrite, List<EditableRowsTabViewModel> ToReload) ResolveOutsideChanges(
+    // The questions before a save: what to do with a file that was changed or deleted outside since its tab read it. Returns the tabs to write,
+    // each with the state of its file that the write may replace, and the tabs to reload; a tab in neither list is skipped (the user said cancel
+    // or no), and stays modified. A change that is found is marked on the tab at once, whatever the answer. The questions are modal: another
+    // program can change a file while one is open, which is why the write checks the file again (see WriteOne).
+    private (List<(EditableRowsTabViewModel Tab, Expectation Expected)> ToWrite, List<EditableRowsTabViewModel> ToReload) ResolveOutsideChanges(
         IReadOnlyList<EditableRowsTabViewModel> modified, bool withProject)
     {
-        var toWrite = new List<EditableRowsTabViewModel>();
+        var toWrite = new List<(EditableRowsTabViewModel, Expectation)>();
         var toReload = new List<EditableRowsTabViewModel>();
         foreach (var tab in modified)
         {
-            switch (OutsideStateOf(tab))
+            var (change, expected) = Observe(tab);
+            if (change != OutsideChange.None)
+            {
+                tab.SetOutsideChange(change);
+            }
+
+            switch (change)
             {
                 case OutsideChange.Changed:
                     switch (_dialogs.AskConflict(DisplayName(tab, withProject)))
                     {
                         case ConflictChoice.Overwrite:
-                            toWrite.Add(tab);
+                            toWrite.Add((tab, expected));
                             break;
                         case ConflictChoice.Reload:
                             toReload.Add(tab);
@@ -230,12 +264,12 @@ public sealed partial class DocumentsController
                 case OutsideChange.Deleted:
                     if (_dialogs.AskCreateAgain(DisplayName(tab, withProject)))
                     {
-                        toWrite.Add(tab);
+                        toWrite.Add((tab, expected));
                     }
 
                     break;
                 default:
-                    toWrite.Add(tab);
+                    toWrite.Add((tab, expected));
                     break;
             }
         }
@@ -243,37 +277,35 @@ public sealed partial class DocumentsController
         return (toWrite, toReload);
     }
 
-    // The file of the tab as it is now against the state the tab knows: gone, another one, or as known (None). A tab that is not followed, a tab
-    // whose project left the list (the save reports that) and a file that cannot be asked ("cannot tell") are None.
-    private OutsideChange OutsideStateOf(EditableRowsTabViewModel tab)
+    // The file of the tab as it is now against the state the tab knows. Change: gone (Deleted), another state (Changed) or as known (None).
+    // Expected: the state that a write may replace, which is the state seen now, or the known one when the file cannot be asked. A file that
+    // cannot be told is not asked about: it is written only when the write itself can compare it with the known state, otherwise it is not written.
+    // A tab that is not followed has nothing to compare with, and a tab whose project left the list is reported by the save.
+    private (OutsideChange Change, Expectation Expected) Observe(EditableRowsTabViewModel tab)
     {
         if (!_known.TryGetValue(tab, out var known) || FolderOf(tab.ProjectId) is not { } folder)
         {
-            return OutsideChange.None;
+            return (OutsideChange.None, Expectation.Unchecked);
         }
 
-        FileFingerprint? current;
-        try
+        var probe = TryProbe(folder, tab.RelativeFile);
+        switch (probe.State)
         {
-            current = ProjectFileWriter.Fingerprint(folder, tab.RelativeFile);
+            case FileProbeState.Missing:
+                return (OutsideChange.Deleted, Expectation.Absent);
+            case FileProbeState.Present when Equals(probe.Fingerprint, known):
+                return (OutsideChange.None, Expectation.Matches(probe.Fingerprint!));
+            case FileProbeState.Present:
+                return (OutsideChange.Changed, Expectation.Matches(probe.Fingerprint!));
+            default:
+                return (OutsideChange.None, known is null ? Expectation.CannotCheck : Expectation.Matches(known));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            return OutsideChange.None;
-        }
-
-        if (current is null)
-        {
-            return OutsideChange.Deleted;
-        }
-
-        return Equals(current, known) ? OutsideChange.None : OutsideChange.Changed;
     }
 
-    private SaveItem NewItem(EditableRowsTabViewModel tab, bool withProject)
+    private SaveItem NewItem(EditableRowsTabViewModel tab, bool withProject, Expectation expected)
     {
         var folder = _projects.Projects.FirstOrDefault(state => state.Id == tab.ProjectId)?.Folder;
-        return new SaveItem(tab, tab.Document, folder, tab.RelativeFile, DisplayName(tab, withProject));
+        return new SaveItem(tab, tab.Document, folder, tab.RelativeFile, DisplayName(tab, withProject), expected);
     }
 
     // Runs on a pool thread and touches only what the items hold. The progress of file n is reported before the token is looked at, so that
@@ -319,6 +351,30 @@ public sealed partial class DocumentsController
             return new SaveResult(item, SaveFailure.Refused, null, text.Detail);
         }
 
+        // Right before the write: the file must still be in the state that the user was asked about (or that the tab knows). Not a lock, but it
+        // closes the long gap of the questions and of the reload runs.
+        if (item.Expected.Kind != ExpectKind.Unchecked)
+        {
+            if (item.Expected.Kind == ExpectKind.CannotCheck)
+            {
+                return new SaveResult(item, SaveFailure.CannotCheck, null, null);
+            }
+
+            var seen = TryProbe(item.Folder, item.RelativeFile);
+            if (seen.State == FileProbeState.Unknown)
+            {
+                return new SaveResult(item, SaveFailure.CannotCheck, null, seen.Detail, seen);
+            }
+
+            var unchanged = item.Expected.Kind == ExpectKind.Absent
+                ? seen.State == FileProbeState.Missing
+                : seen.State == FileProbeState.Present && Equals(seen.Fingerprint, item.Expected.Fingerprint);
+            if (!unchanged)
+            {
+                return new SaveResult(item, SaveFailure.ChangedAgain, null, null, seen);
+            }
+        }
+
         var write = ProjectFileWriter.WriteText(item.Folder, item.RelativeFile, text.Text);
         return new SaveResult(item, write.Problem == FileWriteProblem.None ? SaveFailure.None : SaveFailure.Write, write, null);
     }
@@ -335,6 +391,13 @@ public sealed partial class DocumentsController
                 break;
             case SaveFailure.Refused:
                 text = _texts.SaveProblemRefused;
+                detail = result.Detail;
+                break;
+            case SaveFailure.ChangedAgain:
+                text = _texts.SaveProblemChangedAgain;
+                break;
+            case SaveFailure.CannotCheck:
+                text = _texts.SaveProblemCannotCheck;
                 detail = result.Detail;
                 break;
             default:

@@ -164,6 +164,73 @@ public class ProjectFileWriterTests
         Assert.Throws<ArgumentNullException>(() => ProjectFileWriter.WriteText(dir.Path, "a.tsv", null!));
     }
 
+    [Fact] public void Probe_of_an_existing_file_is_Present_with_the_fingerprint_of_Fingerprint()
+    {
+        using var dir = new TempDir();
+        Put(dir.Path, @"db\units_tables\a.tsv", [1, 2, 3]);
+
+        var probe = ProjectFileWriter.Probe(dir.Path, @"db\units_tables\a.tsv");
+
+        Assert.Equal(FileProbeState.Present, probe.State);
+        Assert.Equal(ProjectFileWriter.Fingerprint(dir.Path, @"db\units_tables\a.tsv"), probe.Fingerprint);
+        Assert.Equal(3, probe.Fingerprint!.Length);
+        Assert.Null(probe.Detail);
+    }
+
+    [Fact] public void Probe_of_a_missing_file_a_missing_folder_and_a_missing_pack_folder_is_Missing()
+    {
+        using var dir = new TempDir();
+        Put(dir.Path, @"db\units_tables\a.tsv", [1]);
+        using var empty = new TempDir();
+
+        foreach (var (project, file) in new[] { (dir.Path, @"db\units_tables\b.tsv"), (dir.Path, @"other\deep\b.tsv"), (empty.Path, "a.tsv") })
+        {
+            var probe = ProjectFileWriter.Probe(project, file);
+
+            Assert.Equal(FileProbeState.Missing, probe.State);
+            Assert.Null(probe.Fingerprint);
+            Assert.Null(probe.Detail);
+        }
+
+        File.Delete(PackFile(dir.Path, @"db\units_tables\a.tsv"));
+        Assert.Equal(FileProbeState.Missing, ProjectFileWriter.Probe(dir.Path, @"db\units_tables\a.tsv").State);
+    }
+
+    [Theory]
+    [InlineData(@"..\outside.tsv")]
+    [InlineData("")]
+    [InlineData("a.tsv:stream")]
+    public void Probe_of_an_unsafe_path_is_Unknown_with_a_detail(string relativeFile)
+    {
+        using var dir = new TempDir();
+        Put(dir.Path, "a.tsv", [1]);
+
+        var probe = ProjectFileWriter.Probe(dir.Path, relativeFile);
+
+        Assert.Equal(FileProbeState.Unknown, probe.State);
+        Assert.Null(probe.Fingerprint);
+        Assert.False(string.IsNullOrWhiteSpace(probe.Detail));
+    }
+
+    [Fact] public void Probe_of_a_folder_in_the_place_of_the_file_is_Unknown()
+    {
+        using var dir = new TempDir();
+        Directory.CreateDirectory(PackFile(dir.Path, @"db\a.tsv"));
+
+        var probe = ProjectFileWriter.Probe(dir.Path, @"db\a.tsv");
+
+        Assert.Equal(FileProbeState.Unknown, probe.State);
+        Assert.False(string.IsNullOrWhiteSpace(probe.Detail));
+    }
+
+    [Fact] public void Probe_throws_argument_errors()
+    {
+        using var dir = new TempDir();
+
+        Assert.ThrowsAny<ArgumentException>(() => ProjectFileWriter.Probe(" ", "a.tsv"));
+        Assert.Throws<ArgumentNullException>(() => ProjectFileWriter.Probe(dir.Path, null!));
+    }
+
     [Fact] public void A_linked_pack_folder_and_a_linked_sub_folder_are_refused()
     {
         using var dir = new TempDir();

@@ -220,6 +220,9 @@ public partial class App : Application
             activationTimer.Start();
         };
 
+        // No check after the window is gone.
+        window.Closed += (_, _) => activationTimer.Stop();
+
         _ = new WindowPlacementTracker(window, settings);
         window.Show();
 

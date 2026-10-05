@@ -255,6 +255,8 @@
   "save.problem.locked": "Die Datei wird von einem anderen Programm benutzt oder ist schreibgeschützt. Schließe sie dort und speichere erneut.",
   "save.problem.failed": "Die Datei konnte nicht geschrieben werden.",
   "save.problem.projectGone": "Das Projekt dieser Datei steht nicht mehr in der Liste, deshalb kann die Datei nicht geschrieben werden.",
+  "save.problem.changedAgain": "Die Datei wurde während des Wartens beim Speichern erneut außerhalb geändert, deshalb wurde nichts geschrieben. Speichere noch einmal, um zu entscheiden, was geschehen soll.",
+  "save.problem.cannotCheck": "Die Datei kann nicht auf Änderungen von außen geprüft werden, deshalb wurde nichts geschrieben. Stelle sicher, dass die Datei und ihre Ordner zugänglich sind, und speichere dann erneut.",
   "save.problem.refused": "Der Inhalt kann nicht als Text geschrieben werden.",
   "save.cancelled.title": "Speichern abgebrochen",
   "save.cancelled.message": "Das Speichern wurde abgebrochen. {0} von {1} Dateien wurden gespeichert, die übrigen sind weiterhin geändert.",

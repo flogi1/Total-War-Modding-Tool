@@ -28,7 +28,7 @@ public sealed partial class DocumentsController
     /// <summary>The file of one tab, read on the UI thread so that the work on the pool thread touches no tab.</summary>
     private sealed record CheckItem(TabViewModel Tab, string Folder, string RelativeFile, FileFingerprint Known);
 
-    private sealed record CheckResult(CheckItem Item, FileFingerprint? Current, bool Unknown);
+    private sealed record CheckResult(CheckItem Item, FileProbe Probe);
 
     /// <summary>The fingerprint a tab holds for its file (see the comment of the store); null when nothing is known or the tab is not followed. For tests.</summary>
     internal FileFingerprint? KnownFingerprint(TabViewModel tab) => _known.TryGetValue(tab, out var fingerprint) ? fingerprint : null;
@@ -41,18 +41,22 @@ public sealed partial class DocumentsController
 
     private static string RelativeFileOf(TabViewModel tab) => tab.EntryPath.Replace('/', '\\');
 
-    // The fingerprint of the file; null when it does not exist. A file that cannot be asked counts as unknown (null): nothing is marked then.
-    private static FileFingerprint? TryFingerprint(string folder, string relativeFile)
+    // Present (with fingerprint), missing, or unknown (access error, a link on the path, an unsafe path): never throws for the file system.
+    // Safe on any thread.
+    private static FileProbe TryProbe(string folder, string relativeFile)
     {
         try
         {
-            return ProjectFileWriter.Fingerprint(folder, relativeFile);
+            return ProjectFileWriter.Probe(folder, relativeFile);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return null;
+            return new FileProbe(FileProbeState.Unknown, null, "the file cannot be asked: " + ex.Message);
         }
     }
+
+    // The fingerprint of the file; null when it is missing or cannot be told (nothing trustworthy is known then).
+    private static FileFingerprint? TryFingerprint(string folder, string relativeFile) => TryProbe(folder, relativeFile).Fingerprint;
 
     // What to remember for an entry that was just read, and the mark it starts with. Null when the project is not in the list.
     private Opening? DescribeOpening(Guid projectId, OpenedEntry entry)
@@ -62,16 +66,22 @@ public sealed partial class DocumentsController
             return null;
         }
 
-        var fingerprint = TryFingerprint(folder, entry.EntryPath.Replace('/', '\\'));
+        var probe = TryProbe(folder, entry.EntryPath.Replace('/', '\\'));
+        var fingerprint = probe.Fingerprint;
         if (entry.ReadProblem != EntryProblem.None)
         {
             return new Opening(fingerprint, OutsideChange.None);
         }
 
-        // The file is gone although it was just read (the open and this check are not atomic).
-        if (fingerprint is null)
+        // The file is gone although it was just read (the open and this check are not atomic). A file that cannot be asked is not "gone".
+        if (probe.State == FileProbeState.Missing)
         {
             return new Opening(null, OutsideChange.Deleted);
+        }
+
+        if (fingerprint is null)
+        {
+            return new Opening(null, OutsideChange.None);
         }
 
         // A file that was read has the size of what was read; another size means that it changed between the read and the fingerprint, so the
@@ -165,7 +175,7 @@ public sealed partial class DocumentsController
                 return;
             }
 
-            var results = await Task.Run(() => items.Select(Probe).ToList());
+            var results = await Task.Run(() => items.Select(ProbeItem).ToList());
             foreach (var result in results)
             {
                 Apply(result);
@@ -183,32 +193,24 @@ public sealed partial class DocumentsController
     }
 
     // Runs on a pool thread and touches only what the item holds.
-    private static CheckResult Probe(CheckItem item)
-    {
-        try
-        {
-            return new CheckResult(item, ProjectFileWriter.Fingerprint(item.Folder, item.RelativeFile), Unknown: false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            return new CheckResult(item, null, Unknown: true);
-        }
-    }
+    private static CheckResult ProbeItem(CheckItem item) => new(item, TryProbe(item.Folder, item.RelativeFile));
 
     // A tab that left the list or got another fingerprint meanwhile (saved, reloaded) is skipped: the probe is about a file state it no longer has.
+    // A file that cannot be told (access error, a link on the path) marks nothing: "cannot tell" is not "deleted".
     private void Apply(CheckResult result)
     {
         var tab = result.Item.Tab;
-        if (result.Unknown || !_tabs.Tabs.Contains(tab) || !_known.TryGetValue(tab, out var known) || !Equals(known, result.Item.Known))
+        if (result.Probe.State == FileProbeState.Unknown || !_tabs.Tabs.Contains(tab) || !_known.TryGetValue(tab, out var known)
+            || !Equals(known, result.Item.Known))
         {
             return;
         }
 
-        if (result.Current is null)
+        if (result.Probe.State == FileProbeState.Missing)
         {
             tab.SetOutsideChange(OutsideChange.Deleted);
         }
-        else if (!Equals(result.Current, known))
+        else if (!Equals(result.Probe.Fingerprint, known))
         {
             tab.SetOutsideChange(OutsideChange.Changed);
         }
@@ -219,12 +221,21 @@ public sealed partial class DocumentsController
     /// <summary>
     /// Reads the file again and replaces the content of the tab; the steps of the old document leave the history. An editable result keeps the
     /// tab (<see cref="EditableRowsTabViewModel.ReplaceDocument"/>); anything else (the file is gone, or no longer a table) replaces the tab at
-    /// the same place by the tab that <see cref="TabsViewModel"/> builds for the result. Changes of the tab are dropped. The window is locked while
-    /// the file is read. Nothing happens for a tab that is not open or not of a project, and while another reload of it is running.
+    /// the same place by the tab that <see cref="TabsViewModel"/> builds for the result. The window is locked while the file is read.
+    /// Only an editable tab that is stale for an outside reason and has no changes of its own is reloaded (the condition of the reload
+    /// button), and it is looked at again after the file was read: a tab that was modified meanwhile keeps its content. Nothing happens
+    /// otherwise, for a tab that is not open or not of a project, and while another reload of it is running. A tab with changes is reloaded
+    /// only through the question that comes with saving it.
     /// </summary>
-    public async Task ReloadAsync(TabViewModel tab)
+    public Task ReloadAsync(TabViewModel tab)
     {
         ArgumentNullException.ThrowIfNull(tab);
+        return tab is EditableRowsTabViewModel { CanReload: true } ? ReloadCoreAsync(tab, discardChanges: false) : Task.CompletedTask;
+    }
+
+    // The reload itself. With discardChanges the tab is replaced although it has changes: the user chose "Reload" in the question of a save.
+    private async Task ReloadCoreAsync(TabViewModel tab, bool discardChanges)
+    {
         if (!_tabs.Tabs.Contains(tab) || !TabSource.TryGetProjectId(tab.PackPath, out var projectId) || !_reloading.Add(tab))
         {
             return;
@@ -245,6 +256,12 @@ public sealed partial class DocumentsController
 
             // Null: the run did not finish or the project is gone; the runner told the user about a failure already.
             if (await _projects.OpenFileAsync(projectId, RelativeFileOf(tab)) is not { } opened || !_tabs.Tabs.Contains(tab))
+            {
+                return;
+            }
+
+            // Changed while the file was read (a timer, the keyboard): the user's changes win, nothing is replaced.
+            if (!discardChanges && tab.IsModified)
             {
                 return;
             }

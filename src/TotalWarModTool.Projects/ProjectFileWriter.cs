@@ -29,6 +29,22 @@ public enum FileWriteProblem
 /// </summary>
 public sealed record FileWriteResult(FileWriteProblem Problem, string? Detail, FileFingerprint? Fingerprint);
 
+/// <summary>What <see cref="ProjectFileWriter.Probe"/> found.</summary>
+public enum FileProbeState
+{
+    /// <summary>The file exists; the fingerprint is set.</summary>
+    Present,
+
+    /// <summary>The file does not exist (nor a folder on the way).</summary>
+    Missing,
+
+    /// <summary>It cannot be told: unsafe path, a link on the way, a folder in the place of the file, or a file system error.</summary>
+    Unknown,
+}
+
+/// <summary>The outcome of <see cref="ProjectFileWriter.Probe"/>. <paramref name="Fingerprint"/> is set for Present only; <paramref name="Detail"/> (short technical English) for Unknown only.</summary>
+public sealed record FileProbe(FileProbeState State, FileFingerprint? Fingerprint, string? Detail);
+
 /// <summary>
 /// Writes one text file below the pack folder of a mod project: atomically, never outside the pack folder and never through a link.
 /// This is the only door by which the editing features write a project file.
@@ -137,6 +153,55 @@ public static class ProjectFileWriter
 
         var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
         return check.Problem == PackPathProblem.None ? FileFingerprint.TryRead(check.FullPath!) : null;
+    }
+
+    /// <summary>
+    /// Like <see cref="Fingerprint"/>, but tells "the file is not there" from "it cannot be told". Only argument errors are thrown.
+    /// </summary>
+    /// <returns>
+    /// <see cref="FileProbeState.Present"/> with the fingerprint; <see cref="FileProbeState.Missing"/> when the file, a folder on the way or the
+    /// pack folder does not exist; <see cref="FileProbeState.Unknown"/> for an unsafe path, a path through a link, a folder in the place of the
+    /// file, or any file system error (access denied, other IO error), with a short technical English detail.
+    /// </returns>
+    public static FileProbe Probe(string projectFolder, string relativeFile)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
+        ArgumentNullException.ThrowIfNull(relativeFile);
+
+        var check = PackFolderPaths.ResolveForWrite(projectFolder, relativeFile);
+        if (check.Problem == PackPathProblem.UnsafePath)
+        {
+            return new FileProbe(FileProbeState.Unknown, null, check.Detail ?? "the path is not a plain file path below the pack folder");
+        }
+
+        if (check.Problem == PackPathProblem.Link)
+        {
+            return new FileProbe(FileProbeState.Unknown, null, check.Detail ?? $"links are not supported: the path passes through the link '{check.LinkPath}'");
+        }
+
+        var path = check.FullPath!;
+        try
+        {
+            var info = new FileInfo(path);
+            if (info.Exists)
+            {
+                return new FileProbe(FileProbeState.Present, new FileFingerprint(path, info.Length, info.LastWriteTimeUtc), null);
+            }
+
+            // FileInfo.Exists is false for every error too, so the reason is asked for: only "not found" means missing.
+            File.GetAttributes(path);
+            return Directory.Exists(path)
+                ? new FileProbe(FileProbeState.Unknown, null, "a folder is in the place of the file")
+                : new FileProbe(FileProbeState.Unknown, null, "the file state changed while it was asked");
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return new FileProbe(FileProbeState.Missing, null, null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return new FileProbe(FileProbeState.Unknown, null, "the file cannot be asked: " + ex.Message);
+        }
     }
 
     private static string NewTempSuffix() => Guid.NewGuid().ToString("N")[..8];
