@@ -18,7 +18,7 @@ internal static class ProjectTempFiles
     /// Creates <c>target.suffix.tmp</c> with <see cref="FileMode.CreateNew"/> and writes the bytes. Returns its path, or null when every
     /// name was taken. A name that is taken (file or folder) is never touched. A write error after the creation deletes the new file.
     /// </summary>
-    public static string? Create(string target, ReadOnlyMemory<byte> content, Func<string> tempSuffix)
+    public static string? Create(string target, ReadOnlyMemory<byte> content, Func<string> tempSuffix, Action<string>? onUndeletable = null)
     {
         for (var attempt = 0; attempt < TempNameAttempts; attempt++)
         {
@@ -42,7 +42,11 @@ internal static class ProjectTempFiles
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                TryDelete(temp);
+                if (!TryDelete(temp))
+                {
+                    onUndeletable?.Invoke(temp);   // the caller can name the file that is left
+                }
+
                 throw;
             }
 
@@ -70,20 +74,27 @@ internal static class ProjectTempFiles
     /// Moves <paramref name="source"/> to <paramref name="target"/> and never overwrites. A sharing or lock violation (another program,
     /// for example a virus scanner, holds a file open) is retried a few times with a short pause, but only while
     /// <paramref name="targetTaken"/> says the target is still free: a taken target fails at once. The error of the last try is thrown.
+    /// <paramref name="stillSafe"/> (optional) is asked after every pause, right before the next try: when it says false the move is not
+    /// tried again. Returns true when the file was moved, false when <paramref name="stillSafe"/> stopped it (nothing was moved).
     /// </summary>
-    public static void MoveWithoutOverwrite(string source, string target, Func<bool> targetTaken, CancellationToken cancellationToken)
+    public static bool MoveWithoutOverwrite(string source, string target, Func<bool> targetTaken, CancellationToken cancellationToken,
+        Func<bool>? stillSafe = null)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
                 File.Move(source, target, overwrite: false);
-                return;
+                return true;
             }
             catch (IOException ex) when (IsSharingViolation(ex) && attempt < MovePausesMilliseconds.Length && !targetTaken())
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Thread.Sleep(MovePausesMilliseconds[attempt]);
+                if (stillSafe is not null && !stillSafe())
+                {
+                    return false;
+                }
             }
         }
     }

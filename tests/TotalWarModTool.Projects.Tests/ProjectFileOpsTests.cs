@@ -761,6 +761,141 @@ public class ProjectFileOpsTests
         }
     }
 
+    // ---- the cleanup and the folder creation check the whole way again ----
+
+    [Fact] public void The_cleanup_does_not_remove_a_folder_behind_a_link_that_replaced_a_folder_on_the_way()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var other = Path.Combine(dir.Path, "other");
+        Directory.CreateDirectory(Path.Combine(other, "b"));   // an empty real folder "b" behind the future link
+        File.WriteAllBytes(Path.Combine(other, "keep.tsv"), [7]);
+        var before = Snapshot(other);
+        var link = PackFile(project, "a");
+        var made = false;
+
+        try
+        {
+            var result = ProjectFileOps.Create(project, @"a\b\f.tsv", new byte[] { 1 }, CancellationToken.None, new ProjectFileOps.OpsHooks
+            {
+                AfterFolders = () =>
+                {
+                    // Someone moves "a" (with the empty "b" this call made) away and puts a link named "a" in its place.
+                    Directory.Move(link, PackFile(project, "a_moved"));
+                    made = JunctionHelper.TryCreate(link, other);
+                },
+            });
+
+            if (!made)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, result.Problem);
+            Assert.Contains("left behind", result.Detail);
+            Assert.True(Directory.Exists(Path.Combine(other, "b")));   // not deleted through the link
+            Assert.Equal(before, Snapshot(other));
+            Assert.True(Directory.Exists(PackFile(project, @"a_moved\b")));
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void The_cleanup_does_not_delete_a_file_behind_a_link_that_replaced_the_folder_of_the_temp_file()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var other = Path.Combine(dir.Path, "other");
+        Directory.CreateDirectory(other);
+        var link = PackFile(project, "a");
+        string? strangerFile = null;
+        var made = false;
+
+        try
+        {
+            var result = ProjectFileOps.Create(project, @"a\f.tsv", new byte[] { 1 }, CancellationToken.None, new ProjectFileOps.OpsHooks
+            {
+                BeforeMove = () =>
+                {
+                    // The folder with the temp file is moved away; behind the new link lies a file that has the very name of the temp file.
+                    var tempName = Path.GetFileName(Directory.GetFiles(link, "*.tmp").Single());
+                    Directory.Move(link, PackFile(project, "a_moved"));
+                    made = JunctionHelper.TryCreate(link, other);
+                    strangerFile = Path.Combine(other, tempName);
+                    if (made)
+                    {
+                        File.WriteAllBytes(strangerFile, [5]);
+                    }
+                },
+            });
+
+            if (!made)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, result.Problem);
+            Assert.Contains("temp file", result.Detail);   // named as left behind, not deleted
+            Assert.Equal([5], File.ReadAllBytes(strangerFile!));
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void Rename_checks_the_pack_folder_for_a_link_before_it_creates_folders()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);
+        var before = Snapshot(outside);
+        Put(project, "own.tsv", [4]);
+        var link = Path.Combine(project, "pack");
+        var made = false;
+
+        try
+        {
+            var result = ProjectFileOps.Rename(project, "own.tsv", @"newdir\b.tsv", new ProjectFileOps.OpsHooks
+            {
+                BeforeFolders = () =>
+                {
+                    Directory.Move(link, Path.Combine(project, "pack_real"));
+                    made = JunctionHelper.TryCreate(link, outside);
+                },
+            });
+
+            if (!made)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, result.Problem);
+            Assert.Contains("pack", result.Detail);
+            Assert.True(File.Exists(Path.Combine(project, @"pack_real\own.tsv")));
+            AssertOutsideUntouched(outside, before);   // no folder "newdir" was made behind the link
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void A_rename_that_only_changes_the_case_of_a_folder_is_TargetExists()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var file = Put(project, @"db\a.tsv", [1, 2]);
+
+        var result = ProjectFileOps.Rename(project, @"db\a.tsv", @"DB\a.tsv");
+
+        Assert.Equal(FileOpProblem.TargetExists, result.Problem);
+        Assert.Equal([1, 2], File.ReadAllBytes(file));
+        Assert.Equal(["db"], Directory.GetDirectories(PackFile(project, "")).Select(Path.GetFileName));   // the folder keeps its spelling
+    }
+
     // ---- a sharing violation of the move is waited out, but a file is never overwritten ----
 
     [Fact] public async Task Create_waits_for_a_program_that_holds_the_temp_file_briefly()
