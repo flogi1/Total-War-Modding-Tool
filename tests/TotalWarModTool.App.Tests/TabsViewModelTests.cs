@@ -347,4 +347,101 @@ public class TabsViewModelTests
         Assert.Equal(0, asked);
         Assert.Single(tabs.Tabs);
     }
+
+    // ---- copying the rows of a read-only tab ----------------------------------------------------------------------------------------
+
+    private static OpenedEntry TableOfThree(string path) => new(path, EntryKind.Table, 1, 1, CompressionFormat.None, EntryProblem.None, null, false,
+        new DecodedTable(TableDecodeStatus.Ok, "x_tables", 0, false, Def, [[1], [2], [3]], null), null, null);
+
+    private static OpenedEntry LocOfTwo(string path) => new(path, EntryKind.Loc, 1, 1, CompressionFormat.None, EntryProblem.None, null, false, null,
+        new DecodedLoc(LocDecodeStatus.Ok, [new LocRow("k1", "one\ttwo", true), new LocRow("k2", "text 2", false)], null), null);
+
+    [Fact] public void A_read_only_table_and_a_read_only_loc_tab_copy_their_selected_rows()
+    {
+        var clipboard = new FakeClipboard();
+        var tabs = new TabsViewModel(Texts) { Clipboard = clipboard };
+        tabs.Add(A, TableOfThree("db/x_tables/data__"), null);
+        tabs.Add(A, LocOfTwo("text/db/a.loc"), null);
+        var table = Assert.IsType<TableTabViewModel>(tabs.Tabs[0]);
+        var loc = Assert.IsType<LocTabViewModel>(tabs.Tabs[1]);
+
+        Assert.False(table.CopyRowsCommand.CanExecute(null));           // nothing selected
+        table.SelectedRows = [2, 0];
+        Assert.True(table.CopyRowsCommand.CanExecute(null));
+        table.CopyRowsCommand.Execute(null);
+        Assert.Equal("value\n1\n3\n", clipboard.Text);                  // the header and the rows in the order of the table
+        Assert.Null(table.Notice);
+
+        loc.SelectedRows = [0, 1];
+        loc.CopyRowsCommand.Execute(null);
+        Assert.Equal("key\ttext\ttooltip\nk1\tone\\\\ttwo\ttrue\nk2\ttext 2\tfalse\n", clipboard.Text);     // the three columns of a loc document, a tab in a cell escaped
+
+        // The same text that a paste into the editable tab of the file reads back.
+        var back = TotalWarModTool.Editing.ClipboardRows.Read(clipboard.Text!, TotalWarModTool.Editing.RowsDocument.ForLoc("text/db/a.loc", []));
+        Assert.Equal(TotalWarModTool.Editing.PasteProblem.None, back.Problem);
+        Assert.Equal(new object?[] { "k1", "one\ttwo", true }, back.Rows[0]);
+    }
+
+    [Fact] public void A_read_only_tab_without_a_clipboard_or_a_definition_cannot_copy()
+    {
+        var withoutClipboard = new TabsViewModel(Texts);
+        withoutClipboard.Add(A, TableOfThree("db/x_tables/data__"), null);
+        var table = Assert.IsType<TableTabViewModel>(withoutClipboard.Tabs[0]);
+        table.SelectedRows = [0];
+        Assert.False(table.CopyRowsCommand.CanExecute(null));
+
+        var clipboard = new FakeClipboard();
+        var noDefinition = new TableTabViewModel(A, "db/y_tables/data__", Texts, _ => { },
+            new DecodedTable(TableDecodeStatus.Ok, "y_tables", 0, false, null, [[1]], null), clipboard)
+        {
+            SelectedRows = [0],
+        };
+        noDefinition.CopyRowsCommand.Execute(null);                     // no columns to write the cells with: nothing happens
+        Assert.Null(clipboard.Text);
+    }
+
+    [Fact] public void A_read_only_table_that_cannot_be_written_says_so_and_changes_nothing()
+    {
+        var clipboard = new FakeClipboard { Text = "before" };
+        var odd = new TableDefinition(0, [new("value", FieldType.I32, "I32", false, null)]);
+        var table = new TableTabViewModel(A, "db/x_tables/data__", Texts, _ => { },
+            new DecodedTable(TableDecodeStatus.Ok, "x_tables", 0, false, odd, [["not a number"]], null), clipboard)
+        {
+            SelectedRows = [0],
+        };
+
+        table.CopyRowsCommand.Execute(null);
+
+        Assert.StartsWith("The selected rows cannot be copied as text.", table.Notice);
+        Assert.Equal("before", clipboard.Text);
+    }
+
+    [Fact] public void A_clipboard_that_cannot_be_opened_is_reported_by_a_read_only_tab()
+    {
+        var clipboard = new FakeClipboard { Available = false };
+        var tabs = new TabsViewModel(Texts) { Clipboard = clipboard };
+        tabs.Add(A, TableOfThree("db/x_tables/data__"), null);
+        var table = Assert.IsType<TableTabViewModel>(tabs.Tabs[0]);
+        table.SelectedRows = [1];
+
+        table.CopyRowsCommand.Execute(null);
+
+        Assert.Equal(Texts.GridCopyClipboardFailed, table.Notice);
+    }
+
+    [Fact] public void The_clipboard_of_the_tab_list_reaches_the_tabs_that_are_made_afterwards()
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.Add(A, TableOfThree("db/a_tables/data__"), null);
+        var clipboard = new FakeClipboard();
+        tabs.Clipboard = clipboard;
+        tabs.Add(A, TableOfThree("db/b_tables/data__"), null);
+        var before = Assert.IsType<TableTabViewModel>(tabs.Tabs[0]);
+        var after = Assert.IsType<TableTabViewModel>(tabs.Tabs[1]);
+        before.SelectedRows = [0];
+        after.SelectedRows = [0];
+
+        Assert.False(before.CopyRowsCommand.CanExecute(null));
+        Assert.True(after.CopyRowsCommand.CanExecute(null));
+    }
 }

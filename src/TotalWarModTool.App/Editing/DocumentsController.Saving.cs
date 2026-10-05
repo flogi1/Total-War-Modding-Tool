@@ -59,14 +59,18 @@ public sealed partial class DocumentsController
     // The test of "may an operation start": the same for the commands, the menu tool tip and the direct calls.
     private bool CanStartSave() => !_runner.IsRunning && _projects.CanStartOperation;
 
-    private bool CanSaveSelected() => CanStartSave() && _tabs.SelectedTab is EditableRowsTabViewModel { IsModified: true };
+    // A tab with a cell in edit mode counts as having something to save: the value that is typed is not in the document yet, and the save
+    // commits it first.
+    private static bool HasSomethingToSave(EditableRowsTabViewModel tab) => tab.IsModified || tab.HasPendingEdit;
 
-    private bool CanSaveAll() => CanStartSave() && HasModifiedTabs;
+    private bool CanSaveSelected() => CanStartSave() && _tabs.SelectedTab is EditableRowsTabViewModel tab && HasSomethingToSave(tab);
+
+    private bool CanSaveAll() => CanStartSave() && _tracked.Any(HasSomethingToSave);
 
     private void SaveSelected()
     {
         // Also guarded here: a direct call must not start a run while another one is active.
-        if (CanStartSave() && _tabs.SelectedTab is EditableRowsTabViewModel { IsModified: true } tab)
+        if (CanStartSave() && _tabs.SelectedTab is EditableRowsTabViewModel tab && HasSomethingToSave(tab))
         {
             RunDetached(() => SaveAsync([tab]), "Saving a tab");
         }
@@ -74,10 +78,41 @@ public sealed partial class DocumentsController
 
     private void SaveAllModified()
     {
-        if (CanStartSave() && _tracked.Where(tab => tab.IsModified).ToList() is { Count: > 0 } modified)
+        if (CanStartSave() && _tracked.Where(HasSomethingToSave).ToList() is { Count: > 0 } candidates)
         {
-            RunDetached(() => SaveAsync(modified), "Saving all tabs");
+            RunDetached(() => SaveAsync(candidates), "Saving all tabs");
         }
+    }
+
+    // ---- the cell that is being edited -----------------------------------------------------------------------------------------
+
+    // The text of a cell that is still in edit mode is not part of the document, so a tab with such a cell looks unmodified. Every action that
+    // looks at IsModified (save, close, build) first commits these cells. False when a cell holds an invalid value and stays in edit mode: the
+    // tab of that cell is selected, a message says why, and the action must stop.
+    private bool CommitPendingEdits(IEnumerable<EditableRowsTabViewModel> tabs)
+    {
+        foreach (var tab in tabs.Distinct().ToList())
+        {
+            if (tab.TryCommitPendingEdit())
+            {
+                continue;
+            }
+
+            _tabs.SelectedTab = tab;
+            try
+            {
+                _dialogs.ShowMessage(_texts.EditPendingInvalidTitle, _texts.EditPendingInvalidMessage);
+            }
+            catch (Exception ex) when (IsEdgeFailure(ex))
+            {
+                // A message that cannot be shown is only logged; the action is stopped all the same.
+                _log.Error("The message about a cell with an invalid value could not be shown.", ex);
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private void RaiseSaveCommandsChanged()
@@ -131,6 +166,11 @@ public sealed partial class DocumentsController
     public async Task<bool> SaveAsync(IReadOnlyList<EditableRowsTabViewModel> tabs)
     {
         ArgumentNullException.ThrowIfNull(tabs);
+        if (!CommitPendingEdits(tabs))
+        {
+            return false;
+        }
+
         var modified = tabs.Where(tab => tab.IsModified).Distinct().ToList();
         if (modified.Count == 0)
         {
@@ -418,6 +458,11 @@ public sealed partial class DocumentsController
     public async Task<bool> ConfirmCloseAsync(IReadOnlyList<EditableRowsTabViewModel> tabs)
     {
         ArgumentNullException.ThrowIfNull(tabs);
+        if (!CommitPendingEdits(tabs))
+        {
+            return false;
+        }
+
         var modified = tabs.Where(tab => tab.IsModified).Distinct().ToList();
         if (modified.Count == 0)
         {
@@ -439,6 +484,17 @@ public sealed partial class DocumentsController
     // and the save are asynchronous, so they start here and the tab is closed when they agree.
     private bool CanCloseTab(TabViewModel tab)
     {
+        if (tab is not EditableRowsTabViewModel pending)
+        {
+            return true;
+        }
+
+        // A cell that is still being edited counts as a change: it is committed first, which may make the tab modified (or refuse, when invalid).
+        if (!CommitPendingEdits([pending]))
+        {
+            return false;
+        }
+
         if (tab is not EditableRowsTabViewModel { IsModified: true } editable)
         {
             return true;
@@ -487,6 +543,12 @@ public sealed partial class DocumentsController
             return true;
         }
 
+        // A cell that is still being edited counts as a change; a cell with an invalid value keeps the window open.
+        if (!CommitPendingEdits(EditableTabs))
+        {
+            return false;
+        }
+
         if (!HasModifiedTabs)
         {
             return true;
@@ -522,7 +584,7 @@ public sealed partial class DocumentsController
 
     /// <summary>The reason why a project cannot leave the list right now: it has tabs with unsaved changes. Null when it can.</summary>
     public string? UnsavedReason(Guid projectId) =>
-        _tracked.Any(tab => tab.ProjectId == projectId && tab.IsModified) ? _texts.ProjectRemoveUnsaved : null;
+        _tracked.Any(tab => tab.ProjectId == projectId && HasSomethingToSave(tab)) ? _texts.ProjectRemoveUnsaved : null;
 
     /// <summary>
     /// Asked before a build of the project: "save all and build" for its modified tabs (none: true without asking). True when the build may
@@ -530,7 +592,13 @@ public sealed partial class DocumentsController
     /// </summary>
     public async Task<bool> ConfirmSaveBeforeBuildAsync(Guid projectId)
     {
-        var modified = _tracked.Where(tab => tab.ProjectId == projectId && tab.IsModified).ToList();
+        var ofProject = _tracked.Where(tab => tab.ProjectId == projectId).ToList();
+        if (!CommitPendingEdits(ofProject))
+        {
+            return false;
+        }
+
+        var modified = ofProject.Where(tab => tab.IsModified).ToList();
         if (modified.Count == 0)
         {
             return true;

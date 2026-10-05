@@ -31,6 +31,26 @@ public class TabFactoryTests
         Assert.Equal(2, tab.Rows.Count);
     }
 
+    [Fact] public void The_clipboard_is_passed_to_table_and_loc_tabs_and_is_optional()
+    {
+        var table = new DecodedTable(TableDecodeStatus.Ok, "units_tables", 3, false, Def, [["a", 1], ["b", 2]], null);
+        var tableEntry = Entry("db/units_tables/data__", EntryKind.Table, table: table);
+        var loc = new DecodedLoc(LocDecodeStatus.Ok, [new("k1", "t1", true)], null);
+        var locEntry = Entry("text/names.loc", EntryKind.Loc, loc: loc);
+        var clipboard = new FakeClipboard();
+
+        var withClipboard = Assert.IsType<TableTabViewModel>(TabFactory.Create(Pack, tableEntry, null, Texts, _ => { }, clipboard));
+        var locWith = Assert.IsType<LocTabViewModel>(TabFactory.Create(Pack, locEntry, null, Texts, _ => { }, clipboard));
+        withClipboard.SelectedRows = [0];
+        locWith.SelectedRows = [0];
+        Assert.True(withClipboard.CopyRowsCommand.CanExecute(null));
+        Assert.True(locWith.CopyRowsCommand.CanExecute(null));
+
+        var without = Assert.IsType<TableTabViewModel>(Create(tableEntry));
+        without.SelectedRows = [0];
+        Assert.False(without.CopyRowsCommand.CanExecute(null));
+    }
+
     [Fact] public void Table_that_does_not_decode_becomes_an_info_tab_with_table_version_and_schema()
     {
         var table = new DecodedTable(TableDecodeStatus.VersionNotInSchema, "units_tables", 9, false, null, [], "Version 9 is not in the schema.");

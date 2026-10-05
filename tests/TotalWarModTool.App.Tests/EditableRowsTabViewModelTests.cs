@@ -31,7 +31,7 @@ public class EditableRowsTabViewModelTests
 
     private sealed record Fixture(EditableRowsTabViewModel Tab, RowsDocument Document, ActionHistory History);
 
-    private static Fixture Make(int rows = 3, AppTexts? texts = null)
+    private static Fixture Make(int rows = 3, AppTexts? texts = null, IClipboard? clipboard = null)
     {
         var data = new List<object?[]>();
         for (var i = 0; i < rows; i++)
@@ -41,7 +41,7 @@ public class EditableRowsTabViewModelTests
 
         var document = RowsDocument.ForTable("units_tables", 3, @"db\units_tables\data.tsv", Def, data);
         var history = new ActionHistory();
-        var tab = new EditableRowsTabViewModel(Source, @"db/units_tables/data.tsv", texts ?? Texts, _ => { }, document, history);
+        var tab = new EditableRowsTabViewModel(Source, @"db/units_tables/data.tsv", texts ?? Texts, _ => { }, document, history, clipboard);
         return new Fixture(tab, document, history);
     }
 
@@ -690,5 +690,287 @@ public class EditableRowsTabViewModelTests
 
         Assert.False(history.CanUndo);
         Assert.False(tab.IsModified);
+    }
+
+    // ---- copy and paste ----------------------------------------------------------------------------------------------------------
+
+    private static string Header => string.Join("\t", Def.Fields.Select(f => f.Name));
+
+    private static string TextOf(params object?[][] rows) => ClipboardRows.Write(Def.Fields, rows).Text!;
+
+    [Fact] public void Copy_puts_the_selected_rows_with_the_header_on_the_clipboard()
+    {
+        var clipboard = new FakeClipboard { Text = "before" };
+        var (tab, document, _) = Make(clipboard: clipboard);
+        tab.SelectedRows = [2, 0];                                      // the order of the rows, not of the selection
+
+        Assert.True(tab.CopyRowsCommand.CanExecute(null));
+        tab.CopyRowsCommand.Execute(null);
+
+        Assert.Equal(TextOf(document.Rows[0], document.Rows[2]), clipboard.Text);
+        Assert.StartsWith(Header + "\n", clipboard.Text);
+        Assert.Equal(3, clipboard.Text!.Split('\n').Length - 1);        // the header and two rows, every line ends with a line feed
+        Assert.Null(tab.Notice);
+        Assert.Equal(1, clipboard.Sets);
+    }
+
+    [Fact] public void Copy_needs_a_selection_and_a_clipboard()
+    {
+        var clipboard = new FakeClipboard();
+        var (tab, _, _) = Make(clipboard: clipboard);
+        var (without, _, _) = Make();
+        var raised = 0;
+        tab.CopyRowsCommand.CanExecuteChanged += (_, _) => raised++;
+
+        Assert.False(tab.CopyRowsCommand.CanExecute(null));             // nothing selected
+        tab.SelectedRows = [1];
+        Assert.True(tab.CopyRowsCommand.CanExecute(null));
+        Assert.True(raised > 0);
+        tab.SelectedRows = [77];                                        // a stale index is no selection
+        Assert.False(tab.CopyRowsCommand.CanExecute(null));
+
+        without.SelectedRows = [1];
+        Assert.False(without.CopyRowsCommand.CanExecute(null));
+        Assert.False(without.PasteRowsCommand.CanExecute(null));
+        without.CopyRowsCommand.Execute(null);                          // does nothing, does not throw
+        without.PasteRowsCommand.Execute(null);
+        Assert.Null(clipboard.Text);
+    }
+
+    [Fact] public void More_rows_than_the_limit_are_refused_with_a_notice()
+    {
+        var clipboard = new FakeClipboard { Text = "before" };
+        var (tab, _, _) = Make(clipboard: clipboard);
+        tab.MaxCopyRows = 2;
+        tab.SelectedRows = [0, 1, 2];
+
+        tab.CopyRowsCommand.Execute(null);
+
+        Assert.Equal(Texts.GridCopyTooManyRows(3, 2), tab.Notice);
+        Assert.Equal("before", clipboard.Text);
+    }
+
+    [Fact] public void A_row_that_the_format_cannot_carry_is_refused_with_a_masked_notice()
+    {
+        // Two backslashes and an n in a text cell are the escape sequence of a line feed: the dialect would read the cell back as another text.
+        var escape = new string((char)0x5C, 2) + "n";
+        var document = RowsDocument.ForTable("units_tables", 3, "p", Def, [Row("a" + escape + "b" + (char)7, 1)]);
+        var clipboard = new FakeClipboard { Text = "before" };
+        var tab = new EditableRowsTabViewModel(Source, "db/units_tables/data.tsv", Texts, _ => { }, document, new ActionHistory(), clipboard);
+        tab.SelectedRows = [0];
+
+        tab.CopyRowsCommand.Execute(null);
+
+        Assert.StartsWith("The selected rows cannot be copied as text.", tab.Notice);
+        Assert.DoesNotContain((char)7, tab.Notice!);
+        Assert.Equal("before", clipboard.Text);
+    }
+
+    [Fact] public void Paste_inserts_the_rows_as_one_undo_step_after_the_selection()
+    {
+        var clipboard = new FakeClipboard { Text = TextOf(Row("p", 1), Row("q", 2)) };
+        var (tab, document, history) = Make(clipboard: clipboard);
+        var requested = new List<IReadOnlyList<int>>();
+        tab.SelectionRequested += (_, rows) => requested.Add(rows);
+        tab.SelectedRows = [0];
+
+        tab.PasteRowsCommand.Execute(null);
+
+        Assert.Equal(["k0", "p", "q", "k1", "k2"], document.Rows.Select(r => (string)r[Key]!));
+        Assert.Equal(["k0", "p", "q", "k1", "k2"], tab.Rows.Select(r => (string)r[Key]!));
+        Assert.Equal([1, 2], Assert.Single(requested));
+        Assert.Null(tab.Notice);
+        Assert.True(tab.IsModified);
+
+        history.Undo();                                                 // exactly one step
+        Assert.Equal(3, document.Rows.Count);
+        Assert.False(history.CanUndo);
+        Assert.False(tab.IsModified);
+    }
+
+    [Fact] public void Paste_without_a_selection_inserts_at_the_end()
+    {
+        var clipboard = new FakeClipboard { Text = TextOf(Row("p", 1)) };
+        var (tab, document, _) = Make(clipboard: clipboard);
+        var requested = new List<IReadOnlyList<int>>();
+        tab.SelectionRequested += (_, rows) => requested.Add(rows);
+
+        tab.PasteRowsCommand.Execute(null);
+
+        Assert.Equal("p", document.Rows[^1][Key]);
+        Assert.Equal(4, document.Rows.Count);
+        Assert.Equal([3], Assert.Single(requested));
+    }
+
+    [Fact] public void A_refused_paste_changes_nothing_and_says_why()
+    {
+        var clipboard = new FakeClipboard { Text = "nothing\tof\tthese\nx\ty\tz\n" };
+        var (tab, document, history) = Make(clipboard: clipboard);
+        var requested = 0;
+        tab.SelectionRequested += (_, _) => requested++;
+
+        tab.PasteRowsCommand.Execute(null);                             // no column of the table is named
+
+        Assert.StartsWith("Nothing was pasted. Line 1 of the text on the clipboard: " + Texts.GridPasteProblemNoKnownColumn, tab.Notice);
+        Assert.False(history.CanUndo);
+        Assert.False(tab.IsModified);
+        Assert.Equal(3, document.Rows.Count);
+
+        clipboard.Text = "key\tcost\nk\t1\nk\n";                          // line 3 has one cell
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal(Texts.GridPasteRefusedAtLine(3, Texts.GridPasteProblemWrongCellCount, "Line 3 has 1 cell, expected 2"), tab.Notice);
+
+        clipboard.Text = "key\tcost\nk\tabc\n";                          // a value the column does not accept
+        tab.PasteRowsCommand.Execute(null);
+        Assert.StartsWith("Nothing was pasted. Line 2 of the text on the clipboard: " + Texts.GridPasteProblemInvalidValue, tab.Notice);
+        Assert.Contains("column 'cost'", tab.Notice);
+
+        clipboard.Text = "key\tcost\n";                                  // a header and no rows: no line to name
+        tab.PasteRowsCommand.Execute(null);
+        Assert.StartsWith("Nothing was pasted. " + Texts.GridPasteProblemEmpty, tab.Notice);
+
+        Assert.False(history.CanUndo);
+        Assert.Equal(3, document.Rows.Count);
+        Assert.Equal(0, requested);
+    }
+
+    [Fact] public void A_paste_names_missing_and_dropped_columns()
+    {
+        var clipboard = new FakeClipboard { Text = "key\tcost\tstranger\tother\np\t7\tzzz\tyyy\n" };
+        var (tab, document, _) = Make(clipboard: clipboard);
+
+        tab.PasteRowsCommand.Execute(null);
+
+        var missing = string.Join(", ", Def.Fields.Select(f => f.Name).Where(name => name is not ("key" or "cost")));
+        Assert.Equal(Texts.GridPasteMissingColumns(missing) + " " + Texts.GridPasteExtraColumns("stranger, other"), tab.Notice);
+        Assert.Equal(("p", 7, false), (document.Rows[3][Key], document.Rows[3][Cost], document.Rows[3][Flag]));     // missing columns have their default
+        Assert.Equal(4, document.Rows.Count);
+
+        // The notice is about the rows of that moment: the next change of the document takes it away.
+        tab.Rows[0][Cost] = "5";
+        Assert.Null(tab.Notice);
+    }
+
+    [Fact] public void An_unavailable_clipboard_is_reported_and_nothing_changes()
+    {
+        var clipboard = new FakeClipboard { Text = TextOf(Row("p", 1)), Available = false };
+        var (tab, document, history) = Make(clipboard: clipboard);
+        tab.SelectedRows = [0, 1];
+
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal(Texts.GridPasteNoText, tab.Notice);
+        Assert.Equal(3, document.Rows.Count);
+        Assert.False(history.CanUndo);
+
+        tab.CopyRowsCommand.Execute(null);
+        Assert.Equal(Texts.GridCopyClipboardFailed, tab.Notice);
+        Assert.Equal(0, clipboard.Sets);
+
+        clipboard.Available = true;                                     // the next try works and the notice goes
+        tab.CopyRowsCommand.Execute(null);
+        Assert.Null(tab.Notice);
+        Assert.Equal(1, clipboard.Sets);
+    }
+
+    [Fact] public void A_notice_follows_a_language_switch()
+    {
+        var ui = new UiText(Path.Combine(RepoRoot.Find(), "locales"));
+        var texts = new AppTexts(ui);
+        var (tab, _, _) = Make(texts: texts, clipboard: new FakeClipboard { Available = false });
+
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal("There is no text on the clipboard, or the clipboard cannot be read right now.", tab.Notice);
+
+        ui.Load("de");
+        Assert.Equal("In der Zwischenablage ist kein Text, oder die Zwischenablage lässt sich gerade nicht lesen.", tab.Notice);
+    }
+
+    // ---- row commands and the selection they ask for -------------------------------------------------------------------------------
+
+    private static List<IReadOnlyList<int>> Requests(EditableRowsTabViewModel tab)
+    {
+        var requested = new List<IReadOnlyList<int>>();
+        tab.SelectionRequested += (_, rows) => requested.Add(rows);
+        return requested;
+    }
+
+    [Fact] public void Insert_and_duplicate_ask_for_the_new_rows_to_be_selected()
+    {
+        var (tab, document, _) = Make(rows: 5);
+        var requested = Requests(tab);
+
+        tab.SelectedRows = [1];
+        tab.InsertRowCommand.Execute(null);                             // after the selected row
+        Assert.Equal([2], requested[^1]);
+        Assert.Equal(6, document.Rows.Count);
+
+        tab.SelectedRows = [4, 0];
+        tab.DuplicateRowsCommand.Execute(null);                         // a block of two after the last selected row
+        Assert.Equal([5, 6], requested[^1]);
+        Assert.Equal(8, document.Rows.Count);
+
+        tab.SelectedRows = [];
+        tab.InsertRowCommand.Execute(null);                             // without a selection: at the end
+        Assert.Equal([8], requested[^1]);
+        Assert.Equal(3, requested.Count);
+    }
+
+    [Fact] public void Delete_asks_for_the_row_that_took_the_place_of_the_first_deleted_one()
+    {
+        var (tab, document, _) = Make(rows: 6);
+        var requested = Requests(tab);
+
+        tab.SelectedRows = [1, 2];
+        tab.DeleteRowsCommand.Execute(null);
+        Assert.Equal([1], requested[^1]);                               // the old row 3 is row 1 now
+        Assert.Equal(4, document.Rows.Count);
+
+        tab.SelectedRows = [2, 3];                                      // the last rows: the last row that is left
+        tab.DeleteRowsCommand.Execute(null);
+        Assert.Equal([1], requested[^1]);
+        Assert.Equal(2, document.Rows.Count);
+
+        tab.SelectedRows = [0, 1];                                      // every row: nothing to select
+        tab.DeleteRowsCommand.Execute(null);
+        Assert.Empty(requested[^1]);
+        Assert.Empty(document.Rows);
+    }
+
+    // ---- the cell that is being edited ---------------------------------------------------------------------------------------------
+
+    [Fact] public void Committing_a_pending_edit_asks_the_view_and_without_a_view_nothing_is_pending()
+    {
+        var (tab, _, _) = Make();
+        Assert.True(tab.TryCommitPendingEdit());
+        Assert.False(tab.HasPendingEdit);
+
+        var calls = 0;
+        var result = true;
+        tab.CommitPendingEdit = () =>
+        {
+            calls++;
+            return result;
+        };
+
+        Assert.True(tab.TryCommitPendingEdit());
+        result = false;
+        Assert.False(tab.TryCommitPendingEdit());
+        Assert.Equal(2, calls);
+    }
+
+    [Fact] public void The_pending_edit_and_the_validation_message_are_set_by_the_view_and_raise_changes()
+    {
+        var (tab, _, _) = Make();
+        var raised = new List<string?>();
+        tab.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        tab.SetPendingEdit(true);
+        tab.SetValidationMessage("not a number");
+        Assert.Equal((true, "not a number"), (tab.HasPendingEdit, tab.ValidationMessage));
+        Assert.Contains(nameof(EditableRowsTabViewModel.HasPendingEdit), raised);
+        Assert.Contains(nameof(EditableRowsTabViewModel.ValidationMessage), raised);
+
+        tab.SetPendingEdit(false);                                      // the edit is over: the message goes with it
+        Assert.Equal((false, null), (tab.HasPendingEdit, tab.ValidationMessage));
     }
 }

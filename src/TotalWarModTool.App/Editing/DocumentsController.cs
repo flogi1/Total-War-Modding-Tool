@@ -118,7 +118,7 @@ public sealed partial class DocumentsController
                 return null;
             }
 
-            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history)
+            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history, _tabs.Clipboard)
             {
                 ReloadHandler = tab => RunDetached(() => ReloadAsync(tab), "Reloading a tab"),
             };
@@ -231,6 +231,12 @@ public sealed partial class DocumentsController
         if (e.PropertyName is nameof(EditableRowsTabViewModel.IsModified) or null)
         {
             UpdateModified();
+        }
+
+        // A cell in edit mode enables saving (the save commits it first), so the commands ask again when one starts or ends.
+        if (e.PropertyName is nameof(EditableRowsTabViewModel.HasPendingEdit) or null)
+        {
+            RaiseSaveCommandsChanged();
         }
     }
 

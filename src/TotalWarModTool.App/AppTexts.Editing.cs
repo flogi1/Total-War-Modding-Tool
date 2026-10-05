@@ -1,3 +1,4 @@
+using TotalWarModTool.Editing;
 using TotalWarModTool.Projects;
 
 namespace TotalWarModTool.App;
@@ -23,6 +24,80 @@ public sealed partial class AppTexts
     /// <param name="expected">What the column expects, one of the <c>EditExpected</c> texts.</param>
     /// <param name="reason">Why the text was refused; English text of the library. Data, not a UI text.</param>
     public string EditCheckMessage(string expected, string reason) => F("edit.check.message", "{0} Reason: {1}", expected, reason);
+
+    // ---- the grid: row commands, copy and paste, a cell that is still being edited ------------------------------------------------
+
+    public string GridInsertRow => T("grid.row.insert", "Insert row");
+
+    public string GridDeleteRows => T("grid.row.delete", "Delete rows");
+
+    public string GridDuplicateRows => T("grid.row.duplicate", "Duplicate rows");
+
+    public string GridCopy => T("grid.copy", "Copy");
+
+    public string GridPaste => T("grid.paste", "Paste");
+
+    /// <param name="count">Number of selected rows.</param>
+    /// <param name="max">The most rows that can be copied at once.</param>
+    public string GridCopyTooManyRows(int count, int max) =>
+        F("grid.copy.tooMany", "Too many rows are selected to copy: {0}. At most {1} rows can be copied at once.", count, max);
+
+    /// <param name="detail">Why a cell cannot be written as text; short technical English of the library, escaped. Data, not a UI text.</param>
+    public string GridCopyRefused(string detail) =>
+        F("grid.copy.refused", "The selected rows cannot be copied as text. Detail: {0}", detail);
+
+    public string GridCopyClipboardFailed => T("grid.copy.clipboardFailed",
+        "The rows could not be put on the clipboard. Another program may be using it. Try again.");
+
+    public string GridPasteNoText => T("grid.paste.noText", "There is no text on the clipboard, or the clipboard cannot be read right now.");
+
+    // Every PasteProblem has its own property so that the locale check sees each key; GridPasteProblemText only chooses among them.
+    public string GridPasteProblemEmpty => T("grid.paste.problem.empty", "The text on the clipboard has no rows.");
+
+    public string GridPasteProblemNoKnownColumn => T("grid.paste.problem.noKnownColumn",
+        "The first line of the text must name columns of this table, and none of its names is a column of this table.");
+
+    public string GridPasteProblemDuplicateColumn => T("grid.paste.problem.duplicateColumn", "A column is named twice.");
+
+    public string GridPasteProblemWrongCellCount => T("grid.paste.problem.wrongCellCount",
+        "A line has another number of cells than the first line.");
+
+    public string GridPasteProblemInvalidValue => T("grid.paste.problem.invalidValue", "A cell holds a value that its column does not accept.");
+
+    /// <summary>The text for a paste problem; empty for <see cref="PasteProblem.None"/>.</summary>
+    public string GridPasteProblemText(PasteProblem problem) => problem switch
+    {
+        PasteProblem.Empty => GridPasteProblemEmpty,
+        PasteProblem.NoKnownColumn => GridPasteProblemNoKnownColumn,
+        PasteProblem.DuplicateColumn => GridPasteProblemDuplicateColumn,
+        PasteProblem.WrongCellCount => GridPasteProblemWrongCellCount,
+        PasteProblem.InvalidValue => GridPasteProblemInvalidValue,
+        _ => string.Empty,
+    };
+
+    /// <param name="reason">One of the <c>GridPasteProblem</c> texts.</param>
+    /// <param name="detail">Short technical English of the library, escaped. Data, not a UI text.</param>
+    public string GridPasteRefused(string reason, string detail) =>
+        F("grid.paste.refused", "Nothing was pasted. {0} Detail: {1}", reason, detail);
+
+    /// <param name="line">The line of the text on the clipboard, counted from 1; the first line names the columns.</param>
+    /// <param name="reason">One of the <c>GridPasteProblem</c> texts.</param>
+    /// <param name="detail">Short technical English of the library, escaped. Data, not a UI text.</param>
+    public string GridPasteRefusedAtLine(int line, string reason, string detail) =>
+        F("grid.paste.refusedAtLine", "Nothing was pasted. Line {0} of the text on the clipboard: {1} Detail: {2}", line, reason, detail);
+
+    /// <param name="columns">Names of the columns of this table that the text did not have, escaped. Data, not a UI text.</param>
+    public string GridPasteMissingColumns(string columns) =>
+        F("grid.paste.missingColumns", "Columns that the pasted text does not have got their default value: {0}.", columns);
+
+    /// <param name="columns">Names of the columns of the text that this table does not have, escaped. Data, not a UI text.</param>
+    public string GridPasteExtraColumns(string columns) =>
+        F("grid.paste.extraColumns", "Columns of the pasted text that this table does not have were left out: {0}.", columns);
+
+    public string EditPendingInvalidTitle => T("edit.pendingInvalid.title", "Invalid value in a cell");
+
+    public string EditPendingInvalidMessage => T("edit.pendingInvalid.message",
+        "A cell still holds a value that is not valid. Correct the value, or press Escape to discard it, then try again.");
 
     // ---- menu "Edit" and the messages of undo and redo ----------------------------------------------------------------------------
 

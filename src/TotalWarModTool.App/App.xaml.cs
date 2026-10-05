@@ -169,7 +169,7 @@ public partial class App : Application
         var projectCommands = new ProjectsViewModel(projects, new ProjectDialogs(texts, () => mainWindow), texts);
 
         // The editable tabs of the project files and the global undo history. The controller owns the list of tabs the main view model shows.
-        var documents = new DocumentsController(new TabsViewModel(texts), projects, new ActionHistory(), progressRunner,
+        var documents = new DocumentsController(new TabsViewModel(texts) { Clipboard = new WpfClipboard() }, projects, new ActionHistory(), progressRunner,
             new EditDialogs(texts, () => mainWindow), log, texts);
 
         // A project with unsaved changes cannot leave the list, and a build asks to save them first.

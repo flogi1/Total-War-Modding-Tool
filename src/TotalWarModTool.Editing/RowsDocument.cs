@@ -19,6 +19,14 @@ public sealed class RowsDocument
     // The version of every loc file; the same value as the decoder and the writer use.
     private const int LocVersion = 1;
 
+    // The columns of every loc document; shared by all of them (a field definition is immutable).
+    private static readonly FieldDefinition[] LocColumnList =
+    [
+        new("key", FieldType.StringU16, nameof(FieldType.StringU16), true, null),
+        new("text", FieldType.StringU16, nameof(FieldType.StringU16), false, null),
+        new("tooltip", FieldType.Boolean, nameof(FieldType.Boolean), false, null),
+    ];
+
     private readonly TableDefinition? _definition;
     private readonly IReadOnlySet<int> _channelColumns;
     private readonly List<object?[]> _rows;
@@ -123,18 +131,16 @@ public sealed class RowsDocument
             CellText.ColourChannelFields(definition), list, rowSet);
     }
 
-    /// <summary>A loc file: three columns "key" (StringU16), "text" (StringU16), "tooltip" (Boolean).</summary>
+    /// <summary>The columns of a loc file: "key" (StringU16, the key), "text" (StringU16), "tooltip" (Boolean). The columns of <see cref="ForLoc"/>.</summary>
+    public static IReadOnlyList<FieldDefinition> LocColumns => LocColumnList;
+
+    /// <summary>A loc file: three columns "key" (StringU16), "text" (StringU16), "tooltip" (Boolean); see <see cref="LocColumns"/>.</summary>
     public static RowsDocument ForLoc(string packPath, IReadOnlyList<LocRow> rows)
     {
         ArgumentNullException.ThrowIfNull(packPath);
         ArgumentNullException.ThrowIfNull(rows);
 
-        FieldDefinition[] columns =
-        [
-            new("key", FieldType.StringU16, nameof(FieldType.StringU16), true, null),
-            new("text", FieldType.StringU16, nameof(FieldType.StringU16), false, null),
-            new("tooltip", FieldType.Boolean, nameof(FieldType.Boolean), false, null),
-        ];
+        var columns = LocColumnList;
         var list = new List<object?[]>(rows.Count);
         var rowSet = new HashSet<object?[]>(rows.Count, ReferenceEqualityComparer.Instance);
         for (var i = 0; i < rows.Count; i++)

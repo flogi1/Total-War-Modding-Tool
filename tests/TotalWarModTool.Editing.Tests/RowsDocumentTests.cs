@@ -68,6 +68,15 @@ public partial class RowsDocumentTests
     private static RowsDocument NewLoc() =>
         RowsDocument.ForLoc(@"text\db\test__.loc", [new LocRow("k1", "t1", false), new LocRow("k2", "t2\tx", true)]);
 
+    [Fact] public void The_loc_columns_are_the_columns_of_a_loc_document()
+    {
+        var columns = RowsDocument.LocColumns;
+
+        Assert.Equal(["key", "text", "tooltip"], columns.Select(c => c.Name));
+        Assert.Equal([FieldType.StringU16, FieldType.StringU16, FieldType.Boolean], columns.Select(c => c.Type));
+        Assert.Equal(columns, NewLoc().Columns);
+    }
+
     // The rows as a list of independent copies, to compare a state with an earlier one.
     private static List<object?[]> Snapshot(RowsDocument document) => document.Rows.Select(r => (object?[])r.Clone()).ToList();
 

@@ -424,4 +424,159 @@ public class TabsViewTests
         var transform = arrow.RenderTransform ?? Transform.Identity;
         Assert.Equal(pointsUp, transform.Transform(tip).Y < transform.Transform(baseLine).Y);
     });
+
+    // ---- the editable tab and the copy of the read-only tabs ------------------------------------------------------------------------
+
+    private static EditableRowsTabViewModel EditableLoc(Setup setup, FakeClipboard clipboard)
+    {
+        var document = TotalWarModTool.Editing.RowsDocument.ForLoc("text/db/a.loc", [new LocRow("k", "Text", false), new LocRow("k2", "More", true)]);
+        var tab = new EditableRowsTabViewModel(TabSource.ForProject(Guid.NewGuid(), "Project"), "text/db/a.loc.tsv", Texts, setup.ViewModel.Close, document,
+            new TotalWarModTool.UndoRedo.ActionHistory(), clipboard);
+        setup.ViewModel.Tabs.Add(tab);
+        setup.ViewModel.SelectedTab = tab;
+        Pump(setup.Window);
+        return tab;
+    }
+
+    // The menu is not in the visual tree: it is opened (with its popup) to let its bindings resolve, and closed again by the caller in a finally.
+    private static List<MenuItem> OpenedItems(ContextMenu menu, FrameworkElement target)
+    {
+        menu.PlacementTarget = target;
+        menu.IsOpen = true;
+        target.Dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        return menu.Items.OfType<MenuItem>().ToList();
+    }
+
+    [Fact] public void An_editable_tab_shows_the_editable_grid_the_message_lines_and_the_text_switch() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            var clipboard = new FakeClipboard();
+            var tab = EditableLoc(setup, clipboard);
+            var grid = setup.Grid;
+            TextBlock Line(string name) => Descendants<TextBlock>(setup.View).Single(text => text.Name == name);
+
+            Assert.False(grid.IsReadOnly);
+            Assert.Equal(["key", "text", "tooltip"], grid.Columns.Select(c => Assert.IsType<TextBlock>(c.Header).Text));
+            Assert.IsAssignableFrom<DataGridCheckBoxColumn>(grid.Columns[2]);
+            Assert.Equal(Visibility.Collapsed, Line("ValidationLine").Visibility);
+            Assert.Equal(Visibility.Collapsed, Line("NoticeLine").Visibility);
+
+            // The message of a cell with an invalid value and the notice of a paste show under the header, in the colour of a warning.
+            tab.SetValidationMessage("not a valid value");
+            tab.PasteRowsCommand.Execute(null);                                    // no text on the clipboard: a notice
+            Pump(setup.Window);
+            Assert.Equal((Visibility.Visible, "not a valid value"), (Line("ValidationLine").Visibility, Line("ValidationLine").Text));
+            Assert.Equal((Visibility.Visible, Texts.GridPasteNoText), (Line("NoticeLine").Visibility, Line("NoticeLine").Text));
+            tab.SetValidationMessage(null);
+            Pump(setup.Window);
+            Assert.Equal(Visibility.Collapsed, Line("ValidationLine").Visibility);
+
+            // The switch to the text view shows the text of the document instead of the grid.
+            var box = Descendants<TextBox>(setup.View).Single();
+            Assert.Equal((Visibility.Visible, Visibility.Collapsed), (grid.Visibility, box.Visibility));
+            tab.ShowText = true;
+            Pump(setup.Window);
+            Assert.Equal((Visibility.Collapsed, Visibility.Visible), (grid.Visibility, box.Visibility));
+            Assert.StartsWith("key\ttext\ttooltip\n#Loc;1;", box.Text);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void The_context_menu_of_an_editable_grid_holds_the_row_commands_with_their_texts() => Sta.Run(() =>
+    {
+        var setup = Create();
+        ContextMenu? menu = null;
+        try
+        {
+            var tab = EditableLoc(setup, new FakeClipboard());
+            menu = Assert.IsType<ContextMenu>(setup.Grid.ContextMenu);
+
+            var items = OpenedItems(menu, setup.Grid);
+
+            Assert.Equal([Texts.GridInsertRow, Texts.GridDuplicateRows, Texts.GridDeleteRows, Texts.GridCopy, Texts.GridPaste], items.Select(item => item.Header));
+            Assert.Equal([tab.InsertRowCommand, tab.DuplicateRowsCommand, tab.DeleteRowsCommand, tab.CopyRowsCommand, tab.PasteRowsCommand], items.Select(item => item.Command));
+            Assert.All(items, item => Assert.False(string.IsNullOrWhiteSpace((string)item.Header)));
+            Assert.Equal([true, false, false, false, true], items.Select(item => item.IsEnabled));         // nothing selected; insert and paste need none
+        }
+        finally
+        {
+            if (menu is not null)
+            {
+                menu.IsOpen = false;
+            }
+
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void The_context_menu_of_a_read_only_table_and_loc_grid_copies() => Sta.Run(() =>
+    {
+        var setup = Create();
+        ContextMenu? menu = null;
+        try
+        {
+            setup.ViewModel.Clipboard = new FakeClipboard();
+            setup.ViewModel.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"], ["b", "2"]]), null);
+            Pump(setup.Window);
+            var table = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+            menu = Assert.IsType<ContextMenu>(setup.Grid.ContextMenu);
+
+            var item = Assert.Single(OpenedItems(menu, setup.Grid));
+
+            Assert.Equal(Texts.GridCopy, item.Header);
+            Assert.Same(table.CopyRowsCommand, item.Command);
+            Assert.False(item.IsEnabled);                                           // nothing is selected
+            menu.IsOpen = false;
+
+            var loc = new DecodedLoc(LocDecodeStatus.Ok, [new("k1", "t1", true)], null);
+            setup.ViewModel.Add(Pack, new OpenedEntry("text/names.loc", EntryKind.Loc, 1, 1, CompressionFormat.None, EntryProblem.None, null, false, null, loc, null), null);
+            Pump(setup.Window);
+            var locTab = Assert.IsType<LocTabViewModel>(setup.ViewModel.SelectedTab);
+            menu = Assert.IsType<ContextMenu>(setup.Grid.ContextMenu);
+            var locItem = Assert.Single(OpenedItems(menu, setup.Grid));
+            Assert.Equal(Texts.GridCopy, locItem.Header);
+            Assert.Same(locTab.CopyRowsCommand, locItem.Command);
+        }
+        finally
+        {
+            if (menu is not null)
+            {
+                menu.IsOpen = false;
+            }
+
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void Selecting_rows_in_a_sorted_read_only_grid_reports_the_rows_of_the_table() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            var clipboard = new FakeClipboard();
+            setup.ViewModel.Clipboard = clipboard;
+            setup.ViewModel.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"], ["b", "2"], ["c", "3"]]), null);
+            Pump(setup.Window);
+            var table = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+
+            // Sorted descending: the grid reports the rows of the table, not the positions in the view.
+            setup.Grid.Items.SortDescriptions.Add(new SortDescription("[0]", ListSortDirection.Descending));
+            Pump(setup.Window);
+            setup.Grid.SelectedItems.Add(setup.Grid.Items[0]);                      // the row "c": index 2 in the table
+
+            Assert.Equal([2], table.SelectedRows);
+            Assert.True(table.CopyRowsCommand.CanExecute(null));
+            Assert.True(setup.Grid.HandleKey(Key.C, ModifierKeys.Control, false));
+            Assert.Equal("unit_key\tcost\nc\t3\n", clipboard.Text);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
 }

@@ -1040,6 +1040,11 @@
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
+                                        <!-- The corner above the row headers: as wide as they are, so that the column headers stay above their cells. -->
+                                        <Border Grid.Column="0" Background="{DynamicResource Theme.ControlBackground}"
+                                                BorderBrush="{DynamicResource Theme.Separator}" BorderThickness="0,0,1,1"
+                                                Width="{Binding CellsPanelHorizontalOffset, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"
+                                                Visibility="{Binding HeadersVisibility, ConverterParameter={x:Static DataGridHeadersVisibility.All}, Converter={x:Static DataGrid.HeadersVisibilityConverter}, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}" />
                                         <DataGridColumnHeadersPresenter x:Name="PART_ColumnHeadersPresenter" Grid.Column="1"
                                                                         Visibility="{Binding HeadersVisibility, ConverterParameter={x:Static DataGridHeadersVisibility.Column}, Converter={x:Static DataGrid.HeadersVisibilityConverter}, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}" />
                                         <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Grid.Row="1" Grid.ColumnSpan="2"
@@ -1197,6 +1202,76 @@
                 <Setter Property="BorderBrush" Value="{DynamicResource Theme.Accent}" />
             </Trigger>
         </Style.Triggers>
+    </Style>
+
+    <!-- The row header of the editable grid: the number of the row. -->
+    <Style TargetType="DataGridRowHeader">
+        <Setter Property="Foreground" Value="{DynamicResource Theme.TextMuted}" />
+        <Setter Property="Background" Value="{DynamicResource Theme.ControlBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Theme.Separator}" />
+        <Setter Property="Padding" Value="6,0" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridRowHeader">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="0,0,1,1" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Right" VerticalAlignment="Center" SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsRowSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.InactiveSelection}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Theme.Text}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        The editors of the cells of the editable grid. DataGridTextColumn and DataGridCheckBoxColumn give their elements a style of their own,
+        so the implicit styles above do not reach them: the grid sets these keyed styles on the elements. A cell with a refused value gets the
+        border of a warning, and its message as the tool tip; the default error adorner (a fixed red) is switched off.
+    -->
+    <Style x:Key="ThemeGridCellEditor" TargetType="TextBox">
+        <Setter Property="Background" Value="{DynamicResource Theme.PanelBackground}" />
+        <Setter Property="Foreground" Value="{DynamicResource Theme.Text}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Theme.Text}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource Theme.Accent}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Theme.PanelBackground}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Margin" Value="-1" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Validation.ErrorTemplate" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}" Focusable="False" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Validation.HasError" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Theme.Warning}" />
+                <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=(Validation.Errors)[0].ErrorContent}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="ThemeGridCheckBox" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="Focusable" Value="False" />
+    </Style>
+
+    <Style x:Key="ThemeGridCheckBoxEditing" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
     <!-- ========== StatusBar / StatusBarItem / GridSplitter ========== -->

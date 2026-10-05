@@ -23,18 +23,22 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     private readonly RowCollection _rows;
     private readonly RelayCommand _deleteRowsCommand;
     private readonly RelayCommand _duplicateRowsCommand;
+    private readonly RelayCommand _pasteRowsCommand;
     private readonly RelayCommand _reloadCommand;
     private RowsDocument _document;
     private string _header;
-    private IReadOnlyList<int> _selectedRows = [];
+    private bool _pasting;
+    private bool _hasPendingEdit;
+    private string? _validationMessage;
     private bool _disposed;
 
     /// <summary>The number of rows from which a change of the document rebuilds <see cref="Rows"/> in one pass (see <see cref="LargeChangeRows"/>).</summary>
     internal const int DefaultLargeChangeRows = 2_000;
 
+    /// <param name="clipboard">Where copy and paste go; null disables both commands.</param>
     public EditableRowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close,
-        RowsDocument document, ActionHistory history)
-        : base(RequireProject(source), entryPath, texts, close)
+        RowsDocument document, ActionHistory history, IClipboard? clipboard = null)
+        : base(RequireProject(source), entryPath, texts, close, clipboard)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(history);
@@ -47,6 +51,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         _header = HeaderText();
         _deleteRowsCommand = new RelayCommand(DeleteRows, HasSelection);
         _duplicateRowsCommand = new RelayCommand(DuplicateRows, HasSelection);
+        _pasteRowsCommand = new RelayCommand(PasteRows, () => Clipboard is not null);
         InsertRowCommand = new RelayCommand(InsertRow);
         _reloadCommand = new RelayCommand(() => ReloadHandler?.Invoke(this), () => CanReload);
         Subscribe(document);
@@ -84,18 +89,6 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     /// </summary>
     public bool CanReload => IsStaleOutside && !IsModified;
 
-    /// <summary>The rows the user selected, as indexes; set by the view. Indexes outside the rows are ignored by the commands.</summary>
-    public IReadOnlyList<int> SelectedRows
-    {
-        get => _selectedRows;
-        set
-        {
-            _selectedRows = value ?? [];
-            OnPropertyChanged();
-            RaiseSelectionCommandsChanged();
-        }
-    }
-
     /// <summary>A default row after the last selected row, or at the end.</summary>
     public ICommand InsertRowCommand { get; }
 
@@ -104,6 +97,55 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
     /// <summary>Duplicates the selected rows as one block after the last of them. Disabled without a selection.</summary>
     public ICommand DuplicateRowsCommand => _duplicateRowsCommand;
+
+    /// <summary>
+    /// Inserts the rows of the text on the clipboard (the format that <see cref="RowsTabViewModel.CopyRowsCommand"/> writes) as one step after the
+    /// last selected row, or at the end. A text that is refused changes nothing and says why in <see cref="RowsTabViewModel.Notice"/>.
+    /// Disabled without a clipboard.
+    /// </summary>
+    public ICommand PasteRowsCommand => _pasteRowsCommand;
+
+    /// <summary>
+    /// Raised after a row command (insert, duplicate, paste, delete) with the rows that the view should select: the new rows, or after a
+    /// delete the row that took the place of the first deleted one (none when no row is left). View wiring: the grid selects them and
+    /// scrolls the first into view.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<int>>? SelectionRequested;
+
+    /// <summary>
+    /// Commits the cell that is being edited in the grid and returns whether that worked; set by the view. False means the cell stays in
+    /// edit mode because its value is not valid. Without a view nothing is pending.
+    /// </summary>
+    public Func<bool>? CommitPendingEdit { get; set; }
+
+    /// <summary>
+    /// True while a cell is in edit mode in the grid (set by the view). The text that is typed is not part of the document yet, but saving
+    /// has to take it along, so the save commands are enabled by it.
+    /// </summary>
+    public bool HasPendingEdit => _hasPendingEdit;
+
+    /// <summary>
+    /// The message of the cell that holds an invalid value, shown in a line under the header; null while no cell has an error. Set by the view.
+    /// </summary>
+    public string? ValidationMessage => _validationMessage;
+
+    /// <summary>
+    /// Commits the pending cell edit before an action that needs the document as the user sees it (save, close, build). True when nothing is
+    /// pending or the commit worked; false when the cell stays in edit mode because its value is not valid, and the action must not go on.
+    /// </summary>
+    public bool TryCommitPendingEdit() => CommitPendingEdit?.Invoke() ?? true;
+
+    /// <summary>The view tells whether a cell is in edit mode.</summary>
+    internal void SetPendingEdit(bool pending)
+    {
+        if (SetProperty(ref _hasPendingEdit, pending, nameof(HasPendingEdit)) && !pending)
+        {
+            SetValidationMessage(null);
+        }
+    }
+
+    /// <summary>The view tells the message of the cell with an error, or null when there is none any more.</summary>
+    internal void SetValidationMessage(string? message) => SetProperty(ref _validationMessage, message, nameof(ValidationMessage));
 
     /// <summary>
     /// A change of more than this many rows (an insert, a removal) rebuilds <see cref="Rows"/> in one pass with a single reset, instead
@@ -136,16 +178,15 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         _document = document;
         Subscribe(document);
         _rows.ReplaceAll(BuildRows(document));
-        _selectedRows = [];
         InvalidateText();
         SetProperty(ref _header, HeaderText(), nameof(Header));
+        SetNotice(null);
         OnPropertyChanged(nameof(Document));
         OnPropertyChanged(nameof(Columns));
         OnPropertyChanged(nameof(IsModified));
         RaiseReloadChanged();
         OnPropertyChanged(nameof(IsTableEntry));
-        OnPropertyChanged(nameof(SelectedRows));
-        RaiseSelectionCommandsChanged();
+        SelectedRows = [];
     }
 
     /// <summary>The setter of <see cref="EditRow"/>: checks the value, then changes the cell through the history.</summary>
@@ -228,6 +269,12 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     // indexes before it (remove from the highest down), so that every index is right at the moment it is used.
     private void OnDocumentChanged(object? sender, DocumentChange change)
     {
+        // What the last copy or paste said is about the rows of that moment; the paste sets its notice after its own change.
+        if (!_pasting)
+        {
+            SetNotice(null);
+        }
+
         switch (change.Kind)
         {
             case DocumentChangeKind.CellsChanged:
@@ -307,12 +354,15 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
     // ----- Commands -----
 
-    private bool HasSelection() => _selectedRows.Any(IsRowIndex);
+    protected override int RowCount => _document.Rows.Count;
 
-    private bool IsRowIndex(int index) => index >= 0 && index < _document.Rows.Count;
+    protected override CopySource? GetCopySource() => new(_document.Columns, index => _document.Rows[index]);
 
-    // The selection is set by the view and can be stale after a change: only indexes of existing rows count.
-    private List<int> ValidSelection() => _selectedRows.Where(IsRowIndex).ToList();
+    protected override void OnSelectionChanged()
+    {
+        base.OnSelectionChanged();
+        RaiseSelectionCommandsChanged();
+    }
 
     private void RaiseSelectionCommandsChanged()
     {
@@ -320,30 +370,117 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         _duplicateRowsCommand.RaiseCanExecuteChanged();
     }
 
+    private void RequestSelection(IReadOnlyList<int> rows) => SelectionRequested?.Invoke(this, rows);
+
+    // A row index after the last selected row, or the end of the rows.
+    private int InsertionIndex(List<int> selected) => selected.Count > 0 ? selected[^1] + 1 : _document.Rows.Count;
+
     private void InsertRow()
     {
-        var selected = ValidSelection();
-        var index = selected.Count > 0 ? selected.Max() + 1 : _document.Rows.Count;
+        var index = InsertionIndex(ValidSelection());
         _history.Execute(_document.InsertRows(index, [_document.NewRow()]));
+        RequestSelection([index]);
     }
 
     private void DeleteRows()
     {
         var selected = ValidSelection();
-        if (selected.Count > 0)
+        if (selected.Count == 0)
         {
-            _history.Execute(_document.DeleteRows(selected));
+            return;
         }
+
+        _history.Execute(_document.DeleteRows(selected));
+
+        // The row that took the place of the first deleted one, or the last row when the deleted ones were at the end.
+        var left = _document.Rows.Count;
+        RequestSelection(left == 0 ? [] : [Math.Min(selected[0], left - 1)]);
     }
 
     private void DuplicateRows()
     {
         var selected = ValidSelection();
-        if (selected.Count > 0)
+        if (selected.Count == 0)
         {
-            _history.Execute(_document.DuplicateRows(selected));
+            return;
         }
+
+        _history.Execute(_document.DuplicateRows(selected));
+        RequestSelection(Enumerable.Range(selected[^1] + 1, selected.Count).ToList());
     }
+
+    private void PasteRows()
+    {
+        if (Clipboard is not { } clipboard)
+        {
+            return;
+        }
+
+        if (clipboard.GetText() is not { } text)
+        {
+            SetNotice(t => t.GridPasteNoText);
+            return;
+        }
+
+        var result = ClipboardRows.Read(text, _document);
+        if (result.Problem != PasteProblem.None)
+        {
+            var problem = result.Problem;
+            var line = result.Line;
+            var detail = DisplayText.Safe(result.Detail ?? string.Empty);
+            SetNotice(t => line > 0
+                ? t.GridPasteRefusedAtLine(line, t.GridPasteProblemText(problem), detail)
+                : t.GridPasteRefused(t.GridPasteProblemText(problem), detail));
+            return;
+        }
+
+        var index = InsertionIndex(ValidSelection());
+        var edit = _document.InsertRows(index, result.Rows);
+
+        // The change of the document must not clear the notice that is set right after it.
+        _pasting = true;
+        try
+        {
+            _history.Execute(edit);
+        }
+        finally
+        {
+            _pasting = false;
+        }
+
+        SetNotice(PasteNotice(result));
+        RequestSelection(Enumerable.Range(index, result.Rows.Count).ToList());
+    }
+
+    // The columns that the text lacked (they got their default) and the ones that it had too many (they were left out); null when both are empty.
+    private static Func<AppTexts, string>? PasteNotice(PasteResult result)
+    {
+        if (result.MissingColumns.Count == 0 && result.ExtraColumns.Count == 0)
+        {
+            return null;
+        }
+
+        var missing = result.MissingColumns;
+        var extra = result.ExtraColumns;
+        return t =>
+        {
+            var parts = new List<string>(2);
+            if (missing.Count > 0)
+            {
+                parts.Add(t.GridPasteMissingColumns(Names(missing, t)));
+            }
+
+            if (extra.Count > 0)
+            {
+                parts.Add(t.GridPasteExtraColumns(Names(extra, t)));
+            }
+
+            return string.Join(" ", parts);
+        };
+    }
+
+    private static string Names(IReadOnlyList<string> names, AppTexts texts) =>
+        DisplayText.Safe(string.Join(", ", names), 300, " (" + texts.TextShortened + ")");
 
     // ----- Messages -----
 

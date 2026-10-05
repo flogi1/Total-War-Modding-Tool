@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows.Input;
+using TotalWarModTool.Editing;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
@@ -53,7 +54,8 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         _texts.PropertyChanged += OnTextsChanged;
     }
 
-    protected AppTexts Texts => _texts;
+    /// <summary>The texts of the app; the views of a tab read the texts of their menus from here, so they follow a change of the language.</summary>
+    public AppTexts Texts => _texts;
 
     /// <summary><see cref="TabSource.Key"/> of the source the entry lives in: the path of a pack, or the key of a project.</summary>
     public string PackPath { get; }
@@ -189,19 +191,57 @@ public abstract class RowsTabViewModel : TabViewModel
     /// <summary>The longest text the text view shows, in characters.</summary>
     public const int MaxTextChars = 5_000_000;
 
+    /// <summary>The most rows that one copy puts on the clipboard.</summary>
+    public const int DefaultMaxCopyRows = 100_000;
+
+    private readonly IClipboard? _clipboard;
+    private readonly RelayCommand _copyRowsCommand;
     private bool _showText;
     private bool _textBuilt;
     private string? _text;
     private string? _textNotice;
     private Func<AppTexts, string>? _notice;
+    private IReadOnlyList<int> _selectedRows = [];
+    private Func<AppTexts, string>? _gridNoticeText;
+    private string? _gridNotice;
 
-    protected RowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close)
+    /// <param name="clipboard">Where copy puts the rows; null disables copying (and pasting, where a tab has it).</param>
+    protected RowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IClipboard? clipboard = null)
         : base(source, entryPath, texts, close)
     {
+        _clipboard = clipboard;
+        _copyRowsCommand = new RelayCommand(CopyRows, CanCopyRows);
     }
 
     /// <summary>The limit of the text; settable so that tests need no five million characters.</summary>
     internal int MaxChars { get; set; } = MaxTextChars;
+
+    /// <summary>The limit of rows for one copy; settable so that tests need no hundred thousand rows.</summary>
+    internal int MaxCopyRows { get; set; } = DefaultMaxCopyRows;
+
+    /// <summary>
+    /// The rows the user selected, as indexes into the rows of the tab (not into the sorted view); set by the view. Indexes outside the
+    /// rows are ignored by the commands.
+    /// </summary>
+    public IReadOnlyList<int> SelectedRows
+    {
+        get => _selectedRows;
+        set
+        {
+            _selectedRows = value ?? [];
+            OnPropertyChanged();
+            OnSelectionChanged();
+        }
+    }
+
+    /// <summary>Copies the selected rows to the clipboard (a header line with the column names, then one line per row). Disabled without a selection or a clipboard.</summary>
+    public ICommand CopyRowsCommand => _copyRowsCommand;
+
+    /// <summary>
+    /// What the last copy or paste has to say (a refusal, the columns that a paste filled or dropped); null when there is nothing. The
+    /// view shows it in a line under the header. Computed again when the language changes.
+    /// </summary>
+    public string? Notice => _gridNotice;
 
     /// <summary>False shows the grid, true the text. Switching to the text for the first time builds it.</summary>
     public bool ShowText
@@ -245,6 +285,90 @@ public abstract class RowsTabViewModel : TabViewModel
         if (_notice is not null)
         {
             SetProperty(ref _textNotice, _notice(Texts), nameof(TextNotice));
+        }
+
+        if (_gridNoticeText is not null)
+        {
+            SetProperty(ref _gridNotice, _gridNoticeText(Texts), nameof(Notice));
+        }
+    }
+
+    /// <summary>The number of rows of the tab; indexes from 0 to this count minus one are rows.</summary>
+    protected abstract int RowCount { get; }
+
+    /// <summary>What copy writes: the columns and the cells of a row by its index. Null when the tab has no definition to write the cells with.</summary>
+    protected abstract CopySource? GetCopySource();
+
+    /// <summary>The columns and the rows of a copy. <paramref name="RowAt"/> gives the cell array of a row by its index.</summary>
+    protected sealed record CopySource(IReadOnlyList<FieldDefinition> Columns, Func<int, object?[]> RowAt);
+
+    /// <summary>The clipboard of the tab; null when it has none.</summary>
+    protected IClipboard? Clipboard => _clipboard;
+
+    /// <summary>Sets <see cref="Notice"/> from a text of the app; the text is computed again when the language changes. Null clears it.</summary>
+    protected void SetNotice(Func<AppTexts, string>? notice)
+    {
+        _gridNoticeText = notice;
+        SetProperty(ref _gridNotice, notice?.Invoke(Texts), nameof(Notice));
+    }
+
+    /// <summary>Called after <see cref="SelectedRows"/> was set; commands that depend on the selection ask again here.</summary>
+    protected virtual void OnSelectionChanged() => _copyRowsCommand.RaiseCanExecuteChanged();
+
+    /// <summary>True when a selected index is a row.</summary>
+    protected bool HasSelection() => _selectedRows.Any(IsRowIndex);
+
+    protected bool IsRowIndex(int index) => index >= 0 && index < RowCount;
+
+    /// <summary>The selected rows that exist, ascending and without repeats. The selection is set by the view and can be stale after a change.</summary>
+    protected List<int> ValidSelection() => _selectedRows.Where(IsRowIndex).Distinct().Order().ToList();
+
+    private bool CanCopyRows() => _clipboard is not null && HasSelection();
+
+    private void CopyRows()
+    {
+        if (_clipboard is null || GetCopySource() is not { } source)
+        {
+            return;
+        }
+
+        var selected = ValidSelection();
+        if (selected.Count == 0)
+        {
+            return;
+        }
+
+        if (selected.Count > MaxCopyRows)
+        {
+            var count = selected.Count;
+            var max = MaxCopyRows;
+            SetNotice(t => t.GridCopyTooManyRows(count, max));
+            return;
+        }
+
+        TsvWriteResult result;
+        try
+        {
+            result = ClipboardRows.Write(source.Columns, selected.Select(source.RowAt));
+        }
+        catch (ArgumentException ex)
+        {
+            // A cell of the wrong type or a row of another length (a table that could not be edited): the same case as a refusal.
+            result = new TsvWriteResult(null, MessageWithoutParameter(ex));
+        }
+
+        if (result.Text is null)
+        {
+            var detail = DisplayText.Safe(result.Detail ?? string.Empty);
+            SetNotice(t => t.GridCopyRefused(detail));
+        }
+        else if (!_clipboard.SetText(result.Text))
+        {
+            SetNotice(t => t.GridCopyClipboardFailed);
+        }
+        else
+        {
+            SetNotice(null);
         }
     }
 
@@ -342,8 +466,9 @@ public sealed class TableTabViewModel : RowsTabViewModel
     private readonly DecodedTable _table;
     private string _header;
 
-    public TableTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, DecodedTable table)
-        : base(source, entryPath, texts, close)
+    public TableTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, DecodedTable table,
+        IClipboard? clipboard = null)
+        : base(source, entryPath, texts, close, clipboard)
     {
         _table = table;
         _header = HeaderText();
@@ -361,6 +486,12 @@ public sealed class TableTabViewModel : RowsTabViewModel
 
     protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
 
+    protected override int RowCount => _table.Rows.Count;
+
+    protected override CopySource? GetCopySource() => _table.Definition is { } definition
+        ? new CopySource(definition.Fields, index => _table.Rows[index])
+        : null;
+
     // The meta line of the TSV names the entry the table was read from.
     protected override TsvWriteResult? WriteText() => _table.Definition is { } definition
         ? TableTsv.Write(_table.TableName, _table.Version, EntryPath, definition, _table.Rows)
@@ -373,8 +504,9 @@ public sealed class LocTabViewModel : RowsTabViewModel
 {
     private string _header;
 
-    public LocTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IReadOnlyList<LocRow> rows)
-        : base(source, entryPath, texts, close)
+    public LocTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IReadOnlyList<LocRow> rows,
+        IClipboard? clipboard = null)
+        : base(source, entryPath, texts, close, clipboard)
     {
         Rows = rows;
         _header = HeaderText();
@@ -385,6 +517,15 @@ public sealed class LocTabViewModel : RowsTabViewModel
     public IReadOnlyList<LocRow> Rows { get; }
 
     protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
+
+    protected override int RowCount => Rows.Count;
+
+    // The three cells of a loc row, in the columns of a loc document (key, text, tooltip).
+    protected override CopySource? GetCopySource() => new(RowsDocument.LocColumns, index =>
+    {
+        var row = Rows[index];
+        return [row.Key, row.Text, row.Tooltip];
+    });
 
     protected override TsvWriteResult? WriteText() => TableTsv.WriteLoc(EntryPath, Rows);
 

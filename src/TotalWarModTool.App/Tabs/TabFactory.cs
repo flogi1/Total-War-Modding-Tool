@@ -11,7 +11,8 @@ public static class TabFactory
 {
     private static readonly string[] SizeUnits = ["KB", "MB", "GB"];
 
-    public static TabViewModel Create(TabSource source, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close)
+    public static TabViewModel Create(TabSource source, OpenedEntry entry, ResolvedSchema? schema, AppTexts texts, Action<TabViewModel> close,
+        IClipboard? clipboard = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(entry);
@@ -32,11 +33,11 @@ public static class TabFactory
                 var status = entry.Table?.Status ?? TableDecodeStatus.Failed;
                 return Info(t => t.TabInfoNotDecodable, t => t.TableStatusText(status));
             case EntryKind.Table:
-                return new TableTabViewModel(source, entry.EntryPath, texts, close, entry.Table!);
+                return new TableTabViewModel(source, entry.EntryPath, texts, close, entry.Table!, clipboard);
             case EntryKind.Loc when entry.Loc is not { Status: LocDecodeStatus.Ok }:
                 return Info(t => t.TabInfoLocNotDecodable, t => t.LocStatusFailed);
             case EntryKind.Loc:
-                return new LocTabViewModel(source, entry.EntryPath, texts, close, entry.Loc!.Rows);
+                return new LocTabViewModel(source, entry.EntryPath, texts, close, entry.Loc!.Rows, clipboard);
             case EntryKind.Text when entry.Text is { } text:
                 return new TextTabViewModel(source, entry.EntryPath, texts, close, text);
             default:

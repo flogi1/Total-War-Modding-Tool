@@ -42,14 +42,68 @@
         </DataTemplate>
 
         <!--
-            An editable table or loc file of a project: the line of an outside change above the header. The editable grid takes the rest of
-            the tab with the grid task of the plan.
+            A line of text under the header that shows only while the bound text is not null, in the colour of a warning: the message of a
+            cell with an invalid value, and what the last copy or paste has to say. The Margin differs from the one of the text notice on purpose.
+        -->
+        <Style x:Key="GridMessageLine" TargetType="TextBlock">
+            <Setter Property="Margin" Value="6,0,6,2" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{DynamicResource Theme.Warning}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Text}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!--
+            An editable table or loc file of a project: the line of an outside change, the header with the switch to the text view, the message
+            of a cell with an invalid value, the notice of the last copy or paste, then the editable grid (or the text). The context menu holds
+            the row commands of the view model; its texts come from the texts of the tab, because a menu is not in the visual tree of the view.
         -->
         <DataTemplate DataType="{x:Type local:EditableRowsTabViewModel}">
             <DockPanel>
                 <ContentPresenter x:Name="OutsideChange" DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource OutsideChangeBar}"
                                   Visibility="{Binding IsStaleOutside, Converter={StaticResource BoolToVisibility}}" />
-                <TextBlock DockPanel.Dock="Top" Text="{Binding Header}" Margin="6,4" />
+                <DockPanel DockPanel.Dock="Top">
+                    <ContentPresenter DockPanel.Dock="Right" Margin="6,2" Content="{Binding}" ContentTemplate="{StaticResource ViewSwitch}" />
+                    <TextBlock Text="{Binding Header}" Margin="6,4" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock x:Name="ValidationLine" DockPanel.Dock="Top" Text="{Binding ValidationMessage}" Style="{StaticResource GridMessageLine}" />
+                <TextBlock x:Name="NoticeLine" DockPanel.Dock="Top" Text="{Binding Notice}" Style="{StaticResource GridMessageLine}" />
+                <TextBlock DockPanel.Dock="Top" Text="{Binding TextNotice}" Margin="6,0,6,4" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Theme.Warning}">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding TextNotice}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding ShowText}" Value="False">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <Grid>
+                    <local:TableGrid EditColumns="{Binding Columns}" ItemsSource="{Binding Rows}"
+                                     Visibility="{Binding ShowGrid, Converter={StaticResource BoolToVisibility}}">
+                        <local:TableGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="{Binding Texts.GridInsertRow}" Command="{Binding InsertRowCommand}" />
+                                <MenuItem Header="{Binding Texts.GridDuplicateRows}" Command="{Binding DuplicateRowsCommand}" />
+                                <MenuItem Header="{Binding Texts.GridDeleteRows}" Command="{Binding DeleteRowsCommand}" />
+                                <Separator />
+                                <MenuItem Header="{Binding Texts.GridCopy}" Command="{Binding CopyRowsCommand}" />
+                                <MenuItem Header="{Binding Texts.GridPaste}" Command="{Binding PasteRowsCommand}" />
+                            </ContextMenu>
+                        </local:TableGrid.ContextMenu>
+                    </local:TableGrid>
+                    <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
+                             HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                             Visibility="{Binding ShowText, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
             </DockPanel>
         </DataTemplate>
 
@@ -75,9 +129,16 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Notice}" Style="{StaticResource GridMessageLine}" />
                 <Grid>
                     <local:TableGrid ColumnNames="{Binding Columns}" ItemsSource="{Binding Rows}"
-                                     Visibility="{Binding ShowGrid, Converter={StaticResource BoolToVisibility}}" />
+                                     Visibility="{Binding ShowGrid, Converter={StaticResource BoolToVisibility}}">
+                        <local:TableGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="{Binding Texts.GridCopy}" Command="{Binding CopyRowsCommand}" />
+                            </ContextMenu>
+                        </local:TableGrid.ContextMenu>
+                    </local:TableGrid>
                     <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas"
                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                              Visibility="{Binding ShowText, Converter={StaticResource BoolToVisibility}}" />
@@ -107,9 +168,15 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+                <TextBlock DockPanel.Dock="Top" Text="{Binding Notice}" Style="{StaticResource GridMessageLine}" />
                 <Grid>
                     <local:TableGrid ItemsSource="{Binding Rows}"
                                      Visibility="{Binding ShowGrid, Converter={StaticResource BoolToVisibility}}">
+                        <local:TableGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="{Binding Texts.GridCopy}" Command="{Binding CopyRowsCommand}" />
+                            </ContextMenu>
+                        </local:TableGrid.ContextMenu>
                         <local:TableGrid.Columns>
                             <DataGridTextColumn Binding="{Binding Key, Mode=OneWay}">
                                 <DataGridTextColumn.Header>

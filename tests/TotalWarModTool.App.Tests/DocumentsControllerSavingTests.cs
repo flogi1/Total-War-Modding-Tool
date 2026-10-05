@@ -751,4 +751,263 @@ public class DocumentsControllerSavingTests
             Assert.Equal(setup.Game.Texts.SaveFailedTitle, Assert.Single(setup.Dialogs.Messages).Title);
         }
     }
+
+    // ---- a cell that is still in edit mode ---------------------------------------------------------------------------------------
+
+    // What the grid does for a tab: a cell is in edit mode (the tab is told), and the commit writes the typed value to the document, or
+    // refuses (an invalid value). The commit runs the number of times that is counted.
+    private sealed class PendingCell
+    {
+        public int Commits { get; private set; }
+
+        public static PendingCell Typing(EditableRowsTabViewModel tab, string text)
+        {
+            var cell = new PendingCell();
+            tab.SetPendingEdit(true);
+            tab.CommitPendingEdit = () =>
+            {
+                cell.Commits++;
+                tab.SetPendingEdit(false);
+                tab.Rows[0][Value] = text;                                      // the same path as the grid: the setter of the row
+                return true;
+            };
+            return cell;
+        }
+
+        public static PendingCell Invalid(EditableRowsTabViewModel tab)
+        {
+            var cell = new PendingCell();
+            tab.SetPendingEdit(true);
+            tab.CommitPendingEdit = () =>
+            {
+                cell.Commits++;
+                return false;
+            };
+            return cell;
+        }
+    }
+
+    [Fact] public async Task A_cell_in_edit_mode_enables_Save_and_is_committed_before_the_file_is_written()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            setup.Tabs.SelectedTab = a;
+            Assert.False(setup.Controller.SaveCommand.CanExecute(null));
+            Assert.False(setup.Controller.SaveAllCommand.CanExecute(null));
+
+            var cell = PendingCell.Typing(a, "50");                             // typed, the cell is not left: the tab is not modified yet
+            Assert.False(a.IsModified);
+            Assert.True(setup.Controller.SaveCommand.CanExecute(null));
+            Assert.True(setup.Controller.SaveAllCommand.CanExecute(null));
+
+            setup.Controller.SaveCommand.Execute(null);
+
+            Assert.Equal(1, cell.Commits);
+            Assert.Contains("50", setup.Read(FileA));
+            Assert.Equal(a.Document.ToText().Text, setup.Read(FileA));
+            Assert.False(a.IsModified);
+            Assert.Empty(setup.Dialogs.Messages);
+        }
+    }
+
+    [Fact] public async Task Save_all_commits_the_cells_in_edit_mode_of_every_tab()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var cellA = PendingCell.Typing(a, "50");
+            var cellB = PendingCell.Typing(b, "8");
+
+            setup.Controller.SaveAllCommand.Execute(null);
+
+            Assert.Equal((1, 1), (cellA.Commits, cellB.Commits));
+            Assert.Equal(a.Document.ToText().Text, setup.Read(FileA));
+            Assert.Equal(b.Document.ToText().Text, setup.Read(FileB));
+            Assert.Contains("50", setup.Read(FileA));
+            Assert.Contains("8", setup.Read(FileB));
+        }
+    }
+
+    [Fact] public async Task A_cell_with_an_invalid_value_stops_the_save_selects_the_tab_and_says_so()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var originalA = setup.Read(FileA);
+            var originalB = setup.Read(FileB);
+            a.Rows[0][Value] = "50";                                            // a is modified, b has the cell that cannot be committed
+            var cell = PendingCell.Invalid(b);
+            setup.Tabs.SelectedTab = a;
+
+            Assert.False(await setup.Controller.SaveAsync([a, b]));
+
+            Assert.Equal(1, cell.Commits);
+            Assert.Same(b, setup.Tabs.SelectedTab);
+            var (title, message) = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal((setup.Game.Texts.EditPendingInvalidTitle, setup.Game.Texts.EditPendingInvalidMessage), (title, message));
+            Assert.Equal((originalA, originalB), (setup.Read(FileA), setup.Read(FileB)));          // nothing was written, not even the valid tab
+            Assert.True(a.IsModified);
+        }
+    }
+
+    [Fact] public async Task Closing_a_tab_commits_the_cell_in_edit_mode_and_asks_when_it_made_the_tab_modified()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var cell = PendingCell.Typing(a, "50");
+
+            setup.Tabs.Close(a);                                                // the default answer is Cancel
+
+            Assert.True(cell.Commits >= 1);                              // the guard and the save under it both commit; the second finds nothing pending
+            Assert.Equal(["db/x_tables/a.tsv"], Assert.Single(setup.Dialogs.UnsavedAsks));
+            Assert.Contains(a, setup.Tabs.Tabs);
+
+            setup.Dialogs.UnsavedAnswer = SaveChoice.Discard;
+            setup.Tabs.Close(a);
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+        }
+    }
+
+    [Fact] public async Task A_tab_whose_cell_edit_changes_nothing_closes_without_a_question()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            PendingCell.Typing(a, "42");                                        // the value that is there
+
+            setup.Tabs.Close(a);
+
+            Assert.Empty(setup.Dialogs.UnsavedAsks);
+            Assert.DoesNotContain(a, setup.Tabs.Tabs);
+        }
+    }
+
+    [Fact] public async Task A_cell_with_an_invalid_value_keeps_the_tab_open()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var cell = PendingCell.Invalid(a);
+
+            setup.Tabs.Close(a);
+
+            Assert.Equal(1, cell.Commits);
+            Assert.Contains(a, setup.Tabs.Tabs);
+            Assert.Empty(setup.Dialogs.UnsavedAsks);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
+        }
+    }
+
+    [Fact] public async Task The_question_of_a_tab_includes_the_cell_in_edit_mode()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var cell = PendingCell.Typing(a, "50");
+            setup.Dialogs.UnsavedAnswer = SaveChoice.Discard;
+
+            Assert.True(await setup.Controller.ConfirmCloseAsync([a, b]));
+
+            Assert.Equal(1, cell.Commits);
+            Assert.Equal(["db/x_tables/a.tsv"], Assert.Single(setup.Dialogs.UnsavedAsks));
+        }
+    }
+
+    [Fact] public async Task A_cell_with_an_invalid_value_stops_the_question_of_a_tab()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            PendingCell.Invalid(a);
+
+            Assert.False(await setup.Controller.ConfirmCloseAsync([a]));
+
+            Assert.Empty(setup.Dialogs.UnsavedAsks);
+            Assert.Same(a, setup.Tabs.SelectedTab);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
+        }
+    }
+
+    [Fact] public async Task Closing_the_app_commits_the_cell_in_edit_mode_and_asks_for_the_change()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var closed = 0;
+            var cell = PendingCell.Typing(a, "50");
+            setup.Dialogs.UnsavedAnswer = SaveChoice.Discard;
+
+            Assert.False(setup.Controller.RequestAppClose(() => closed++));     // there is a change: the question comes, then the window closes again
+
+            Assert.True(cell.Commits >= 1);                              // the guard and the save under it both commit; the second finds nothing pending
+            Assert.Equal(["db/x_tables/a.tsv"], Assert.Single(setup.Dialogs.UnsavedAsks));
+            Assert.Equal(1, closed);
+        }
+    }
+
+    [Fact] public async Task A_cell_with_an_invalid_value_keeps_the_window_open()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var closed = 0;
+            PendingCell.Invalid(a);
+            setup.Dialogs.UnsavedAnswer = SaveChoice.Discard;
+
+            Assert.False(setup.Controller.RequestAppClose(() => closed++));
+
+            Assert.Equal(0, closed);
+            Assert.Empty(setup.Dialogs.UnsavedAsks);
+            Assert.Same(a, setup.Tabs.SelectedTab);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
+        }
+    }
+
+    [Fact] public async Task A_build_commits_the_cell_in_edit_mode_before_it_asks_to_save()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var cell = PendingCell.Typing(a, "50");
+            setup.Dialogs.SaveAllAnswer = true;
+
+            Assert.True(await setup.Controller.ConfirmSaveBeforeBuildAsync(setup.Project.Id));
+
+            Assert.True(cell.Commits >= 1);                              // the guard and the save under it both commit; the second finds nothing pending
+            Assert.Equal(["db/x_tables/a.tsv"], Assert.Single(setup.Dialogs.BuildAsks));
+            Assert.Equal(a.Document.ToText().Text, setup.Read(FileA));
+            Assert.Contains("50", setup.Read(FileA));
+        }
+    }
+
+    [Fact] public async Task A_cell_with_an_invalid_value_stops_the_build()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            PendingCell.Invalid(a);
+            setup.Dialogs.SaveAllAnswer = true;
+
+            Assert.False(await setup.Controller.ConfirmSaveBeforeBuildAsync(setup.Project.Id));
+
+            Assert.Empty(setup.Dialogs.BuildAsks);
+            Assert.Same(a, setup.Tabs.SelectedTab);
+            Assert.Equal(setup.Game.Texts.EditPendingInvalidTitle, Assert.Single(setup.Dialogs.Messages).Title);
+        }
+    }
+
+    [Fact] public async Task A_project_with_a_cell_in_edit_mode_cannot_be_removed_from_the_list()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            Assert.Null(setup.Controller.UnsavedReason(setup.Project.Id));
+
+            PendingCell.Typing(a, "50");
+
+            Assert.Equal(setup.Game.Texts.ProjectRemoveUnsaved, setup.Controller.UnsavedReason(setup.Project.Id));
+        }
+    }
 }

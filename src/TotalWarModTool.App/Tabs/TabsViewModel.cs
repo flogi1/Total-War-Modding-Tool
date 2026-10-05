@@ -50,6 +50,12 @@ public sealed class TabsViewModel : ObservableObject
     /// </summary>
     public Func<TabSource, OpenedEntry, Action<TabViewModel>, TabViewModel?>? SpecialTab { get; set; }
 
+    /// <summary>
+    /// The clipboard that the tabs copy to and paste from; set by the composition root. The tabs made after it is set get it (the
+    /// controller of the editable tabs reads it when it makes one). Without it the copy and paste commands of a tab are disabled.
+    /// </summary>
+    public IClipboard? Clipboard { get; set; }
+
     /// <summary>Asked before a tab is closed by its command, by Ctrl+W or by the middle button; false keeps it open.</summary>
     public Func<TabViewModel, bool>? CanClose { get; set; }
 
@@ -72,7 +78,7 @@ public sealed class TabsViewModel : ObservableObject
     /// <summary>Appends the tab for an opened entry. It is selected when <paramref name="select"/> is set or nothing is selected yet.</summary>
     public void Add(TabSource source, OpenedEntry entry, ResolvedSchema? schema, bool select = true)
     {
-        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close);
+        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close, Clipboard);
         Tabs.Add(tab);
         if (select || SelectedTab is null)
         {
@@ -94,7 +100,7 @@ public sealed class TabsViewModel : ObservableObject
             return false;
         }
 
-        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close);
+        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close, Clipboard);
         var wasSelected = ReferenceEquals(SelectedTab, old);
 
         // The new tab is in the list before the old one leaves, and it is selected before that, so the tab control never has to pick one.
