@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/TotalWarModTool.App/TotalWarModTool.App.csproj" />
+    <Project Path="src/TotalWarModTool.Editing/TotalWarModTool.Editing.csproj" />
     <Project Path="src/TotalWarModTool.GameProfiles/TotalWarModTool.GameProfiles.csproj" />
     <Project Path="src/TotalWarModTool.Localization/TotalWarModTool.Localization.csproj" />
     <Project Path="src/TotalWarModTool.Logging/TotalWarModTool.Logging.csproj" />
@@ -17,6 +18,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TotalWarModTool.App.Tests/TotalWarModTool.App.Tests.csproj" />
+    <Project Path="tests/TotalWarModTool.Editing.Tests/TotalWarModTool.Editing.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.GameProfiles.Tests/TotalWarModTool.GameProfiles.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Localization.Tests/TotalWarModTool.Localization.Tests.csproj" />
     <Project Path="tests/TotalWarModTool.Logging.Tests/TotalWarModTool.Logging.Tests.csproj" />

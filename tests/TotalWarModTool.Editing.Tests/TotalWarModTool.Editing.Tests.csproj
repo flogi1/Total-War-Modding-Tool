@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TotalWarModTool.Editing\TotalWarModTool.Editing.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.UndoRedo\TotalWarModTool.UndoRedo.csproj" />
+  </ItemGroup>
+
+</Project>
