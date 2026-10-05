@@ -27,6 +27,7 @@ public class NewFilesTests
     public static TheoryData<string> BadNames() =>
     [
         string.Empty, " a", "a ", "a.b", "a/b", "a\\b", "..", "NUL", "a;b", "a\tb", "a\nb", "a\rb", "a:b", "a|b", "a" + (char)0xD800, new string('a', 101),
+        "~$x", "~$", "a" + (char)0x202E + "b", "a" + (char)0x200B, "a" + (char)0x85 + "b", (char)0x9F + "a", "a" + (char)0xDC00 + "b", "a" + (char)0x00 + "b",
     ];
 
     [Fact] public void CreatableTables_leaves_out_tables_with_an_unsupported_field_in_the_newest_version()
@@ -190,6 +191,75 @@ public class NewFilesTests
         Assert.Equal((true, "x"), NewFiles.AdoptName("x.LOC"));
         Assert.Equal((false, "a.lua"), NewFiles.AdoptName("script/a.lua"));
         Assert.Equal((false, "a"), NewFiles.AdoptName("a"));
+    }
+
+    [Fact] public void Adopt_refuses_a_file_the_project_ignores_and_a_path_that_is_not_one()
+    {
+        var lua = TestData.Utf8("x");
+        foreach (var path in new[] { "script/a.bak", "script/a.tmp", "script/a~", "script/~$a.lua", "script/.~lock.a.lua#", "", "db/t/", "db//x" })
+        {
+            var result = NewFiles.Adopt(path, lua, null, null);
+            Assert.Null(result.File);
+            Assert.False(string.IsNullOrWhiteSpace(result.Reason));
+        }
+
+        Assert.Null(NewFiles.Adopt("script/a.lua", lua, null, null).Reason);
+    }
+
+    [Fact] public void A_new_name_that_a_project_would_ignore_is_refused_everywhere()
+    {
+        Assert.Contains("ignores", NewFiles.NameProblem("~$x"));
+        Assert.Contains("ignores", NewFiles.Table(Schema, "newest_tables", "~$x").Reason);
+        Assert.Contains("ignores", NewFiles.Loc("~$x").Reason);
+        Assert.Null(NewFiles.Adopt("db/units_tables/x", TestData.Units(("a", 1, 1f)), TestData.Schema, "~$x").File);
+        Assert.Null(NewFiles.Adopt("text/db/x.loc", TestData.Loc(("k", "v")), null, "~$x").File);
+    }
+
+    [Fact] public void Every_file_that_is_offered_can_be_resolved_for_writing()
+    {
+        using var dir = new TempDir();
+        var units = TestData.Units(("a", 1, 1f));
+        var colours = DbTableEncoder.Encode(TestData.Schema.Find("colours_tables", 1)!, 1, TestData.HeaderGuid, [[257, 0, 0]]);
+        var files = new[]
+        {
+            NewFiles.Table(Schema, "newest_tables", "mine").File!,
+            NewFiles.Table(Schema, "newest_tables", new string('a', 100)).File!,
+            NewFiles.Loc("mine").File!,
+            NewFiles.Loc(new string('a', 100)).File!,
+            NewFiles.Adopt("db/units_tables/old", units, TestData.Schema, "mine").File!,
+            NewFiles.Adopt("db/colours_tables/old", colours, TestData.Schema, "mine").File!,
+            NewFiles.Adopt("text/db/old.loc", TestData.Loc(("k", "v")), null, "mine").File!,
+            NewFiles.Adopt("script/a.lua", TestData.Utf8("x"), null, null).File!,
+        };
+        foreach (var file in files)
+        {
+            var check = PackFolderPaths.ResolveForWrite(dir.Path, file.RelativeFile);
+            Assert.Equal(PackPathProblem.None, check.Problem);
+        }
+
+        Assert.Empty(Directory.EnumerateFileSystemEntries(dir.Path));
+    }
+
+    [Fact] public void A_name_of_100_characters_works_for_every_listed_table_and_one_more_is_refused()
+    {
+        // db/<table>/<100 characters>.tsv is 259 characters for a table name of 151 characters.
+        var longest = new string('t', 151);
+        var tooLong = new string('t', 152);
+        var schema = new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>>
+        {
+            [longest] = [new TableDefinition(1, [Key])],
+            [tooLong] = [new TableDefinition(1, [Key])],
+        });
+
+        Assert.Equal([longest], NewFiles.CreatableTables(schema));
+        using var dir = new TempDir();
+        var file = NewFiles.Table(schema, longest, new string('a', 100)).File!;
+        Assert.Equal(PackPathProblem.None, PackFolderPaths.ResolveForWrite(dir.Path, file.RelativeFile).Problem);
+        // Not listed, because it would not take every allowed name; with a short name it still works, a name of 100 characters does not.
+        Assert.Null(NewFiles.Table(schema, tooLong, "a").Reason);
+        Assert.NotNull(NewFiles.Table(schema, tooLong, new string('a', 100)).Reason);
+        Assert.Null(NewFiles.NameProblem(new string('a', 100)));
+        Assert.NotNull(NewFiles.NameProblem(new string('a', 101)));
     }
 
     [Fact] public void What_Adopt_writes_builds_back_to_the_entry()

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
@@ -22,20 +23,24 @@ public static class NewFiles
     private const int MaxNameLength = 100;
     private const string LocExtension = ".loc";
     private const string DbFolder = "db";
+    private const string TextExtension = ".tsv";
+    private const string LocTextExtension = ".loc.tsv";
 
     // A path that has the same segment rules as the final file; only the name part differs.
     private const string ProbeTable = "x_tables";
-    private const string ProbeName = "x";
+    private const string IgnoredReason = "A project ignores files with this name.";
 
     /// <summary>The tables a new file can be created for: in the schema, with a newest definition without unsupported field types. Sorted ordinally.</summary>
     public static IReadOnlyList<string> CreatableTables(GameSchema schema)
     {
         ArgumentNullException.ThrowIfNull(schema);
 
+        // A table is listed only when it also takes the longest allowed name, so that every allowed name works for every listed table.
+        var longestName = new string('x', MaxNameLength);
         var result = new List<string>();
         foreach (var (tableName, definitions) in schema.Tables)
         {
-            if (CheckTable(tableName, definitions, ProbeName).Reason is null)
+            if (CheckTable(schema, tableName, definitions, longestName).Reason is null)
             {
                 result.Add(tableName);
             }
@@ -87,8 +92,41 @@ public static class NewFiles
             return "The name contains ';'.";
         }
 
+        if (!PackNameRules.IsWellFormed(name))
+        {
+            return "The name contains an unpaired surrogate character.";
+        }
+
+        // Invisible characters (bidi controls, zero-width characters, C1 controls) make names that look the same but are not.
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (rune.Value is >= 0x80 and <= 0x9F || Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format)
+            {
+                return "The name contains an invisible control character.";
+            }
+        }
+
+        if (IsIgnored(name + TextExtension) || IsIgnored(name + LocTextExtension))
+        {
+            return IgnoredReason;
+        }
+
         return ProjectLayout.UnsafePathReason(DbFolder + "/" + ProbeTable + "/" + name);
     }
+
+    // The problem of the final file below the pack folder (relative, with '\'): what ResolveForWrite would refuse, or a file name that a
+    // project leaves out of the pack.
+    private static string? FileProblem(string relativeFile)
+    {
+        if (ProjectLayout.UnsafePathReason(relativeFile.Replace('\\', '/')) is { } unsafePath)
+        {
+            return unsafePath;
+        }
+
+        return IsIgnored(relativeFile[(relativeFile.LastIndexOf('\\') + 1)..]) ? IgnoredReason : null;
+    }
+
+    private static bool IsIgnored(string fileName) => ProjectFiles.IsIgnored(fileName, default);
 
     /// <summary>An empty table in the newest version of the schema: db/&lt;tableName&gt;/&lt;name&gt; as text.</summary>
     public static NewFileResult Table(GameSchema schema, string tableName, string name)
@@ -108,26 +146,10 @@ public static class NewFiles
             return Refused("The table is not in the schema.");
         }
 
-        var (definition, reason) = CheckTable(tableName, schema.Tables[tableName], name);
-        if (definition is null)
-        {
-            return Refused(reason!);
-        }
-
-        var packPath = DbFolder + "/" + tableName + "/" + name;
-        TsvWriteResult written;
-        try
-        {
-            written = TableTsv.Write(tableName, definition.Version, packPath, definition, []);
-        }
-        catch (ArgumentException ex)
-        {
-            return Refused("The table cannot be written: " + ex.Message);
-        }
-
-        return written.Text is null
-            ? Refused("The table cannot be written: " + written.Detail)
-            : Created(packPath, ProjectFileKind.Table, written.Text);
+        var (text, reason) = CheckTable(schema, tableName, schema.Tables[tableName], name);
+        return text is null
+            ? Refused(reason!)
+            : Created(DbFolder + "/" + tableName + "/" + name, ProjectFileKind.Table, text);
     }
 
     /// <summary>An empty loc file: text/db/&lt;name&gt;.loc as text.</summary>
@@ -141,9 +163,9 @@ public static class NewFiles
         }
 
         var packPath = LocFolder + "/" + name + LocExtension;
-        if (ProjectLayout.UnsafePathReason(packPath) is { } unsafePath)
+        if (FileProblem(ProjectLayout.ToRelativeFile(packPath, ProjectFileKind.Loc)) is { } fileProblem)
         {
-            return Refused(unsafePath);
+            return Refused(fileProblem);
         }
 
         TsvWriteResult written;
@@ -198,7 +220,15 @@ public static class NewFiles
         }
 
         var converted = EntryConversion.ToProjectFile(target, entryBytes, schema);
-        return new NewFileResult(new NewFile(ProjectLayout.ToRelativeFile(target, converted.Kind), converted.Bytes, converted.Kind, converted.Note), null);
+
+        // The file on disk can be longer than the pack path (text form) and can have a name the project ignores.
+        var relativeFile = ProjectLayout.ToRelativeFile(target, converted.Kind);
+        if (FileProblem(relativeFile) is { } fileProblem)
+        {
+            return Refused(fileProblem);
+        }
+
+        return new NewFileResult(new NewFile(relativeFile, converted.Bytes, converted.Kind, converted.Note), null);
     }
 
     /// <summary>What Adopt needs to know before the entry is read: whether the entry gets a new name, and the name it has now.</summary>
@@ -230,9 +260,10 @@ public static class NewFiles
         return (false, string.Empty, file, string.Empty);
     }
 
-    // The newest definition of a table, or the reason why no file can be created for it. The check writes a table without rows under the
-    // given name, which is the same call Table makes, so that the list and Table never disagree.
-    private static (TableDefinition? Definition, string? Reason) CheckTable(string tableName, IReadOnlyList<TableDefinition> definitions, string name)
+    // The text of an empty table in the newest definition of the table, or the reason why no file can be created for it. The check writes
+    // the table without rows under the given name and reads the text back, which is all that Table does, so that the list and Table
+    // never disagree.
+    private static (string? Text, string? Reason) CheckTable(GameSchema schema, string tableName, IReadOnlyList<TableDefinition> definitions, string name)
     {
         TableDefinition? newest = null;
         foreach (var definition in definitions)
@@ -257,13 +288,13 @@ public static class NewFiles
         }
 
         var packPath = DbFolder + "/" + tableName + "/" + name;
-        if (ProjectLayout.UnsafePathReason(packPath) is { } unsafePath)
+        var file = ProjectLayout.ToRelativeFile(packPath, ProjectFileKind.Table);
+        if (FileProblem(file) is { } fileProblem)
         {
-            return (null, unsafePath);
+            return (null, fileProblem);
         }
 
         // The file must be found again as a table of this very name, or a build would take it for something else.
-        var file = ProjectLayout.ToRelativeFile(packPath, ProjectFileKind.Table);
         if (!DbTablePath.TryGetTableName(packPath, out var folderTable)
             || !string.Equals(folderTable, tableName, StringComparison.Ordinal)
             || ProjectLayout.FromRelativeFile(file) != (packPath, ProjectFileKind.Table))
@@ -271,6 +302,7 @@ public static class NewFiles
             return (null, "The table name cannot be the name of a folder in a pack.");
         }
 
+        string text;
         try
         {
             var written = TableTsv.Write(tableName, newest.Version, packPath, newest, []);
@@ -278,13 +310,19 @@ public static class NewFiles
             {
                 return (null, "The table cannot be written: " + written.Detail);
             }
+
+            text = written.Text;
         }
         catch (ArgumentException ex)
         {
             return (null, "The table cannot be written: " + ex.Message);
         }
 
-        return (newest, null);
+        // The empty table must come back as this definition without rows.
+        var read = TableTsv.Read(text, schema);
+        return read.Table is { Rows.Count: 0 } table && ReferenceEquals(table.Definition, newest)
+            ? (text, null)
+            : (null, "The empty table cannot be read back.");
     }
 
     private static NewFileResult Created(string packPath, ProjectFileKind kind, string text) =>
