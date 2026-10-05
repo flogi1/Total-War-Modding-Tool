@@ -94,10 +94,11 @@ public sealed partial class AppTexts
     public string FileNameReservedName => T("file.name.reserved", "Windows reserves this name (for example NUL, CON or COM1). Choose a different name.");
 
     /// <summary>The text for a name the rules refuse; empty for <see cref="NameIssue.None"/>.</summary>
-    public string FileNameIssueText(NameIssue issue) => issue switch
+    /// <param name="maxChars">The longest allowed name, for <see cref="NameIssue.TooLong"/>.</param>
+    public string FileNameIssueText(NameIssue issue, int maxChars = NewFiles.MaxNameLength) => issue switch
     {
         NameIssue.Empty => FileNameEmpty,
-        NameIssue.TooLong => FileNameTooLong(NewFiles.MaxNameLength),
+        NameIssue.TooLong => FileNameTooLong(maxChars),
         NameIssue.Separator => FileNameSeparator,
         NameIssue.Dot => FileNameDot,
         NameIssue.LeadingOrTrailingSpace => FileNameLeadingOrTrailingSpace,
@@ -143,7 +144,10 @@ public sealed partial class AppTexts
     public string FileStepMoreTrashFiles(int count) => F("file.stepMoreTrashFiles", "Further files in the trash, listed in the log: {0}.", count);
 
     public string FileStepDeferred => T("file.stepDeferred",
-        "The file is in use by another program, or the project folder cannot be reached right now. Nothing was changed, and the step stays in the history. Close the other program or check the project folder, then try again.");
+        "The file is in use by another program, or the file system refused the change. Nothing was changed, and the step stays in the history. Close the other program or check your permissions, then try again.");
+
+    public string FileStepProjectUnreachable => T("file.stepProjectUnreachable",
+        "The project folder cannot be reached, so nothing was changed and the step stays in the history. If the folder is only disconnected (for example a network drive), reconnect it and try again. If it was moved or deleted, remove the project from the list: its steps then leave the history, and files it put into the trash stay there and are named in the log.");
 
     // ---- commands and dialogs of the file operations -----------------------------------------------------------------------------------
     // The name label reuses DialogName, "no project is active" ProjectNoneActive, and "another operation runs" ProjectBusy.

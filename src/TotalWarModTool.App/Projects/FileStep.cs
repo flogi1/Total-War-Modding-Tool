@@ -29,15 +29,24 @@ public sealed class FileStepChangedException(string relativeFile)
 }
 
 /// <summary>
+/// A step did not run because the folder of its project (or its pack folder) is missing or cannot be read. Nothing was changed and the
+/// history keeps the step; unlike a locked file this may not pass by itself (the folder may have been moved or deleted), so the message names
+/// the way out: reconnect the folder, or remove the project from the list.
+/// </summary>
+public sealed class ProjectUnreachableException(string message) : StepDeferredException(message, null);
+
+/// <summary>
 /// The outcome of one run of a step: a problem with the technical detail of the library, or <see cref="Problem"/> None with the state for
 /// the next run. <paramref name="LeftBehind"/> is the flag of the library: the failed call could not take back everything it did.
+/// <paramref name="LeftInTrash"/> is the full path of a file that the failed call left in the trash (<see cref="TrashResult.LeftCopy"/>), or null.
 /// </summary>
-public sealed record FileStepResult(FileOpProblem Problem, string? Detail, FileStepState State, bool LeftBehind = false);
+public sealed record FileStepResult(FileOpProblem Problem, string? Detail, FileStepState State, bool LeftBehind = false, string? LeftInTrash = null);
 
 /// <summary>
 /// One file operation in the undo history. Do and Undo run on the UI thread, when the history asks for an undo or a redo. When the step
-/// cannot run for a reason that may pass and nothing was changed (the file is locked and the library took back everything, or the project
-/// folder cannot be reached right now), they throw <see cref="StepDeferredException"/> and the history keeps the step. Every other failure
+/// cannot run and nothing was changed, they throw <see cref="StepDeferredException"/> and the history keeps the step: the plain type when the
+/// file is locked (or the file system refused) and the library took back everything, <see cref="ProjectUnreachableException"/> when the project
+/// folder or its pack folder is missing or cannot be read. Every other failure
 /// throws <see cref="InvalidOperationException"/> with a short English detail (the history then drops the step). The first execution of an
 /// action is not a run of the step: the controller does the work in the runner and then records the step.
 /// </summary>
@@ -55,7 +64,7 @@ public sealed class FileStep : IUndoableAction
     /// <param name="undoWork">Takes the action back. Gets the state the last run left.</param>
     /// <param name="projectFolder">
     /// The folder of the project. When it is given, it and its pack folder are looked at before every run: a folder that is missing or cannot
-    /// be read defers the step (<see cref="StepDeferredException"/>) before anything is touched.
+    /// be read defers the step (<see cref="ProjectUnreachableException"/>) before anything is touched; a missing pack folder does not.
     /// </param>
     public FileStep(Guid projectId, string description, IReadOnlyList<string> filesAfterDo, IReadOnlyList<string> filesAfterUndo,
         FileStepState initial, Func<FileStepState, FileStepResult> doWork, Func<FileStepState, FileStepResult> undoWork, string? projectFolder = null)
@@ -90,6 +99,9 @@ public sealed class FileStep : IUndoableAction
     /// <summary>The file of this step that is in the trash right now, or null. A step that is dropped while it holds one leaves it there.</summary>
     public TrashedFile? InTrash => _state.Trash;
 
+    /// <summary>The full path of a file that the last run left in the trash although it failed (a copy it could not delete again), or null.</summary>
+    public string? LeftInTrash { get; private set; }
+
     public void Do() => Run(_do);
 
     public void Undo() => Run(_undo);
@@ -99,10 +111,11 @@ public sealed class FileStep : IUndoableAction
     {
         if (_projectFolder is not null && UnreachableReason(_projectFolder) is { } unreachable)
         {
-            throw new StepDeferredException(unreachable, null);
+            throw new ProjectUnreachableException(unreachable);
         }
 
         var result = work(_state);
+        LeftInTrash = result.LeftInTrash;
         if (result.Problem == FileOpProblem.None)
         {
             _state = result.State;

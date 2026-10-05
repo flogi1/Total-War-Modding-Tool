@@ -20,6 +20,12 @@ public sealed record TrashResult(FileOpProblem Problem, string? Detail, TrashedF
     /// it). False on success and when the failed call left the disk as it found it.
     /// </summary>
     public bool LeftBehind { get; init; }
+
+    /// <summary>
+    /// The full path of a file that a failed move left in the trash because it could not be deleted again ("a copy is left behind"); null
+    /// otherwise. <see cref="LeftBehind"/> is true then.
+    /// </summary>
+    public string? LeftCopy { get; init; }
 }
 
 /// <summary>An entry of the trash that <see cref="ProjectTrash.CleanupDetailed"/> chose to delete but could not: its full path and a short English reason.</summary>
@@ -198,7 +204,8 @@ public static class ProjectTrash
 
             if (sourceThere && targetThere && !folders.TryDeleteFile(target))
             {
-                return AsTrash(SafeFolders.Failure(FileOpProblem.Locked, $"the file could not be moved: {ex.Message} (a copy is left behind: '{target}')")) with { LeftBehind = true };
+                return AsTrash(SafeFolders.Failure(FileOpProblem.Locked, $"the file could not be moved: {ex.Message} (a copy is left behind: '{target}')"))
+                    with { LeftBehind = true, LeftCopy = target };
             }
 
             return AsTrash(SafeFolders.Failure(sourceThere ? FileOpProblem.Locked : FileOpProblem.Failed, "the file could not be moved to the trash: " + ex.Message));

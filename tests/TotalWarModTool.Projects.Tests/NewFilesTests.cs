@@ -153,6 +153,40 @@ public class NewFilesTests
         Assert.NotNull(NewFiles.NameProblem(name));
     }
 
+    // The name part of a file that is neither a table nor a loc file, with the extension ".lua" it keeps.
+    public static TheoryData<string, NameIssue> PlainNameIssues() => new()
+    {
+        { string.Empty, NameIssue.Empty },
+        { "a/b", NameIssue.Separator },
+        { "a\\b", NameIssue.Separator },
+        { " a", NameIssue.LeadingOrTrailingSpace },
+        { "a ", NameIssue.LeadingOrTrailingSpace },
+        { "a" + (char)0xD800, NameIssue.UnpairedSurrogate },
+        { "a|b", NameIssue.InvalidCharacter },
+        { "a:b", NameIssue.InvalidCharacter },
+        { "a\tb", NameIssue.InvalidCharacter },
+        { new string('a', 252), NameIssue.TooLong },
+        { "NUL", NameIssue.ReservedName },
+        { "con", NameIssue.ReservedName },
+        { "~$x", NameIssue.Ignored },
+        { "a.b", NameIssue.None },
+        { "my file", NameIssue.None },
+        { new string('a', 251), NameIssue.None },
+    };
+
+    [Theory, MemberData(nameof(PlainNameIssues))]
+    public void A_plain_file_name_has_the_kind_of_its_problem(string name, NameIssue expected)
+    {
+        Assert.Equal(expected, NewFiles.PlainNameIssueOf(name, ".lua"));
+    }
+
+    [Fact] public void A_plain_file_name_is_checked_with_its_extension()
+    {
+        Assert.Equal(NameIssue.Ignored, NewFiles.PlainNameIssueOf("x", ".bak"));
+        Assert.Equal(NameIssue.None, NewFiles.PlainNameIssueOf("x", ".lua"));
+        Assert.Equal(255 - 4, NewFiles.MaxPlainNameLength(".lua"));
+    }
+
     [Fact] public void The_issue_table_covers_every_bad_name()
     {
         var mapped = ((IEnumerable<object[]>)BadNameIssues()).Select(row => (string)row[0]).ToList();

@@ -549,10 +549,10 @@ public sealed class ProjectFilesController
 
         var isText = extension.Equals(TextExtension, StringComparison.OrdinalIgnoreCase)
             || extension.Equals(LocTextExtension, StringComparison.OrdinalIgnoreCase);
-        var issue = isText ? NewFiles.NameIssueOf(name) : PlainNameIssue(name);
+        var issue = isText ? NewFiles.NameIssueOf(name) : NewFiles.PlainNameIssueOf(name, extension);
         if (issue != NameIssue.None)
         {
-            return Fail(_texts.FileNameIssueText(issue));
+            return Fail(_texts.FileNameIssueText(issue, isText ? NewFiles.MaxNameLength : NewFiles.MaxPlainNameLength(extension)));
         }
 
         // A path that the write boundary refuses (too long, a character or a name Windows does not allow): the sentence says what to do, the
@@ -568,26 +568,8 @@ public sealed class ProjectFilesController
             return Fail(_texts.FileProblemLink, FileOpProblem.Link);
         }
 
-        // The name checks of a table or loc file cover this already.
-        if (!isText && ProjectFiles.IsIgnored(name + extension, default))
-        {
-            return Fail(_texts.FileNameIssueText(NameIssue.Ignored));
-        }
-
         var onlyCaseDiffers = ownFile is not null && SameFile(candidate, ownFile);   // the exactly equal name returned above
         return !onlyCaseDiffers && ProjectFileOps.Exists(projectFolder, candidate) ? Fail(_texts.FileProblemTargetExists, FileOpProblem.TargetExists) : null;
-    }
-
-    // The name of a file that is neither a table nor a loc file: one segment; dots are fine (the extension stays separate). The rest is the
-    // job of the path rules of the write boundary.
-    private static NameIssue PlainNameIssue(string name)
-    {
-        if (name.Length == 0)
-        {
-            return NameIssue.Empty;
-        }
-
-        return name.Contains('\\') || name.Contains('/') ? NameIssue.Separator : NameIssue.None;
     }
 
     private static bool SameFile(string a, string b) =>
@@ -662,7 +644,7 @@ public sealed class ProjectFilesController
         var moved = ProjectTrash.MoveToTrash(trashRoot, projectId, folder, file, time);
         if (moved.File is not { } trashed)
         {
-            return new FileStepResult(moved.Problem, moved.Detail, current, moved.LeftBehind);
+            return new FileStepResult(moved.Problem, moved.Detail, current, moved.LeftBehind, moved.LeftCopy);
         }
 
         if (removeCreatedFolders)

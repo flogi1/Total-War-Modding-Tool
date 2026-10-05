@@ -181,6 +181,46 @@ public class ProjectTrashTests
         Assert.Equal([9, 9], File.ReadAllBytes(locked));
     }
 
+    [Fact] public void A_failed_MoveToTrash_that_leaves_a_file_at_the_trash_target_names_it_in_LeftCopy()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        var source = Put(project, "a.tsv", [9, 9]);
+        FileStream? held = null;
+        string? target = null;
+
+        TrashResult result;
+        try
+        {
+            // The move fails because a file is at the target, and that file cannot be deleted again (it is held open).
+            result = ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+            {
+                BeforeMove = () =>
+                {
+                    target = Path.Combine(Directory.GetDirectories(Path.Combine(trash, Id.ToString("D"))).Single(), "a.tsv");
+                    held = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                },
+            });
+        }
+        finally
+        {
+            held?.Dispose();
+        }
+
+        Assert.Equal(FileOpProblem.Locked, result.Problem);
+        Assert.True(result.LeftBehind);
+        Assert.Equal(target, result.LeftCopy);
+        Assert.True(File.Exists(target));
+        Assert.Equal([9, 9], File.ReadAllBytes(source));
+
+        // A failure that leaves no file in the trash names none.
+        using (new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Null(ProjectTrash.MoveToTrash(trash, Id, project, "a.tsv", new FakeTimeProvider(Start)).LeftCopy);
+        }
+    }
+
     [Fact] public void MoveToTrash_refuses_a_link_in_the_way_a_link_as_the_file_and_a_link_as_trash_folder()
     {
         using var dir = new TempDir();

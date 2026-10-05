@@ -723,7 +723,8 @@ public class ProjectFilesControllerTests
         }
 
         var message = Assert.Single(setup.Dialogs.Messages);
-        Assert.StartsWith(setup.Game.Texts.FileStepDeferred, message.Message, StringComparison.Ordinal);
+        Assert.StartsWith(setup.Game.Texts.FileStepProjectUnreachable, message.Message, StringComparison.Ordinal);
+        Assert.NotEqual(setup.Game.Texts.FileStepDeferred, setup.Game.Texts.FileStepProjectUnreachable);
         Assert.Same(step, setup.History.NextUndo);
         Assert.True(setup.Exists(@"script\b.txt"));
 
@@ -733,6 +734,49 @@ public class ProjectFilesControllerTests
         Assert.True(setup.Exists(@"script\a.txt"));
         Assert.False(setup.History.CanUndo);
         Assert.True(setup.History.CanRedo);
+    }
+
+    [Fact] public async Task A_project_folder_that_is_gone_for_good_names_the_way_out_and_removing_the_project_frees_the_history()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42));
+        var tab = await OpenAsync(setup, TableA);
+        tab.InsertRowCommand.Execute(null);                                     // an edit in project Q (Alpha)
+        Assert.True(tab.IsModified);
+        var beta = setup.Game.NewProject(setup.Projects, "Beta", (@"script\a.txt", "hello"));
+        Ok(await setup.Files.RenameAsync(beta.Id, @"script\a.txt", "b"));      // a file step of project P (Beta) on top
+        Directory.Move(beta.Folder, beta.Folder + "_deleted");                  // P's folder is gone for good
+
+        setup.Documents.UndoCommand.Execute(null);
+        setup.Documents.UndoCommand.Execute(null);
+
+        Assert.Equal(2, setup.Dialogs.Messages.Count);
+        Assert.All(setup.Dialogs.Messages, message =>
+            Assert.StartsWith(setup.Game.Texts.FileStepProjectUnreachable, message.Message, StringComparison.Ordinal));
+        Assert.True(tab.IsModified);                                            // Q's edit cannot be reached while P's step is on top
+
+        Assert.True(setup.Projects.Remove(beta.Id).Ok);                         // the way out the message names
+        setup.Documents.UndoCommand.Execute(null);
+
+        Assert.Equal(2, setup.Dialogs.Messages.Count);
+        Assert.False(tab.IsModified);                                           // Q's edit is undone
+        Assert.False(setup.History.CanUndo);
+    }
+
+    [Fact] public async Task A_copy_that_a_failed_move_left_in_the_trash_is_listed_in_the_message_and_the_log()
+    {
+        using var setup = await CreateAsync();
+        var copy = Path.Combine(setup.Trash, setup.Id.ToString("D"), "20261005-120000-0a1b2c3d", "x.txt");
+        setup.History.Record(new FileStep(setup.Id, "Create script\\x.txt", [@"script\x.txt"], [], FileStepState.Empty,
+            doWork: state => new FileStepResult(FileOpProblem.None, null, state),
+            undoWork: state => new FileStepResult(FileOpProblem.Locked, "the file could not be moved (a copy is left behind)", state, LeftBehind: true,
+                LeftInTrash: copy)));
+
+        setup.Documents.UndoCommand.Execute(null);
+
+        var message = Assert.Single(setup.Dialogs.Messages).Message;
+        Assert.Contains("\n" + setup.Game.Texts.FileStepTrashFiles + "\n" + copy, message, StringComparison.Ordinal);
+        Assert.Contains(setup.Game.Log.Warnings, line => line.Contains(copy, StringComparison.Ordinal));
+        Assert.False(setup.History.CanUndo);                                    // something was left behind: permanent
     }
 
     // Creates the loc file "a" and deletes it, rounds times: every delete holds one file in the trash. Returns the file.
@@ -1250,7 +1294,7 @@ public class ProjectFilesControllerTests
 
         // A path that the write boundary refuses: the localized sentence first, the technical detail of the library after it.
         Assert.StartsWith(setup.Game.Texts.FileProblemUnsafePath + "\n\n", setup.Files.CheckNewName(setup.Id, @"..\outside", "x", ".lua"), StringComparison.Ordinal);
-        Assert.StartsWith(setup.Game.Texts.FileProblemUnsafePath + "\n\n", setup.Files.CheckNewName(setup.Id, "script", "con", ".lua"), StringComparison.Ordinal);
+        Assert.Equal(setup.Game.Texts.FileNameReservedName, setup.Files.CheckNewName(setup.Id, "script", "con", ".lua"));
     }
 
     [Fact] public async Task A_refusal_carries_the_problem_so_that_a_taken_name_is_known_without_comparing_texts()
@@ -1305,10 +1349,15 @@ public class ProjectFilesControllerTests
                 Assert.Equal(text(texts), files.CheckNewName(setup.Id, @"text\db", name, ".loc.tsv"));
             }
 
-            // Any other file: the name rules of the App, in the same words.
+            // Any other file: the name rules of a file name, in the same words; a dot is fine there.
             Assert.Equal(texts.FileNameEmpty, files.CheckNewName(setup.Id, "script", string.Empty, ".lua"));
             Assert.Equal(texts.FileNameSeparator, files.CheckNewName(setup.Id, "script", @"a\b", ".lua"));
             Assert.Equal(texts.FileNameIgnored, files.CheckNewName(setup.Id, "script", "~$x", ".lua"));
+            Assert.Equal(texts.FileNameInvalidCharacter, files.CheckNewName(setup.Id, "script", "a|b", ".lua", @"script\x.lua"));
+            Assert.Equal(texts.FileNameReservedName, files.CheckNewName(setup.Id, "script", "NUL", ".lua", @"script\x.lua"));
+            Assert.Equal(texts.FileNameLeadingOrTrailingSpace, files.CheckNewName(setup.Id, "script", " a", ".lua"));
+            Assert.Equal(texts.FileNameTooLong(NewFiles.MaxPlainNameLength(".lua")), files.CheckNewName(setup.Id, "script", new string('a', 252), ".lua"));
+            Assert.Null(files.CheckNewName(setup.Id, "script", "a.b", ".lua"));
         }
 
         Assert.Equal("Der Name darf keinen Punkt enthalten.", texts.FileNameDot);

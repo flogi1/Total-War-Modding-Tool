@@ -132,14 +132,14 @@ public sealed partial class DocumentsController
 
     // The places of the files that removed steps leave in the trash, for the message of a failed step: a heading and one path per line, never
     // cut (the user needs the whole path to fetch the file). At most MaxTrashLines paths; the rest is counted, and all of them are in the log.
-    private string TrashLines(IReadOnlyList<TrashedFile> inTrash)
+    private string TrashLines(IReadOnlyList<string> inTrash)
     {
         if (inTrash.Count == 0)
         {
             return string.Empty;
         }
 
-        var lines = inTrash.Take(MaxTrashLines).Select(file => MessageText.EscapeControlCharacters(file.TrashFile)).ToList();
+        var lines = inTrash.Take(MaxTrashLines).Select(MessageText.EscapeControlCharacters).ToList();
         if (inTrash.Count > MaxTrashLines)
         {
             lines.Add(_texts.FileStepMoreTrashFiles(inTrash.Count - MaxTrashLines));

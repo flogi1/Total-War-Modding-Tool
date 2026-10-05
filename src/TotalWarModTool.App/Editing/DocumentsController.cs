@@ -195,8 +195,10 @@ public sealed partial class DocumentsController
             // closed only after a step that worked). The user can try again once the file is free or the folder is back.
             var what = undo ? "Undo" : "Redo";
             _log.Warn($"{what} of \"{DisplayText.Safe(next?.Description ?? string.Empty)}\" did not run and stays in the history: {DisplayText.Safe(ex.Message)}");
+            // A missing project folder may never come back: that text names the way out (remove the project from the list).
             var detail = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
-            _dialogs.ShowMessage(undo ? _texts.EditUndoBlockedTitle : _texts.EditRedoBlockedTitle, MessageText.WithDetail(_texts.FileStepDeferred, detail));
+            var text = ex is ProjectUnreachableException ? _texts.FileStepProjectUnreachable : _texts.FileStepDeferred;
+            _dialogs.ShowMessage(undo ? _texts.EditUndoBlockedTitle : _texts.EditRedoBlockedTitle, MessageText.WithDetail(text, detail));
             return;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -207,17 +209,24 @@ public sealed partial class DocumentsController
             var reason = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
 
             // A file step that was dropped while it holds a file in the trash: nothing will bring that file back, so the log says where it is.
-            var inTrash = new List<TrashedFile>();
+            var inTrash = new List<string>();
             if (next is FileStep { InTrash: { } trashed })
             {
-                inTrash.Add(trashed);
+                inTrash.Add(trashed.TrashFile);
                 _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" stays in the trash, the step that brings it back was removed: {DisplayText.Safe(trashed.TrashFile)}");
+            }
+
+            // A move to the trash that failed half-way can leave a copy there that it could not delete again: no step holds it either.
+            if (next is FileStep { LeftInTrash: { } leftCopy })
+            {
+                inTrash.Add(leftCopy);
+                _log.Warn($"A copy that a failed move left stays in the trash: {DisplayText.Safe(leftCopy)}");
             }
 
             // The disk is not what the steps of that file describe any more: the other steps of the file go too, and the message says so once.
             var droppedStep = next as FileStep;
             IReadOnlyList<FileStep> furtherRemoved = droppedStep is null ? [] : DropRelatedFileSteps(droppedStep);
-            inTrash.AddRange(furtherRemoved.Select(removed => removed.InTrash).OfType<TrashedFile>());
+            inTrash.AddRange(furtherRemoved.Select(removed => removed.InTrash?.TrashFile).OfType<string>());
 
             // A step that refused to trash a file it did not leave says that the file was left as it is; the generic text would not.
             var message = ex is FileStepChangedException changed

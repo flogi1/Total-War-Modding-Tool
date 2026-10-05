@@ -113,6 +113,62 @@ public static class NewFiles
         _ => "The name cannot be used.",
     };
 
+    /// <summary>The longest name part of a file that is neither a table nor a loc file, so that name and extension fit into one path segment.</summary>
+    public static int MaxPlainNameLength(string extension)
+    {
+        ArgumentNullException.ThrowIfNull(extension);
+        return ProjectLayout.MaxSegmentLength - extension.Length;
+    }
+
+    /// <summary>
+    /// Why <paramref name="name"/> cannot be the name part of a file that is neither a table nor a loc file and keeps
+    /// <paramref name="extension"/> (with its dot, or empty), or <see cref="NameIssue.None"/>. A dot is fine here (the extension stays
+    /// separate). The rules are the ones of a file name on Windows and of the project; the path as a whole (its length, links) is the job of
+    /// the write boundary.
+    /// </summary>
+    public static NameIssue PlainNameIssueOf(string name, string extension)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(extension);
+
+        if (name.Length == 0)
+        {
+            return NameIssue.Empty;
+        }
+
+        if (name.Contains('\\') || name.Contains('/'))
+        {
+            return NameIssue.Separator;
+        }
+
+        if (name[0] == ' ' || name[^1] == ' ')
+        {
+            return NameIssue.LeadingOrTrailingSpace;
+        }
+
+        if (!PackNameRules.IsWellFormed(name))
+        {
+            return NameIssue.UnpairedSurrogate;
+        }
+
+        if (name.Any(ProjectLayout.IsInvalidSegmentChar))
+        {
+            return NameIssue.InvalidCharacter;
+        }
+
+        if (name.Length > MaxPlainNameLength(extension))
+        {
+            return NameIssue.TooLong;
+        }
+
+        if (PackNameRules.IsReservedDeviceName(name + extension))
+        {
+            return NameIssue.ReservedName;
+        }
+
+        return IsIgnored(name + extension) ? NameIssue.Ignored : NameIssue.None;
+    }
+
     /// <summary>
     /// Why the name cannot be the name part of a table or loc file, or <see cref="NameIssue.None"/>. The checks run in a fixed order and the
     /// first that fails decides; <see cref="NameProblem"/> is null exactly for <see cref="NameIssue.None"/>.

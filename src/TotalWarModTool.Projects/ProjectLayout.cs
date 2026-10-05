@@ -19,7 +19,7 @@ public enum ProjectFileKind
 public static class ProjectLayout
 {
     private const int MaxPathLength = 259;
-    private const int MaxSegmentLength = 255;
+    internal const int MaxSegmentLength = 255;
     private const string TextExtension = ".tsv";
     private const string LocTextExtension = ".loc.tsv";
     private const string InvalidSegmentChars = "<>:\"|?*\\";
