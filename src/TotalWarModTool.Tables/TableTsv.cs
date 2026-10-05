@@ -24,9 +24,9 @@ public static class TableTsv
     private const string LocTooltip = "tooltip";
 
     // One TSV column: a single field, or (Group not null) the three channel fields of a colour group. Index is the field index.
-    private sealed record Column(string Name, FieldType Type, int Index, ColourGroup? Group);
+    internal sealed record Column(string Name, FieldType Type, int Index, ColourGroup? Group);
 
-    private sealed record ColourGroup(string ColumnName, int Red, int Green, int Blue);
+    internal sealed record ColourGroup(string ColumnName, int Red, int Green, int Blue);
 
     private sealed record Meta(string Name, int Version, string PackPath);
 
@@ -183,7 +183,7 @@ public static class TableTsv
                         reason = $"a colour group needs exactly {GroupColourDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
                     }
                 }
-                else if (!TryParseCell(column.Type, cells[j], out row[column.Index], out var cellReason))
+                else if (!CellText.TryParseTsvCell(column.Type, cells[j], out row[column.Index], out var cellReason))
                 {
                     reason = cellReason;
                 }
@@ -265,7 +265,7 @@ public static class TableTsv
             for (var j = 0; j < cells.Length; j++)
             {
                 var column = frame.HeaderColumns[j];
-                if (!TryParseCell(column.Type, cells[j], out values[column.Index], out var reason))
+                if (!CellText.TryParseTsvCell(column.Type, cells[j], out values[column.Index], out var reason))
                 {
                     return FailedLoc(TsvProblem.InvalidValue, i + 3, InvalidValueDetail(column.Name, cells[j], reason!));
                 }
@@ -302,10 +302,9 @@ public static class TableTsv
 
     // ----- Columns -----
 
-    private static bool IsNumeric(FieldType type) => type is FieldType.I16 or FieldType.I32 or FieldType.I64 or FieldType.F32 or FieldType.F64;
-
-    // First the fields without a group in schema order, then the colour groups in the order they were discovered.
-    private static List<Column> ColumnsOf(TableDefinition definition)
+    // First the fields without a group in schema order, then the colour groups in the order they were discovered. Internal because
+    // CellText.ColourChannelFields must name the very groups Write writes.
+    internal static List<Column> ColumnsOf(TableDefinition definition)
     {
         var fields = definition.Fields;
         var firstByName = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -321,7 +320,7 @@ public static class TableTsv
         var unnamed = 0;
         for (var i = 0; i < fields.Count; i++)
         {
-            if (grouped[i] || !IsNumeric(fields[i].Type))
+            if (grouped[i] || !CellText.IsNumeric(fields[i].Type))
             {
                 continue;
             }
@@ -344,7 +343,7 @@ public static class TableTsv
                 }
 
                 if (!firstByName.TryGetValue(prefix + green, out var g) || !firstByName.TryGetValue(prefix + blue, out var b)
-                    || !IsNumeric(fields[g].Type) || !IsNumeric(fields[b].Type) || grouped[g] || grouped[b])
+                    || !CellText.IsNumeric(fields[g].Type) || !CellText.IsNumeric(fields[b].Type) || grouped[g] || grouped[b])
                 {
                     continue;
                 }
@@ -406,56 +405,30 @@ public static class TableTsv
     private static bool TryAppendCell(StringBuilder sb, int row, FieldDefinition field, object? value, out string? refusal)
     {
         refusal = null;
-        switch (field.Type)
+        // A NaN with a payload would come back as the standard NaN.
+        if ((field.Type == FieldType.F32 && value is float f && float.IsNaN(f) && BitConverter.SingleToInt32Bits(f) != BitConverter.SingleToInt32Bits(float.NaN))
+            || (field.Type == FieldType.F64 && value is double d && double.IsNaN(d) && BitConverter.DoubleToInt64Bits(d) != BitConverter.DoubleToInt64Bits(double.NaN)))
         {
-            case FieldType.Boolean when value is bool v:
-                sb.Append(v ? "true" : "false");
-                return true;
-            case FieldType.I16 when value is short v:
-                sb.Append(v.ToString(CultureInfo.InvariantCulture));
-                return true;
-            case FieldType.I32 when value is int v:
-                sb.Append(v.ToString(CultureInfo.InvariantCulture));
-                return true;
-            case FieldType.I64 when value is long v:
-                sb.Append(v.ToString(CultureInfo.InvariantCulture));
-                return true;
-            case FieldType.F32 when value is float v:
-                // A NaN with a payload would come back as the standard NaN.
-                if (float.IsNaN(v) && BitConverter.SingleToInt32Bits(v) != BitConverter.SingleToInt32Bits(float.NaN))
-                {
-                    refusal = "a NaN with a payload cannot be written as text";
-                    return false;
-                }
-
-                sb.Append(v.ToString("R", CultureInfo.InvariantCulture));
-                return true;
-            case FieldType.F64 when value is double v:
-                if (double.IsNaN(v) && BitConverter.DoubleToInt64Bits(v) != BitConverter.DoubleToInt64Bits(double.NaN))
-                {
-                    refusal = "a NaN with a payload cannot be written as text";
-                    return false;
-                }
-
-                sb.Append(v.ToString("R", CultureInfo.InvariantCulture));
-                return true;
-            case FieldType.ColourRgb when value is string v:
-                // Written as Read returns it: uppercase, at least six digits.
-                if (!ColourText.TryParse(v, out var colour))
-                {
-                    refusal = $"'{Shorten(v)}' is not a colour of 1 to {ColourText.MaxDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
-                    return false;
-                }
-
-                sb.Append(colour.ToString("X6", CultureInfo.InvariantCulture));
-                return true;
-            case FieldType.StringU8 or FieldType.OptionalStringU8 when value is string v:
-                return TryAppendText(sb, v, utf8: true, out refusal);
-            case FieldType.StringU16 when value is string v:
-                return TryAppendText(sb, v, utf8: false, out refusal);
-            default:
-                throw new ArgumentException(ModelError(row, field, value), "rows");
+            refusal = "a NaN with a payload cannot be written as text";
+            return false;
         }
+
+        switch (CellText.TryFormat(field.Type, value, out var text))
+        {
+            case CellText.FormatResult.WrongType:
+                throw new ArgumentException(ModelError(row, field, value), "rows");
+            case CellText.FormatResult.NotAColour:
+                refusal = $"'{Shorten((string)value!)}' is {CellText.NotAColourReason()}";
+                return false;
+        }
+
+        if (CellText.IsText(field.Type))
+        {
+            return TryAppendText(sb, text, CellText.IsUtf8(field.Type), out refusal);
+        }
+
+        sb.Append(text);
+        return true;
     }
 
     // Appends the six hex digits of the group. On refusal the returned reason is set and channelField is the field of the bad channel.
@@ -497,26 +470,13 @@ public static class TableTsv
 
     private static bool TryAppendText(StringBuilder sb, string value, bool utf8, out string? refusal)
     {
-        if (value.Contains('\r'))
-        {
-            refusal = "the text contains a carriage return, which the TSV dialect cannot carry";
-            return false;
-        }
-
-        // These would be read back as a tab or a line break.
-        if (value.Contains("\\\\t", StringComparison.Ordinal) || value.Contains("\\\\n", StringComparison.Ordinal))
-        {
-            refusal = "the text contains a literal backslash backslash t or n, which the TSV dialect cannot tell from an escaped tab or line break";
-            return false;
-        }
-
-        refusal = ByteWriter.EncodingProblem(value, utf8);
+        refusal = CellText.TextRefusal(value, utf8);
         if (refusal is not null)
         {
             return false;
         }
 
-        sb.Append(value.Replace("\t", "\\\\t", StringComparison.Ordinal).Replace("\n", "\\\\n", StringComparison.Ordinal));
+        sb.Append(CellText.Escape(value));
         return true;
     }
 
@@ -677,115 +637,6 @@ public static class TableTsv
 
         return length < value.Length ? sb.Append("...").ToString() : sb.ToString();
     }
-
-    // On failure reason names what is wrong; otherwise reason is null. Never throws for the cell.
-    private static bool TryParseCell(FieldType type, string cell, out object? value, [NotNullWhen(false)] out string? reason)
-    {
-        value = null;
-        reason = null;
-        switch (type)
-        {
-            case FieldType.Boolean:
-                if (cell.Equals("true", StringComparison.OrdinalIgnoreCase))
-                {
-                    value = true;
-                    return true;
-                }
-
-                if (cell.Equals("false", StringComparison.OrdinalIgnoreCase))
-                {
-                    value = false;
-                    return true;
-                }
-
-                reason = "not true or false";
-                return false;
-            case FieldType.I16:
-                if (short.TryParse(cell, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var i16))
-                {
-                    value = i16;
-                    return true;
-                }
-
-                reason = "not a 16-bit integer";
-                return false;
-            case FieldType.I32:
-                if (int.TryParse(cell, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var i32))
-                {
-                    value = i32;
-                    return true;
-                }
-
-                reason = "not a 32-bit integer";
-                return false;
-            case FieldType.I64:
-                if (long.TryParse(cell, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var i64))
-                {
-                    value = i64;
-                    return true;
-                }
-
-                reason = "not a 64-bit integer";
-                return false;
-            case FieldType.F32:
-                if (!float.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var f32))
-                {
-                    reason = "not a number";
-                    return false;
-                }
-
-                if (!IsFiniteOrNamed(f32, cell))
-                {
-                    reason = "the number is too large for a 32-bit float";
-                    return false;
-                }
-
-                value = f32;
-                return true;
-            case FieldType.F64:
-                if (!double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var f64))
-                {
-                    reason = "not a number";
-                    return false;
-                }
-
-                if (!IsFiniteOrNamed(f64, cell))
-                {
-                    reason = "the number is too large for a 64-bit float";
-                    return false;
-                }
-
-                value = f64;
-                return true;
-            case FieldType.ColourRgb:
-                if (ColourText.TryParse(cell, out var colour))
-                {
-                    value = colour.ToString("X6", CultureInfo.InvariantCulture);
-                    return true;
-                }
-
-                reason = $"not a colour of 1 to {ColourText.MaxDigits.ToString(CultureInfo.InvariantCulture)} hex digits";
-                return false;
-            case FieldType.StringU8:
-            case FieldType.OptionalStringU8:
-            case FieldType.StringU16:
-                var text = cell.Replace("\\\\t", "\t", StringComparison.Ordinal).Replace("\\\\n", "\n", StringComparison.Ordinal);
-                // Write refuses a carriage return, so Read does not accept one either.
-                reason = text.Contains('\r')
-                    ? "the text contains a carriage return"
-                    : ByteWriter.EncodingProblem(text, utf8: type != FieldType.StringU16);
-                value = text;
-                return reason is null;
-            default:
-                reason = "the field type is not supported";
-                return false;
-        }
-    }
-
-    // A parse that overflows gives an infinity. That is only accepted when the cell is one of the forms Write emits for it.
-    private static bool IsFiniteOrNamed(double parsed, string cell) =>
-        double.IsFinite(parsed)
-        || cell.Equals(double.IsNaN(parsed) ? "NaN" : parsed > 0 ? "Infinity" : "-Infinity", StringComparison.OrdinalIgnoreCase);
 
     private static bool TryParseGroup(string cell, out uint rgb)
     {
