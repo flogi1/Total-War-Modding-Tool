@@ -51,6 +51,51 @@ public class DocumentsControllerExternalTests
         }
     }
 
+    // What the grid does for a tab with a cell in edit mode: the tab is told, the commit writes the typed value through the setter of the row
+    // (or refuses when the value is not valid), and the cancel drops the editor without writing. Counts both and remembers on which document the
+    // cancel ran. After the editor is closed a commit has nothing to write, like the commit of a grid without an edit.
+    private sealed class FakeEditor
+    {
+        public bool Editing { get; private set; } = true;
+
+        public int Commits { get; private set; }
+
+        public int Cancels { get; private set; }
+
+        public RowsDocument? CancelledOn { get; private set; }
+
+        public static FakeEditor Open(EditableRowsTabViewModel tab, string text, bool valid = true)
+        {
+            var editor = new FakeEditor();
+            tab.SetPendingEdit(true);
+            tab.CommitPendingEdit = () =>
+            {
+                editor.Commits++;
+                if (!editor.Editing)
+                {
+                    return true;
+                }
+
+                if (!valid)
+                {
+                    return false;
+                }
+
+                editor.Editing = false;
+                tab.SetPendingEdit(false);
+                tab.Rows[0][Value] = text;
+                return true;
+            };
+            tab.CancelPendingEdit = () =>
+            {
+                editor.Cancels++;
+                editor.CancelledOn = tab.Document;
+                editor.Editing = false;
+            };
+            return editor;
+        }
+    }
+
     private static Task<Setup> CreateAsync(params (string RelativeFile, string Text)[] files) => CreateWithRunnerAsync(null, files);
 
     // The projects (which read the files) get their own runner when one is given; the documents controller keeps the fake of the game.
@@ -579,6 +624,121 @@ public class DocumentsControllerExternalTests
         }
     }
 
+    [Fact] public async Task A_tab_with_a_cell_that_is_typed_into_while_its_file_is_read_keeps_that_text()
+    {
+        var runner = new ManualOperationRunner();
+        var setup = await CreateWithRunnerAsync(runner, Table(FileA, 42));
+        using (setup)
+        {
+            var opening = OpenAsync(setup, FileA);
+            await runner.WaitForRun().WaitAsync(Guard);
+            runner.Complete();
+            var a = await opening.WaitAsync(Guard);
+            setup.ChangeOutside(FileA, TextOf(FileA, 77));
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
+            Assert.True(a.CanReload);
+
+            var reload = setup.Controller.ReloadAsync(a);                        // waits for the read
+            await runner.WaitForRun().WaitAsync(Guard);
+            var editor = FakeEditor.Open(a, "50");                              // the text is typed and not committed
+            runner.Complete();
+            await reload.WaitAsync(Guard);
+
+            Assert.Equal("42", a.Rows[0][Value]);                                // not replaced: the typed text is not dropped
+            Assert.True(a.HasPendingEdit);
+            Assert.True(editor.Editing);
+            Assert.Equal(0, editor.Cancels);
+            Assert.True(a.IsStaleOutside);
+        }
+    }
+
+    // ---- reload and a cell that is still in edit mode --------------------------------------------------------------------------------
+
+    [Fact] public async Task Reload_commits_a_valid_typed_value_first_and_then_does_not_reload()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            setup.ChangeOutside(FileA, TextOf(FileA, 77));
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
+            Assert.True(a.CanReload);
+            var editor = FakeEditor.Open(a, "50");                              // typed, the cell is not left
+            Assert.True(a.CanReload);                                           // the document is not modified yet
+            var runs = setup.Game.Runner.Titles.Count;
+
+            await setup.Controller.ReloadAsync(a).WaitAsync(Guard);
+
+            Assert.Equal(1, editor.Commits);
+            Assert.Equal("50", a.Rows[0][Value]);                                // the typed value is in the document, the outside content is not
+            Assert.True(a.IsModified);
+            Assert.False(a.CanReload);
+            Assert.True(a.IsStaleOutside);                                      // the question at the next save is the way
+            Assert.Equal(TextOf(FileA, 77), setup.Read(FileA));                  // the file is untouched
+            Assert.Equal(runs, setup.Game.Runner.Titles.Count);                  // the file was not even read
+            Assert.True(setup.History.CanUndo);
+            Assert.Empty(setup.Dialogs.Messages);
+        }
+    }
+
+    [Fact] public async Task Reload_with_an_invalid_typed_value_stops_with_the_message_and_keeps_the_editor()
+    {
+        var setup = await CreateAsync(Table(FileA, 42), Table(FileB, 7));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            await OpenAsync(setup, FileB);                                       // b is selected
+            setup.ChangeOutside(FileA, TextOf(FileA, 77));
+            await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
+            var editor = FakeEditor.Open(a, "abc", valid: false);
+            var runs = setup.Game.Runner.Titles.Count;
+
+            await setup.Controller.ReloadAsync(a).WaitAsync(Guard);
+
+            Assert.Equal((setup.Game.Texts.EditPendingInvalidTitle, setup.Game.Texts.EditPendingInvalidMessage), Assert.Single(setup.Dialogs.Messages));
+            Assert.Same(a, setup.Tabs.SelectedTab);                              // the user is taken to the cell
+            Assert.Equal("42", a.Rows[0][Value]);
+            Assert.True(editor.Editing);
+            Assert.Equal(0, editor.Cancels);
+            Assert.True(a.HasPendingEdit);
+            Assert.True(a.CanReload);
+            Assert.Equal(runs, setup.Game.Runner.Titles.Count);
+        }
+    }
+
+    [Fact] public async Task The_answer_Reload_of_a_save_cancels_a_pending_editor_before_the_document_is_replaced()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            var old = a.Document;
+            a.Rows[0][Value] = "50";
+            setup.ChangeOutside(FileA, TextOf(FileA, 99));
+            setup.Dialogs.ConflictAnswers.Enqueue(ConflictChoice.Reload);
+            FakeEditor? editor = null;
+            setup.Dialogs.WhileAsking = () => editor ??= FakeEditor.Open(a, "60");   // the editor of a cell is open while the question is shown
+
+            Assert.False(await setup.Controller.SaveAsync([a]).WaitAsync(Guard));
+
+            Assert.NotNull(editor);
+            Assert.Equal(0, editor.Commits);
+            Assert.Equal(1, editor.Cancels);
+            Assert.Same(old, editor.CancelledOn);                                // cancelled while the old document was still the one of the tab
+            Assert.NotSame(old, a.Document);
+            Assert.Equal("99", a.Rows[0][Value]);
+            Assert.False(a.IsModified);
+            Assert.False(a.HasPendingEdit);
+            Assert.Null(a.ValidationMessage);
+            Assert.False(setup.History.CanUndo);
+
+            Assert.True(a.TryCommitPendingEdit());                              // the editor is gone: nothing is written into the new document
+            Assert.Equal("99", a.Rows[0][Value]);
+            Assert.False(a.IsModified);
+            Assert.False(setup.History.CanUndo);
+        }
+    }
+
     // ---- saving over an outside change -----------------------------------------------------------------------------------------------
 
     [Fact] public async Task Saving_over_an_outside_change_asks_first()
@@ -885,6 +1045,91 @@ public class DocumentsControllerExternalTests
             Assert.True(a.IsModified);
             Assert.Equal(setup.Game.Texts.TabStaleChanged, a.StaleText);       // it is there again, but not as the tab read it
             Assert.Contains(setup.Game.Texts.SaveProblemChangedAgain, Assert.Single(setup.Dialogs.Messages).Message);
+        }
+    }
+
+    [Fact] public async Task After_a_write_was_refused_over_its_own_Overwrite_question_the_next_save_asks_again_and_then_writes()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            a.Rows[0][Value] = "50";
+            setup.ChangeOutside(FileA, TextOf(FileA, 98));
+            setup.Dialogs.ConflictAnswers.Enqueue(ConflictChoice.Overwrite);
+            setup.Dialogs.ConflictAnswers.Enqueue(ConflictChoice.Overwrite);
+            setup.Dialogs.WhileAsking = () => setup.ChangeOutside(FileA, TextOf(FileA, 97));
+
+            Assert.False(await setup.Controller.SaveAsync([a]).WaitAsync(Guard));
+            Assert.Equal(TextOf(FileA, 97), setup.Read(FileA));
+            Assert.True(a.IsModified);
+
+            setup.Dialogs.WhileAsking = null;
+            Assert.True(await setup.Controller.SaveAsync([a]).WaitAsync(Guard));
+
+            Assert.Equal(["db/x_tables/a.tsv", "db/x_tables/a.tsv"], setup.Dialogs.ConflictAsks);   // asked again, the first answer did not count
+            Assert.Equal(a.Document.ToText().Text, setup.Read(FileA));
+            Assert.False(a.IsModified);
+            Assert.False(a.IsStale);
+            Assert.Single(setup.Dialogs.Messages);                              // only the message of the refused write
+        }
+    }
+
+    [Fact] public async Task After_a_refused_Create_again_the_next_save_asks_about_the_file_as_it_is_then_and_writes()
+    {
+        var setup = await CreateAsync(Table(FileA, 42));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            a.Rows[0][Value] = "50";
+            setup.DeleteOutside(FileA);
+            setup.Dialogs.CreateAgainAnswers.Enqueue(true);
+            setup.Dialogs.WhileAsking = () => File.WriteAllText(setup.PathOf(FileA), TextOf(FileA, 77));   // written again while the question is open
+
+            Assert.False(await setup.Controller.SaveAsync([a]).WaitAsync(Guard));
+            Assert.Equal(TextOf(FileA, 77), setup.Read(FileA));
+            Assert.True(a.IsModified);
+
+            // The file is there again but not as the tab read it: the question is the one for a changed file now.
+            setup.Dialogs.WhileAsking = null;
+            setup.Dialogs.ConflictAnswers.Enqueue(ConflictChoice.Overwrite);
+            Assert.True(await setup.Controller.SaveAsync([a]).WaitAsync(Guard));
+
+            Assert.Equal(["db/x_tables/a.tsv"], setup.Dialogs.CreateAgainAsks);
+            Assert.Equal(["db/x_tables/a.tsv"], setup.Dialogs.ConflictAsks);
+            Assert.Equal(a.Document.ToText().Text, setup.Read(FileA));
+            Assert.False(a.IsModified);
+            Assert.False(a.IsStale);
+        }
+    }
+
+    [Fact] public async Task A_file_that_is_deleted_while_the_question_for_another_file_is_open_is_not_written_and_marked_deleted()
+    {
+        var setup = await CreateAsync(Table(FileA, 42), Table(FileB, 7));
+        using (setup)
+        {
+            var a = await OpenAsync(setup, FileA);
+            var b = await OpenAsync(setup, FileB);
+            a.Rows[0][Value] = "50";
+            b.Rows[0][Value] = "8";
+            setup.ChangeOutside(FileB, TextOf(FileB, 98));                      // b is asked about; a looks unchanged
+            setup.Dialogs.ConflictAnswer = ConflictChoice.Overwrite;
+            setup.Dialogs.WhileAsking = () => setup.DeleteOutside(FileA);       // the question for b is open: another program deletes a
+
+            Assert.False(await setup.Controller.SaveAsync([a, b]).WaitAsync(Guard));
+
+            Assert.Equal(["db/x_tables/b.tsv"], setup.Dialogs.ConflictAsks);
+            Assert.Empty(setup.Dialogs.CreateAgainAsks);                         // a was not asked about
+            Assert.False(File.Exists(setup.PathOf(FileA)));                      // not created again behind the user's back
+            Assert.True(a.IsModified);
+            Assert.Equal(setup.Game.Texts.TabStaleDeleted, a.StaleText);
+            var (title, message) = Assert.Single(setup.Dialogs.Messages);
+            Assert.Equal(setup.Game.Texts.SaveFailedTitle, title);
+            Assert.Contains("db/x_tables/a.tsv", message);
+            Assert.Contains(setup.Game.Texts.SaveProblemChangedAgain, message);
+            Assert.DoesNotContain("db/x_tables/b.tsv", message);
+            Assert.Equal(b.Document.ToText().Text, setup.Read(FileB));           // b was overwritten as the user said
+            Assert.False(b.IsModified);
         }
     }
 

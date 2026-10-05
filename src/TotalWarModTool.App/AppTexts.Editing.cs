@@ -99,6 +99,11 @@ public sealed partial class AppTexts
     public string GridPasteTooLarge(int length, int max) =>
         F("grid.paste.tooLarge", "The text on the clipboard is too long to paste: {0} characters. At most {1} characters can be pasted at once.", length, max);
 
+    /// <param name="count">Number of rows of the text on the clipboard.</param>
+    /// <param name="max">The most rows that a paste reads.</param>
+    public string GridPasteTooManyRows(int count, int max) =>
+        F("grid.paste.tooManyRows", "The text on the clipboard has too many rows to paste: {0}. At most {1} rows can be pasted at once.", count, max);
+
     public string GridEditDiscarded => T("grid.editDiscarded",
         "The value that was being typed into a cell was discarded, because the rows or the tab changed under it. Type it again if you still need it.");
 

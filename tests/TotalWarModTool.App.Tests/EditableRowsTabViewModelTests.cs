@@ -1027,6 +1027,51 @@ public class EditableRowsTabViewModelTests
         Assert.Equal(5, document.Rows.Count);
     }
 
+    [Fact] public void A_text_with_too_many_rows_is_refused_before_it_is_read_and_exactly_the_limit_is_pasted()
+    {
+        var clipboard = new FakeClipboard { Text = TextOf(Row("p", 1), Row("q", 2)) };      // a header and two rows, every line ends with a line feed
+        var (tab, document, history) = Make(clipboard: clipboard);
+        tab.MaxPasteRows = 1;
+
+        tab.PasteRowsCommand.Execute(null);
+
+        Assert.Equal(Texts.GridPasteTooManyRows(2, 1), tab.Notice);
+        Assert.Equal(3, document.Rows.Count);
+        Assert.False(history.CanUndo);
+
+        tab.MaxPasteRows = 2;                                               // exactly the limit is still read
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal(5, document.Rows.Count);
+        Assert.Null(tab.Notice);
+
+        clipboard.Text = clipboard.Text.TrimEnd('\n');                      // the last line without its line feed is a row too
+        tab.MaxPasteRows = 1;
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal(Texts.GridPasteTooManyRows(2, 1), tab.Notice);
+        Assert.Equal(5, document.Rows.Count);
+        tab.MaxPasteRows = 2;
+        tab.PasteRowsCommand.Execute(null);
+        Assert.Equal(7, document.Rows.Count);
+    }
+
+    [Fact] public void The_rows_of_a_text_are_counted_before_the_text_is_parsed()
+    {
+        var clipboard = new FakeClipboard { Text = "this is no header\r\nline 1\r\nline 2\r\nline 3\r\nline 4\r\n" };    // four lines after the first
+        var (tab, document, _) = Make(clipboard: clipboard);
+        tab.MaxPasteRows = 3;
+
+        tab.PasteRowsCommand.Execute(null);
+
+        Assert.Equal(Texts.GridPasteTooManyRows(4, 3), tab.Notice);          // and not the refusal of the parser
+        Assert.Equal(3, document.Rows.Count);
+    }
+
+    [Fact] public void The_limit_of_a_paste_in_rows_is_the_limit_of_a_copy()
+    {
+        Assert.Equal(RowsTabViewModel.DefaultMaxCopyRows, Make().Tab.MaxPasteRows);
+        Assert.Equal(100_000, RowsTabViewModel.DefaultMaxCopyRows);
+    }
+
     [Fact] public void A_discarded_edit_is_reported_in_the_notice_and_a_text_is_applied_only_to_a_row_of_the_tab()
     {
         var (tab, document, _) = Make();

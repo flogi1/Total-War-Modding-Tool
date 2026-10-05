@@ -225,12 +225,26 @@ public sealed partial class DocumentsController
     /// Only an editable tab that is stale for an outside reason and has no changes of its own is reloaded (the condition of the reload
     /// button), and it is looked at again after the file was read: a tab that was modified meanwhile keeps its content. Nothing happens
     /// otherwise, for a tab that is not open or not of a project, and while another reload of it is running. A tab with changes is reloaded
-    /// only through the question that comes with saving it.
+    /// only through the question that comes with saving it. A value that is typed into a cell and not committed is such a change: it is
+    /// committed first, and then the tab has changes of its own, so it is not reloaded; a value that cannot be committed stops the reload
+    /// with the message of the cell.
     /// </summary>
     public Task ReloadAsync(TabViewModel tab)
     {
         ArgumentNullException.ThrowIfNull(tab);
-        return tab is EditableRowsTabViewModel { CanReload: true } ? ReloadCoreAsync(tab, discardChanges: false) : Task.CompletedTask;
+        if (tab is not EditableRowsTabViewModel { CanReload: true } editable)
+        {
+            return Task.CompletedTask;
+        }
+
+        // The typed value is never dropped silently: it becomes a change of the document (the reload condition is asked again), or it keeps
+        // the user in the cell.
+        if (!CommitPendingEdits([editable]) || !editable.CanReload)
+        {
+            return Task.CompletedTask;
+        }
+
+        return ReloadCoreAsync(tab, discardChanges: false);
     }
 
     // The reload itself. With discardChanges the tab is replaced although it has changes: the user chose "Reload" in the question of a save.
@@ -260,11 +274,17 @@ public sealed partial class DocumentsController
                 return;
             }
 
-            // Changed while the file was read (a timer, the keyboard): the user's changes win, nothing is replaced.
-            if (!discardChanges && tab.IsModified)
+            // Changed while the file was read (a timer, the keyboard): the user's changes win, nothing is replaced. That includes a value that
+            // was typed into a cell meanwhile and is not committed yet.
+            if (!discardChanges && (tab.IsModified || tab is EditableRowsTabViewModel { HasPendingEdit: true }))
             {
                 return;
             }
+
+            // The document is replaced on purpose now (the file was read, or the user chose "Reload" over their changes): an editor that is
+            // still open is dropped first, so that it cannot write its text into the new document, and the tab that replaces this one
+            // does not commit it into the old one.
+            (tab as EditableRowsTabViewModel)?.DiscardPendingEdit();
 
             if (tab is EditableRowsTabViewModel editable && TryCreateDocument(opened) is { } document)
             {

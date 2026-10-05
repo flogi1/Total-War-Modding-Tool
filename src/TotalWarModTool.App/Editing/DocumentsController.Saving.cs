@@ -529,15 +529,19 @@ public sealed partial class DocumentsController
 
     /// <summary>
     /// The decision of the main window's <c>Closing</c> event. True: the window may close now (no modified tab, or the confirmation already
-    /// succeeded; that is consumed once). False: the close is refused, and either an operation runs (nothing else happens), a question is
-    /// open already, or the question is started now for all modified tabs together and <paramref name="close"/> is called when it ended with
-    /// "go on". <paramref name="close"/> must not close the window before the event has returned (the window defers it).
+    /// succeeded; that is consumed once, and void when the event finds an operation running). False: the close is refused, and either an
+    /// operation runs (nothing else happens), a question is open already, or the question is started now for all modified tabs together and
+    /// <paramref name="close"/> is called when it ended with "go on". <paramref name="close"/> must not close the window before the event has
+    /// returned (the window defers it).
     /// </summary>
     public bool RequestAppClose(Action close)
     {
         ArgumentNullException.ThrowIfNull(close);
         if (_runner.IsRunning)
         {
+            // A confirmation that was given before this event and is not used now is void: the operation may change what is open, so the
+            // next request asks again instead of closing without a question.
+            _appCloseConfirmed = false;
             return false;
         }
 

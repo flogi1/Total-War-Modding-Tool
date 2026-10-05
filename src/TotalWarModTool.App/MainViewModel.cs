@@ -90,10 +90,12 @@ public sealed class MainViewModel : ObservableObject
             projects.Changed += (_, _) => CloseTabsOfRemovedProjects();
         }
 
-        // The menu of a project says why it cannot be removed while a tab of it has unsaved changes: that reason changes with them.
+        // The menu of a project says why it cannot be removed while a tab of it has unsaved changes: that reason changes with them, and with a
+        // value that is typed into a cell and not committed yet.
         if (documents is not null)
         {
             documents.ModifiedChanged += (_, _) => Explorer.RefreshProjectActions();
+            documents.PendingEditChanged += (_, _) => Explorer.RefreshProjectActions();
         }
 
         if (projects is not null && projectCommands is not null)

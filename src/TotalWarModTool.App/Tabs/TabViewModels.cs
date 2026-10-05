@@ -191,7 +191,7 @@ public abstract class RowsTabViewModel : TabViewModel
     /// <summary>The longest text the text view shows, in characters.</summary>
     public const int MaxTextChars = 5_000_000;
 
-    /// <summary>The most rows that one copy puts on the clipboard.</summary>
+    /// <summary>The most rows that one copy puts on the clipboard, and that one paste of an editable tab takes from it.</summary>
     public const int DefaultMaxCopyRows = 100_000;
 
     private readonly IClipboard? _clipboard;

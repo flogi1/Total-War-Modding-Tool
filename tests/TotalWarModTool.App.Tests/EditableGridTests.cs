@@ -280,6 +280,29 @@ public class EditableGridTests
         Assert.Equal(setup.Tab.CheckCell(Cost, "abc"), setup.Tab.ValidationMessage);
     });
 
+    [Theory]
+    [InlineData("42")]
+    [InlineData("abc")]
+    public void A_pending_cell_is_dropped_on_purpose_without_writing_its_text_or_a_notice(string typed) => WithGrid(setup =>
+    {
+        var box = Assert.IsType<TextBox>(BeginEdit(setup, 1, Cost));
+        box.Text = typed;
+        Assert.True(setup.Tab.HasPendingEdit);
+
+        setup.Tab.DiscardPendingEdit();                                                     // what the app does before it replaces the document
+        Pump(setup.Window);
+
+        Assert.Equal(10, setup.Document.Rows[1][Cost]);                                     // the text is written nowhere
+        Assert.False(setup.Tab.IsModified);
+        Assert.False(setup.History.CanUndo);
+        Assert.Null(setup.Tab.Notice);                                                      // the user chose this: no notice
+        Assert.False(setup.Tab.HasPendingEdit);
+        Assert.Null(setup.Tab.ValidationMessage);
+        Assert.Equal("10", Assert.IsType<TextBlock>(setup.Content(1, Cost)).Text);          // the shown element again, with the old value
+        Assert.True(setup.Tab.TryCommitPendingEdit());                                      // nothing is left to commit
+        Assert.Equal(10, setup.Document.Rows[1][Cost]);
+    });
+
     [Fact] public void The_selection_reaches_the_view_model_as_row_indexes() => WithGrid(setup =>
     {
         Select(setup, 2, 0);

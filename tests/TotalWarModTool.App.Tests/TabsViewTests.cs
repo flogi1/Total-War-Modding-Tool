@@ -32,9 +32,9 @@ public class TabsViewTests
     }
 
     // A TabsView with its view model inside a shown window. The test host has no Application, so the styles of Controls.xaml go into the view's resources.
-    private static Setup Create()
+    private static Setup Create(TabsViewModel? tabs = null)
     {
-        var viewModel = new TabsViewModel(Texts);
+        var viewModel = tabs ?? new TabsViewModel(Texts);
         var view = new TabsView(viewModel);
         view.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(File.ReadAllText(ControlsXamlPath())));
         var window = new Window { Width = 600, Height = 400, Content = view };
@@ -679,6 +679,109 @@ public class TabsViewTests
             setup.Window.Close();
         }
     });
+
+    // ---- the real hook of the controller ------------------------------------------------------------------------------------------------
+
+    private sealed record Real(Setup View, TestGame Game, FakeEditDialogs Dialogs, TotalWarModTool.UndoRedo.ActionHistory History,
+        EditableRowsTabViewModel First, EditableRowsTabViewModel Second);
+
+    // The tab list of the view is the one of a real DocumentsController (CanLeave and the rest are its own hooks), over two editable tabs that
+    // share the history of the controller, in a shown window.
+    private static void WithController(Func<Real, Task> body) => Sta.RunAsync(async () =>
+    {
+        using var game = new TestGame();
+        var workspace = game.NewController();
+        await workspace.LoadAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        var projects = game.NewProjects(workspace);
+        var dialogs = new FakeEditDialogs();
+        var history = new TotalWarModTool.UndoRedo.ActionHistory();
+        var tabs = new TabsViewModel(game.Texts);
+        _ = new DocumentsController(tabs, projects, history, game.Runner, dialogs, game.Log, game.Texts);
+        var setup = Create(tabs);
+        try
+        {
+            EditableRowsTabViewModel NewTab(string name)
+            {
+                var document = TotalWarModTool.Editing.RowsDocument.ForLoc("text/db/" + name, [new LocRow("k", "Text", false), new LocRow("k2", "More", true)]);
+                var tab = new EditableRowsTabViewModel(TabSource.ForProject(Guid.NewGuid(), "Project"), "text/db/" + name + ".tsv", game.Texts, tabs.Close, document,
+                    history, new FakeClipboard());
+                tabs.Tabs.Add(tab);
+                return tab;
+            }
+
+            var first = NewTab("a.loc");
+            var second = NewTab("b.loc");
+            tabs.SelectedTab = first;
+            Pump(setup.Window);
+            await body(new Real(setup, game, dialogs, history, first, second));
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void The_controller_keeps_the_user_on_the_tab_while_its_cell_holds_an_invalid_value() => WithController(real =>
+    {
+        var (setup, game, dialogs, history, first, second) = real;
+        var box = TypeIntoFirstRow(setup, first, "x" + (char)13 + "y");                  // a carriage return: not a value of the column
+
+        setup.TabControl.SelectedItem = second;                                          // what a click on the header does to the tab control
+        Pump(setup.Window);
+
+        Assert.Same(first, setup.ViewModel.SelectedTab);
+        Assert.Same(first, setup.TabControl.SelectedItem);                               // the tab control really went back
+        Assert.Equal((game.Texts.EditPendingInvalidTitle, game.Texts.EditPendingInvalidMessage), Assert.Single(dialogs.Messages));   // one message, not two
+        Assert.Equal("Text", first.Document.Rows[0][1]);
+        Assert.False(first.IsModified);
+        Assert.False(history.CanUndo);
+        Assert.True(first.HasPendingEdit);
+        Assert.Same(box, setup.Grid.Columns[1].GetCellContent(first.Rows[0]));           // the cell is still in edit mode with the typed text
+        return Task.CompletedTask;
+    });
+
+    [Fact] public void The_controller_commits_a_valid_value_when_the_user_selects_the_other_tab() => WithController(real =>
+    {
+        var (setup, _, dialogs, history, first, second) = real;
+        TypeIntoFirstRow(setup, first, "typed");
+
+        setup.TabControl.SelectedItem = second;
+        Pump(setup.Window);
+
+        Assert.Same(second, setup.ViewModel.SelectedTab);
+        Assert.Same(second, setup.TabControl.SelectedItem);
+        Assert.Equal("typed", first.Document.Rows[0][1]);
+        Assert.True(first.IsModified);
+        Assert.False(first.HasPendingEdit);
+        Assert.Empty(dialogs.Messages);
+
+        history.Undo();                                                                  // one step takes the value back
+        Assert.Equal("Text", first.Document.Rows[0][1]);
+        Assert.False(history.CanUndo);
+        return Task.CompletedTask;
+    });
+
+    // The keys that move the selection of the tab control are asked before it moves. The keyboard state of the test host has no modifiers, so the
+    // decision is a function of the key and the modifiers that the view hands to it.
+    [Theory]
+    [InlineData(Key.Tab, ModifierKeys.Control, true, true)]
+    [InlineData(Key.Tab, ModifierKeys.Control | ModifierKeys.Shift, true, true)]
+    [InlineData(Key.Tab, ModifierKeys.Control | ModifierKeys.Shift, false, true)]
+    [InlineData(Key.PageUp, ModifierKeys.Control, true, true)]
+    [InlineData(Key.PageDown, ModifierKeys.Control | ModifierKeys.Shift, true, true)]
+    [InlineData(Key.Tab, ModifierKeys.None, true, false)]
+    [InlineData(Key.Tab, ModifierKeys.Shift, true, false)]
+    [InlineData(Key.A, ModifierKeys.Control, true, false)]
+    [InlineData(Key.Left, ModifierKeys.None, false, true)]
+    [InlineData(Key.End, ModifierKeys.None, false, true)]
+    [InlineData(Key.Left, ModifierKeys.None, true, false)]
+    [InlineData(Key.Down, ModifierKeys.None, true, false)]
+    [InlineData(Key.A, ModifierKeys.None, false, false)]
+    public void The_keys_that_change_the_tab_are_recognised_with_and_without_Shift(Key key, ModifierKeys modifiers, bool inContent, bool expected)
+    {
+        // inContent is true for a key pressed in the content of the tab; for the Ctrl keys it makes no difference.
+        Assert.Equal(expected, TabsView.ChangesTab(key, modifiers, inContent));
+    }
 
     [Fact] public void The_text_view_is_refused_while_a_cell_holds_an_invalid_value_and_the_switch_goes_back() => Sta.Run(() =>
     {

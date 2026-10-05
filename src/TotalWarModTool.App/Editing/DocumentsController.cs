@@ -94,6 +94,13 @@ public sealed partial class DocumentsController
     /// <summary>Raised when the set of modified tabs changed: a tab was modified or saved, or a modified tab left.</summary>
     public event EventHandler? ModifiedChanged;
 
+    /// <summary>
+    /// Raised when a cell of an editable tab went into or out of edit mode with a text that differs from the value (the state that
+    /// <see cref="EditableRowsTabViewModel.HasPendingEdit"/> tells). The reason why a project cannot leave the list (<see cref="UnsavedReason"/>)
+    /// depends on it, although the set of modified tabs does not change.
+    /// </summary>
+    public event EventHandler? PendingEditChanged;
+
     // ---- opening ---------------------------------------------------------------------------------------------------------------------
 
     // An entry of a project that is a table or loc file in text form and was read without a problem gets an editable tab; everything else
@@ -246,6 +253,7 @@ public sealed partial class DocumentsController
         if (e.PropertyName is nameof(EditableRowsTabViewModel.HasPendingEdit) or null)
         {
             RaiseSaveCommandsChanged();
+            PendingEditChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 

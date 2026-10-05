@@ -637,6 +637,34 @@ public class DocumentsControllerSavingTests
         }
     }
 
+    [Fact] public async Task A_confirmation_that_was_not_used_because_an_operation_started_does_not_skip_the_next_question()
+    {
+        var (setup, a, _) = await TwoTablesAsync();
+        using (setup)
+        {
+            var closed = 0;
+            a.Rows[0][Value] = "50";
+            setup.Dialogs.UnsavedAnswer = SaveChoice.Discard;
+
+            // The window posts its close; before that second Closing event runs, an operation starts.
+            Assert.False(setup.Controller.RequestAppClose(() =>
+            {
+                closed++;
+                setup.Game.Runner.IsRunning = true;
+            }));
+            Assert.Equal(1, closed);
+            Assert.False(setup.Controller.RequestAppClose(() => closed++));     // the second Closing event: refused, the operation runs
+
+            setup.Game.Runner.IsRunning = false;
+            Assert.True(a.IsModified);                                          // the tab was not discarded or saved: it still has its change
+
+            Assert.False(setup.Controller.RequestAppClose(() => closed++));     // the confirmation is not used up by a later close: it asks again
+
+            Assert.Equal(2, setup.Dialogs.UnsavedAsks.Count);
+            Assert.Equal(2, closed);
+        }
+    }
+
     // ---- remove from the list and build ----------------------------------------------------------------------------------------
 
     [Fact] public async Task UnsavedReason_names_a_project_with_modified_tabs_only()

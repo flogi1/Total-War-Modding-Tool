@@ -460,6 +460,33 @@ public class MainViewModelWorkspaceTests
         Assert.Null(Remove().DisabledReason);
     }
 
+    [Fact] public async Task The_remove_entry_of_the_explorer_follows_a_cell_that_is_being_edited()
+    {
+        using var game = new TestGame();
+        var c = game.NewController(); var m = game.NewMain(c, withDocuments: true);
+        await c.LoadAsync();
+        var table = TotalWarModTool.Tables.TableTsv.Write("x_tables", 0, "db/x_tables/a",
+            new TotalWarModTool.Schema.TableDefinition(0, [new TotalWarModTool.Schema.FieldDefinition("value", TotalWarModTool.Schema.FieldType.I32, "I32", false, null)]),
+            [[42]]).Text!;
+        var state = game.NewProject(m.Projects, "Alpha", (@"db\x_tables\a.tsv", table));
+        await m.Main.OpenProjectFileAsync(state.Id, @"db\x_tables\a.tsv");
+        var tab = Assert.IsType<EditableRowsTabViewModel>(Assert.Single(m.Main.Tabs.Tabs));
+        NodeAction Remove() => Assert.Single(ProjectNodesOf(m.Main.Explorer).Single().Actions,
+            action => action.Header == game.Texts.ProjectActionRemove);
+        Assert.True(Remove().Command.CanExecute(null));
+
+        tab.SetPendingEdit(true);                                                  // a value is typed into a cell, the tab is not modified yet
+
+        Assert.False(tab.IsModified);
+        Assert.False(Remove().Command.CanExecute(null));
+        Assert.Equal(game.Texts.ProjectRemoveUnsaved, Remove().DisabledReason);
+
+        tab.SetPendingEdit(false);                                                 // the cell is left without a change
+
+        Assert.True(Remove().Command.CanExecute(null));
+        Assert.Null(Remove().DisabledReason);
+    }
+
     [Fact] public async Task Refresh_reloads_the_projects()
     {
         using var game = new TestGame();

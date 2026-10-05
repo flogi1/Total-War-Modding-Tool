@@ -359,6 +359,35 @@ public class DocumentsControllerTests
         }
     }
 
+    [Fact] public async Task PendingEditChanged_follows_the_cells_in_edit_mode_and_leaves_ModifiedChanged_alone()
+    {
+        var (setup, a, b) = await TwoTablesAsync();
+        using (setup)
+        {
+            var pending = 0;
+            var modified = 0;
+            setup.Controller.PendingEditChanged += (_, _) => pending++;
+            setup.Controller.ModifiedChanged += (_, _) => modified++;
+
+            a.SetPendingEdit(true);
+            Assert.Equal(1, pending);
+            a.SetPendingEdit(true);                                     // no change of the state
+            Assert.Equal(1, pending);
+
+            b.SetPendingEdit(true);
+            Assert.Equal(2, pending);
+
+            a.SetPendingEdit(false);
+            b.SetPendingEdit(false);
+            Assert.Equal(4, pending);
+            Assert.Equal(0, modified);                                  // a typed text is no change of the document
+
+            setup.Tabs.CloseWithoutAsking(a);
+            a.SetPendingEdit(true);                                     // a tab that left is no longer followed
+            Assert.Equal(4, pending);
+        }
+    }
+
     [Fact] public async Task HasModifiedTabs_and_ModifiedChanged_follow_the_tabs()
     {
         var (setup, a, b) = await TwoTablesAsync();

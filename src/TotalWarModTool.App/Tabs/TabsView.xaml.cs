@@ -42,15 +42,20 @@ public sealed partial class TabsView : UserControl
 
     private void OnTabControlPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        var inContent = e.OriginalSource is not TabItem;
-        var changesTab = Keyboard.Modifiers == ModifierKeys.Control
-            ? e.Key is Key.Tab or Key.PageUp or Key.PageDown
-            : !inContent && e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End;
-        if (changesTab && !ViewModel.MayLeave())
+        if (ChangesTab(e.Key, Keyboard.Modifiers, inContent: e.OriginalSource is not TabItem) && !ViewModel.MayLeave())
         {
             e.Handled = true;
         }
     }
+
+    /// <summary>
+    /// Whether a key moves the selection of the tab control: Ctrl+Tab, Ctrl+PageUp and Ctrl+PageDown (also with Shift) from anywhere, the
+    /// arrow keys, Home and End only while the header of a tab has the focus (<paramref name="inContent"/> false).
+    /// </summary>
+    internal static bool ChangesTab(Key key, ModifierKeys modifiers, bool inContent) =>
+        (modifiers & ModifierKeys.Control) != 0
+            ? key is Key.Tab or Key.PageUp or Key.PageDown
+            : !inContent && key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End;
 
     // The tab list can refuse a change of the selection (a programmatic one, or one that got past the checks above); the tab control then
     // goes back to the tab that is selected. Later, not inside its own change of the selection. Changes of inner grids bubble up here too.

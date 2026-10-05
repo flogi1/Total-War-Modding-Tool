@@ -298,6 +298,7 @@
   "grid.paste.missingColumns": "Spalten, die der eingefügte Text nicht hat, haben ihren Standardwert bekommen: {0}.",
   "grid.paste.extraColumns": "Spalten des eingefügten Textes, die diese Tabelle nicht hat, wurden weggelassen: {0}.",
   "grid.paste.tooLarge": "Der Text in der Zwischenablage ist zu lang zum Einfügen: {0} Zeichen. Es können höchstens {1} Zeichen auf einmal eingefügt werden.",
+  "grid.paste.tooManyRows": "Der Text in der Zwischenablage hat zu viele Zeilen zum Einfügen: {0}. Es können höchstens {1} Zeilen auf einmal eingefügt werden.",
   "grid.editDiscarded": "Der Wert, der gerade in eine Zelle getippt wurde, wurde verworfen, weil sich die Zeilen oder der Tab darunter geändert haben. Tippe ihn erneut ein, wenn du ihn noch brauchst.",
   "edit.pendingInvalid.title": "Ungültiger Wert in einer Zelle",
   "edit.pendingInvalid.message": "Eine Zelle enthält noch einen Wert, der nicht gültig ist. Korrigiere den Wert oder verwirf ihn mit Esc, und versuche es dann erneut."

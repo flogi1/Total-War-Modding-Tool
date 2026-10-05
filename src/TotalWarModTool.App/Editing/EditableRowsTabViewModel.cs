@@ -122,6 +122,13 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     public Func<bool>? CommitPendingEdit { get; set; }
 
     /// <summary>
+    /// Drops the cell that is being edited in the grid without writing its text anywhere and without a notice; set by the view. For the
+    /// moment in which the app replaces the document on purpose (the user chose "Reload"): no editor of the old document may write into the
+    /// new one. Without a view nothing is pending.
+    /// </summary>
+    public Action? CancelPendingEdit { get; set; }
+
+    /// <summary>
     /// True while a cell is in edit mode in the grid and its text differs from the value of the cell (set by the view). The text that is
     /// typed is not part of the document yet, but saving has to take it along, so the save commands are enabled by it. A cell that is opened
     /// and not changed is no change.
@@ -139,6 +146,16 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     /// pending or the commit worked; false when the cell stays in edit mode because its value is not valid, and the action must not go on.
     /// </summary>
     public bool TryCommitPendingEdit() => CommitPendingEdit?.Invoke() ?? true;
+
+    /// <summary>
+    /// Drops the pending cell edit on purpose (see <see cref="CancelPendingEdit"/>): its text is written nowhere and no notice is set. Afterwards
+    /// no cell is pending and no cell message shows, also without a view.
+    /// </summary>
+    internal void DiscardPendingEdit()
+    {
+        CancelPendingEdit?.Invoke();
+        SetPendingEdit(false);
+    }
 
     /// <summary>The view tells whether a cell is in edit mode.</summary>
     internal void SetPendingEdit(bool pending)
@@ -207,6 +224,9 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
     /// <summary>The limit of a paste in characters; settable so that tests need no twenty million characters.</summary>
     internal int MaxPasteChars { get; set; } = DefaultMaxPasteChars;
+
+    /// <summary>The limit of a paste in rows (the same number as the copy limit); settable so that tests need no hundred thousand rows.</summary>
+    internal int MaxPasteRows { get; set; } = DefaultMaxCopyRows;
 
     internal override bool IsTableEntry => _document.Kind == DocumentKind.Table;
 
@@ -485,6 +505,15 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
             return;
         }
 
+        // The paste runs on the UI thread, so the rows are counted before the text is parsed (counting is a plain scan).
+        var rowCount = CountRows(text);
+        if (rowCount > MaxPasteRows)
+        {
+            var max = MaxPasteRows;
+            SetNotice(t => t.GridPasteTooManyRows(rowCount, max));
+            return;
+        }
+
         var result = ClipboardRows.Read(text, _document);
         if (result.Problem != PasteProblem.None)
         {
@@ -513,6 +542,15 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
         SetNotice(PasteNotice(result));
         RequestSelection(Enumerable.Range(index, result.Rows.Count).ToList());
+    }
+
+    // The lines of the text after the first one (the header), split at the line feeds the way the reader splits them; a last line without a
+    // line feed counts, the empty rest after the final line feed does not.
+    private static int CountRows(string text)
+    {
+        var span = text.AsSpan();
+        var lines = span.Count('\n') + (span.Length > 0 && span[^1] == '\n' ? 0 : 1);
+        return Math.Max(0, lines - 1);
     }
 
     // The columns that the text lacked (they got their default) and the ones that it had too many (they were left out); null when both are empty.

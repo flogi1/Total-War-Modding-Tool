@@ -56,6 +56,7 @@ public sealed partial class TableGrid : DataGrid
         SetResourceReference(StyleProperty, typeof(DataGrid));
 
         _commitPendingEdit = CommitPendingEdit;
+        _cancelPendingEdit = DiscardEdit;
         _selectionRequested = (_, rows) => ApplySelection(rows);
         InitializeEditing();
     }

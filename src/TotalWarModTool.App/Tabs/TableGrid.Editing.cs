@@ -11,6 +11,7 @@ namespace TotalWarModTool.App;
 public sealed partial class TableGrid
 {
     private readonly Func<bool> _commitPendingEdit;
+    private readonly Action _cancelPendingEdit;
     private readonly EventHandler<IReadOnlyList<int>> _selectionRequested;
 
     // The view model this grid is linked to (while the grid is loaded), else null.
@@ -54,6 +55,7 @@ public sealed partial class TableGrid
         if (model is EditableRowsTabViewModel editable)
         {
             editable.CommitPendingEdit = _commitPendingEdit;
+            editable.CancelPendingEdit = _cancelPendingEdit;
             editable.SelectionRequested += _selectionRequested;
         }
 
@@ -77,6 +79,11 @@ public sealed partial class TableGrid
             if (editable.CommitPendingEdit == _commitPendingEdit)
             {
                 editable.CommitPendingEdit = null;
+            }
+
+            if (editable.CancelPendingEdit == _cancelPendingEdit)
+            {
+                editable.CancelPendingEdit = null;
             }
 
             editable.SelectionRequested -= _selectionRequested;
@@ -239,6 +246,28 @@ public sealed partial class TableGrid
         else if (typed is not null && !written)
         {
             (_attached as EditableRowsTabViewModel)?.NoteDiscardedEdit();
+        }
+
+        SetEditing(false);
+    }
+
+    // The app replaces the document on purpose (the user chose "Reload"): the cell goes back to its shown state, and its text is written
+    // nowhere and no notice is set, so that this editor cannot write into the new document. The flag keeps the end of the edit from saving the text.
+    private void DiscardEdit()
+    {
+        if (!_isEditing)
+        {
+            return;
+        }
+
+        _userCancel = true;
+        try
+        {
+            CancelEdit(DataGridEditingUnit.Row);
+        }
+        finally
+        {
+            _userCancel = false;
         }
 
         SetEditing(false);
