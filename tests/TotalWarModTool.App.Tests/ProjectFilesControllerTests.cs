@@ -566,7 +566,7 @@ public class ProjectFilesControllerTests
         // The creation below it deals with the same file: it is removed too, so no later undo can trash the foreign file.
         var message = Assert.Single(setup.Dialogs.Messages).Message;
         Assert.Contains(trashed, message, StringComparison.Ordinal);
-        Assert.EndsWith(setup.Game.Texts.FileFurtherStepsRemoved(file), message, StringComparison.Ordinal);
+        Assert.Contains(setup.Game.Texts.FileFurtherStepsRemoved(1, file), message, StringComparison.Ordinal);
         Assert.False(setup.History.CanUndo);
         Assert.False(setup.History.CanRedo);
         Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
@@ -625,7 +625,7 @@ public class ProjectFilesControllerTests
 
         var message = Assert.Single(setup.Dialogs.Messages);
         Assert.Contains(trashed, message.Message, StringComparison.Ordinal);    // the file that stays in the trash
-        Assert.EndsWith(setup.Game.Texts.FileFurtherStepsRemoved(file), message.Message, StringComparison.Ordinal);
+        Assert.Contains(setup.Game.Texts.FileFurtherStepsRemoved(1, file), message.Message, StringComparison.Ordinal);
         Assert.False(setup.History.CanRedo);                                    // the rename a -> b is gone as well: it would rename the foreign file
         Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
         Assert.False(setup.Exists(renamed.RelativeFile!));
@@ -662,6 +662,132 @@ public class ProjectFilesControllerTests
         Assert.False(setup.History.CanUndo);
         Assert.Equal("from another program", File.ReadAllText(setup.PathOf(created.RelativeFile!)));
         Assert.Single(setup.Dialogs.Messages);
+    }
+
+    // ---- a step that fails for a passing reason stays ----------------------------------------------------------------------------------
+
+    [Fact] public async Task A_step_that_meets_a_locked_file_stays_in_the_history_with_its_related_steps_and_works_once_the_lock_is_gone()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42));
+        var original = File.ReadAllBytes(setup.PathOf(TableA));
+        Ok(await setup.Files.DeleteAsync(setup.Id, TableA));                    // S1 holds the original a.tsv in the trash
+        Ok(await setup.Files.CreateTableAsync(setup.Id, "x_tables", "a"));       // S2
+        var renamed = Ok(await setup.Files.RenameAsync(setup.Id, TableA, "c"));  // S3
+        var s3 = setup.History.NextUndo;
+        var tab = await OpenAsync(setup, renamed.RelativeFile!);
+        var warnings = setup.Game.Log.Warnings.Count;
+
+        using (new FileStream(setup.PathOf(renamed.RelativeFile!), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            setup.Documents.UndoCommand.Execute(null);                          // another program holds c.tsv
+        }
+
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(setup.Game.Texts.EditUndoBlockedTitle, message.Title);
+        Assert.StartsWith(setup.Game.Texts.FileStepDeferred, message.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(setup.Game.Texts.FileStepTrashFiles, message.Message, StringComparison.Ordinal);
+        Assert.Same(s3, setup.History.NextUndo);                                // nothing was dropped
+        Assert.False(setup.History.CanRedo);
+        Assert.Contains(tab, setup.Tabs.Tabs);                                  // the tab of c stays: the step did not run
+        Assert.True(setup.Exists(renamed.RelativeFile!));
+        Assert.Single(setup.TrashFiles());
+        Assert.Single(setup.Game.Log.Warnings.Skip(warnings), line => line.Contains("Rename", StringComparison.Ordinal));
+
+        // The lock is gone: the three steps run, and the original a.tsv is back.
+        setup.Documents.UndoCommand.Execute(null);
+        setup.Documents.UndoCommand.Execute(null);
+        setup.Documents.UndoCommand.Execute(null);
+
+        Assert.Single(setup.Dialogs.Messages);
+        Assert.False(setup.History.CanUndo);
+        Assert.Equal(original, File.ReadAllBytes(setup.PathOf(TableA)));
+        Assert.False(setup.Exists(renamed.RelativeFile!));
+    }
+
+    [Fact] public async Task A_step_whose_project_folder_cannot_be_reached_stays_and_works_once_the_folder_is_back()
+    {
+        using var setup = await CreateAsync(("script\\a.txt", "hello"));
+        Ok(await setup.Files.RenameAsync(setup.Id, @"script\a.txt", "b"));
+        var step = setup.History.NextUndo;
+        var away = setup.Project.Folder + "_away";
+
+        Directory.Move(setup.Project.Folder, away);
+        try
+        {
+            setup.Documents.UndoCommand.Execute(null);
+        }
+        finally
+        {
+            Directory.Move(away, setup.Project.Folder);
+        }
+
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.StartsWith(setup.Game.Texts.FileStepDeferred, message.Message, StringComparison.Ordinal);
+        Assert.Same(step, setup.History.NextUndo);
+        Assert.True(setup.Exists(@"script\b.txt"));
+
+        setup.Documents.UndoCommand.Execute(null);
+
+        Assert.Single(setup.Dialogs.Messages);
+        Assert.True(setup.Exists(@"script\a.txt"));
+        Assert.False(setup.History.CanUndo);
+        Assert.True(setup.History.CanRedo);
+    }
+
+    // Creates the loc file "a" and deletes it, rounds times: every delete holds one file in the trash. Returns the file.
+    private static async Task<string> CreateAndDeleteAsync(Setup setup, int rounds)
+    {
+        var file = string.Empty;
+        for (var i = 0; i < rounds; i++)
+        {
+            file = Ok(await setup.Files.CreateLocAsync(setup.Id, "a")).RelativeFile!;
+            Ok(await setup.Files.DeleteAsync(setup.Id, file));
+        }
+
+        return file;
+    }
+
+    [Fact] public async Task A_permanent_failure_names_every_file_that_the_removed_steps_leave_in_the_trash()
+    {
+        using var setup = await CreateAsync();
+        var file = await CreateAndDeleteAsync(setup, 2);                        // two deletes hold a file in the trash each
+        Ok(await setup.Files.CreateLocAsync(setup.Id, "a"));
+        setup.Documents.UndoCommand.Execute(null);                              // the third file goes to the trash too, its step waits for a redo
+        var trashed = setup.TrashFiles();
+        Assert.Equal(3, trashed.Length);
+        File.WriteAllText(setup.PathOf(file), "from another program");
+
+        setup.Documents.RedoCommand.Execute(null);                              // the target is taken: dropped, with the four steps below it
+
+        var message = Assert.Single(setup.Dialogs.Messages).Message;
+        Assert.Contains(setup.Game.Texts.FileFurtherStepsRemoved(4, file), message, StringComparison.Ordinal);
+        Assert.Contains("\n" + setup.Game.Texts.FileStepTrashFiles + "\n", message, StringComparison.Ordinal);
+        foreach (var path in trashed)
+        {
+            Assert.Contains("\n" + path, message, StringComparison.Ordinal);    // each on its own line, never cut
+            Assert.Contains(setup.Game.Log.Warnings, line => line.Contains(path, StringComparison.Ordinal));
+        }
+
+        Assert.False(setup.History.CanUndo);
+        Assert.False(setup.History.CanRedo);
+        Assert.Equal("from another program", File.ReadAllText(setup.PathOf(file)));
+    }
+
+    [Fact] public async Task A_permanent_failure_shows_ten_trash_paths_and_the_number_of_the_others()
+    {
+        using var setup = await CreateAsync();
+        var file = await CreateAndDeleteAsync(setup, 12);
+        File.WriteAllText(setup.PathOf(file), "from another program");
+
+        setup.Documents.UndoCommand.Execute(null);                              // the last delete cannot be taken back
+
+        var message = Assert.Single(setup.Dialogs.Messages).Message;
+        var trashed = setup.TrashFiles();
+        Assert.Equal(12, trashed.Length);
+        Assert.Equal(10, trashed.Count(path => message.Contains(path, StringComparison.Ordinal)));
+        Assert.EndsWith(setup.Game.Texts.FileStepMoreTrashFiles(2), message, StringComparison.Ordinal);
+        Assert.All(trashed, path => Assert.Contains(setup.Game.Log.Warnings, line => line.Contains(path, StringComparison.Ordinal)));
+        Assert.False(setup.History.CanUndo);
     }
 
     // ---- rename ------------------------------------------------------------------------------------------------------------------

@@ -35,7 +35,14 @@ public enum FileOpProblem
 /// <paramref name="CreatedFolders"/> are the folders this call created (Problem None only, otherwise empty), outermost first, relative to
 /// the pack folder with '\' and spelled as the caller wrote the path. The pack folder itself is never listed.
 /// </summary>
-public sealed record FileOpResult(FileOpProblem Problem, string? Detail, FileFingerprint? Fingerprint, IReadOnlyList<string> CreatedFolders);
+public sealed record FileOpResult(FileOpProblem Problem, string? Detail, FileFingerprint? Fingerprint, IReadOnlyList<string> CreatedFolders)
+{
+    /// <summary>
+    /// True when a call that did not succeed could not take back everything it did (a folder, a temp file or a copy stays; the Detail names
+    /// it). False on success and when the failed call left the disk as it found it.
+    /// </summary>
+    public bool LeftBehind { get; init; }
+}
 
 /// <summary>
 /// Creates and renames files below the pack folder of a mod project: never outside the pack folder, never through a link, never over an
@@ -445,7 +452,7 @@ public static class ProjectFileOps
     }
 
     private static FileOpResult WithLeftovers(FileOpResult result, IReadOnlyList<string> leftovers) =>
-        leftovers.Count == 0 ? result : result with { Detail = result.Detail + " (left behind: " + string.Join(", ", leftovers) + ")" };
+        leftovers.Count == 0 ? result : result with { Detail = result.Detail + " (left behind: " + string.Join(", ", leftovers) + ")", LeftBehind = true };
 
     /// <summary>What a call has made so far and has to take back when it does not succeed.</summary>
     private sealed class Undo(string packFolder, FolderResolver resolve)

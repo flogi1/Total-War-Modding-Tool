@@ -88,9 +88,19 @@ public sealed partial class AppTexts
         "The file {0} was changed or removed after this step left it, so the step was removed from the history and nothing was moved to the trash. A file that is still there was left as it is; delete it with Delete if you do not need it.",
         file);
 
+    /// <param name="count">How many further steps were removed.</param>
     /// <param name="file">The file, escaped. Data, not a UI text.</param>
-    public string FileFurtherStepsRemoved(string file) => F("file.furtherStepsRemoved",
-        "The other steps of the history for the file {0} were removed as well, because they no longer match the folder.", file);
+    public string FileFurtherStepsRemoved(int count, string file) => F("file.furtherStepsRemoved",
+        "Further steps of the history for the file {0} were removed as well, because they no longer match the folder. Removed steps: {1}.", file, count);
+
+    /// <summary>The line above the trash paths of the steps that a failed undo or redo removed; each path follows on a line of its own.</summary>
+    public string FileStepTrashFiles => T("file.stepTrashFiles", "These files stay in the trash, and no step brings them back. The log lists them too:");
+
+    /// <param name="count">How many trash paths are not shown in the message.</param>
+    public string FileStepMoreTrashFiles(int count) => F("file.stepMoreTrashFiles", "Further files in the trash, listed in the log: {0}.", count);
+
+    public string FileStepDeferred => T("file.stepDeferred",
+        "The file is in use by another program, or the project folder cannot be reached right now. Nothing was changed, and the step stays in the history. Close the other program or check the project folder, then try again.");
 
     // ---- commands and dialogs of the file operations -----------------------------------------------------------------------------------
     // The name label reuses DialogName, "no project is active" ProjectNoneActive, and "another operation runs" ProjectBusy.

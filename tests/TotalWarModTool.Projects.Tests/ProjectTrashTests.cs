@@ -151,10 +151,34 @@ public class ProjectTrashTests
 
             Assert.Equal(FileOpProblem.Locked, result.Problem);
             Assert.Null(result.File);
+            Assert.False(result.LeftBehind);
         }
 
         Assert.Equal([9, 9], File.ReadAllBytes(locked));
         Assert.Empty(Snapshot(trash));   // the entry folder and the project folder were taken back
+    }
+
+    [Fact] public void A_locked_MoveToTrash_that_cannot_take_back_its_entry_folder_says_LeftBehind()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var trash = NewTrashRoot(dir);
+        var locked = Put(project, "locked.tsv", [9, 9]);
+
+        TrashResult result;
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            // Another program puts a file into the entry folder this call made: the folder stays.
+            result = ProjectTrash.MoveToTrash(trash, Id, project, "locked.tsv", new FakeTimeProvider(Start), new ProjectTrash.TrashHooks
+            {
+                BeforeMove = () => File.WriteAllBytes(Path.Combine(Directory.GetDirectories(Path.Combine(trash, Id.ToString("D"))).Single(), "other.txt"), [1]),
+            });
+        }
+
+        Assert.Equal(FileOpProblem.Locked, result.Problem);
+        Assert.True(result.LeftBehind);
+        Assert.Contains("left behind", result.Detail);
+        Assert.Equal([9, 9], File.ReadAllBytes(locked));
     }
 
     [Fact] public void MoveToTrash_refuses_a_link_in_the_way_a_link_as_the_file_and_a_link_as_trash_folder()
@@ -366,6 +390,7 @@ public class ProjectTrashTests
 
             Assert.Equal(FileOpProblem.Locked, result.Problem);
             Assert.Empty(result.CreatedFolders);
+            Assert.False(result.LeftBehind);
         }
 
         Assert.Equal(before, Snapshot(dir.Path));   // no "db" folder left behind, the trash file is where it was

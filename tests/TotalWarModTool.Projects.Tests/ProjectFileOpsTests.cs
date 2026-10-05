@@ -434,8 +434,38 @@ public class ProjectFileOpsTests
         Assert.False(string.IsNullOrWhiteSpace(result.Detail));
         Assert.Null(result.Fingerprint);
         Assert.Empty(result.CreatedFolders);
+        Assert.False(result.LeftBehind);
         Assert.Equal(before, Snapshot(dir.Path));
         Assert.Equal([1, 2, 3], File.ReadAllBytes(file));
+    }
+
+    [Fact] public void A_failed_call_that_could_not_take_back_a_folder_says_LeftBehind()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var file = Put(project, "a.tsv", [1, 2, 3]);
+
+        // Another program puts a file into the folder this call made: the folder stays, so the call did not leave the disk as it was.
+        FileOpResult locked;
+        using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            locked = ProjectFileOps.Rename(project, "a.tsv", @"new\b.tsv",
+                new ProjectFileOps.OpsHooks { BeforeMove = () => File.WriteAllBytes(PackFile(project, @"new\other.txt"), [7]) });
+        }
+
+        Assert.Equal(FileOpProblem.Locked, locked.Problem);
+        Assert.True(locked.LeftBehind);
+        Assert.Contains("left behind", locked.Detail);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(file));
+
+        var target = PackFile(project, @"made\sub\a.tsv");
+        var raced = ProjectFileOps.Create(project, @"made\sub\a.tsv", new byte[] { 5 }, CancellationToken.None,
+            new ProjectFileOps.OpsHooks { AfterFolders = () => File.WriteAllBytes(target, [9]) });
+        Assert.True(raced.LeftBehind);
+
+        // A failure that took everything back, and a success, leave nothing behind.
+        Assert.False(ProjectFileOps.Rename(project, "missing.tsv", "b.tsv").LeftBehind);
+        Assert.False(ProjectFileOps.Create(project, "fresh.tsv", new byte[] { 1 }, CancellationToken.None).LeftBehind);
     }
 
     [Fact] public void RemoveEmptyFolders_stops_at_the_first_folder_that_is_not_empty_and_never_removes_pack()

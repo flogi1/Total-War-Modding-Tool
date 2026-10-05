@@ -189,6 +189,16 @@ public sealed partial class DocumentsController
         {
             step = undo ? _history.Undo() : _history.Redo();
         }
+        catch (StepDeferredException ex)
+        {
+            // The step did not run and stays where it was: nothing was changed, no other step is touched, and the tabs stay open (they are
+            // closed only after a step that worked). The user can try again once the file is free or the folder is back.
+            var what = undo ? "Undo" : "Redo";
+            _log.Warn($"{what} of \"{DisplayText.Safe(next?.Description ?? string.Empty)}\" did not run and stays in the history: {DisplayText.Safe(ex.Message)}");
+            var detail = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
+            _dialogs.ShowMessage(undo ? _texts.EditUndoBlockedTitle : _texts.EditRedoBlockedTitle, MessageText.WithDetail(_texts.FileStepDeferred, detail));
+            return;
+        }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             // ActionHistory has dropped the step and raised Changed; what it left stays as it is.
@@ -197,24 +207,28 @@ public sealed partial class DocumentsController
             var reason = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
 
             // A file step that was dropped while it holds a file in the trash: nothing will bring that file back, so the log says where it is.
+            var inTrash = new List<TrashedFile>();
             if (next is FileStep { InTrash: { } trashed })
             {
+                inTrash.Add(trashed);
                 _log.Warn($"The file \"{DisplayText.Safe(trashed.RelativeFile)}\" stays in the trash, the step that brings it back was removed: {DisplayText.Safe(trashed.TrashFile)}");
             }
 
             // The disk is not what the steps of that file describe any more: the other steps of the file go too, and the message says so once.
             var droppedStep = next as FileStep;
-            var furtherRemoved = droppedStep is not null && DropRelatedFileSteps(droppedStep);
+            IReadOnlyList<FileStep> furtherRemoved = droppedStep is null ? [] : DropRelatedFileSteps(droppedStep);
+            inTrash.AddRange(furtherRemoved.Select(removed => removed.InTrash).OfType<TrashedFile>());
 
             // A step that refused to trash a file it did not leave says that the file was left as it is; the generic text would not.
             var message = ex is FileStepChangedException changed
                 ? _texts.FileStepFileChanged(Shown(changed.RelativeFile))
                 : undo ? _texts.EditUndoFailedMessage(reason) : _texts.EditRedoFailedMessage(reason);
-            if (furtherRemoved && WorkingFileOf(droppedStep!, undo) is { } workingFile)
+            if (furtherRemoved.Count > 0 && WorkingFileOf(droppedStep!, undo) is { } workingFile)
             {
-                message += " " + _texts.FileFurtherStepsRemoved(Shown(workingFile));
+                message += " " + _texts.FileFurtherStepsRemoved(furtherRemoved.Count, Shown(workingFile));
             }
-            _dialogs.ShowMessage(undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle, message);
+
+            _dialogs.ShowMessage(undo ? _texts.EditUndoFailedTitle : _texts.EditRedoFailedTitle, message + TrashLines(inTrash));
             return;
         }
 

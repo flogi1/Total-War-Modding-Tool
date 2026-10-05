@@ -5,6 +5,9 @@ namespace TotalWarModTool.App;
 // The tabs of project files that the file operations of a project (delete, rename and the undo and redo of their steps) take away.
 public sealed partial class DocumentsController
 {
+    // The message of a failed file step lists at most this many trash paths.
+    private const int MaxTrashLines = 10;
+
     /// <summary>
     /// Raised after the undo or redo of a <see cref="FileStep"/> ran, with the id of its project: the files of the project changed. Not
     /// raised when the step failed.
@@ -90,11 +93,11 @@ public sealed partial class DocumentsController
     // A file step was dropped because it could not run: the disk is not what the steps of that file describe any more (another program wrote
     // the file, the trash was emptied). The other file steps of the same project that deal with the same file, or with a name it had before
     // or after (a rename chain), stay on the stacks otherwise; one of them could rename or trash a file of another program. They are removed
-    // too, and the files that they hold in the trash are logged, as nothing brings them back. True when at least one step was removed.
-    private bool DropRelatedFileSteps(FileStep dropped)
+    // too, and the files that they hold in the trash are logged, as nothing brings them back. Returns the removed steps.
+    private List<FileStep> DropRelatedFileSteps(FileStep dropped)
     {
         var files = dropped.FilesAfterDo.Concat(dropped.FilesAfterUndo).ToList();
-        var any = false;
+        var removedSteps = new List<FileStep>();
         while (true)
         {
             // The match runs once per step; the files it learns count from the next pass on, so a chain is followed pass by pass.
@@ -113,10 +116,10 @@ public sealed partial class DocumentsController
 
             if (round.Count == 0)
             {
-                return any;
+                return removedSteps;
             }
 
-            any = true;
+            removedSteps.AddRange(round);
             foreach (var step in round)
             {
                 files.AddRange(step.FilesAfterDo);
@@ -125,6 +128,24 @@ public sealed partial class DocumentsController
                 _log.Warn($"The step \"{DisplayText.Safe(step.Description)}\" was removed from the history, because a step of the same file could not run.{where}");
             }
         }
+    }
+
+    // The places of the files that removed steps leave in the trash, for the message of a failed step: a heading and one path per line, never
+    // cut (the user needs the whole path to fetch the file). At most MaxTrashLines paths; the rest is counted, and all of them are in the log.
+    private string TrashLines(IReadOnlyList<TrashedFile> inTrash)
+    {
+        if (inTrash.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var lines = inTrash.Take(MaxTrashLines).Select(file => MessageText.EscapeControlCharacters(file.TrashFile)).ToList();
+        if (inTrash.Count > MaxTrashLines)
+        {
+            lines.Add(_texts.FileStepMoreTrashFiles(inTrash.Count - MaxTrashLines));
+        }
+
+        return "\n\n" + _texts.FileStepTrashFiles + "\n" + string.Join("\n", lines);
     }
 
     // After the step ran: the tabs of the files it took away are closed (a file that still exists keeps its tabs), the project is announced,

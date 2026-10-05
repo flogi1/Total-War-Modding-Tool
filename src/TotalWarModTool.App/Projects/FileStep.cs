@@ -1,3 +1,4 @@
+using System.IO;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.UndoRedo;
@@ -29,19 +30,22 @@ public sealed class FileStepChangedException(string relativeFile)
 
 /// <summary>
 /// The outcome of one run of a step: a problem with the technical detail of the library, or <see cref="Problem"/> None with the state for
-/// the next run.
+/// the next run. <paramref name="LeftBehind"/> is the flag of the library: the failed call could not take back everything it did.
 /// </summary>
-public sealed record FileStepResult(FileOpProblem Problem, string? Detail, FileStepState State);
+public sealed record FileStepResult(FileOpProblem Problem, string? Detail, FileStepState State, bool LeftBehind = false);
 
 /// <summary>
-/// One file operation in the undo history. Do and Undo run on the UI thread, when the history asks for an undo or a redo; they throw
-/// <see cref="InvalidOperationException"/> with a short English detail when the step cannot run (the history then drops it). The first
-/// execution of an action is not a run of the step: the controller does the work in the runner and then records the step.
+/// One file operation in the undo history. Do and Undo run on the UI thread, when the history asks for an undo or a redo. When the step
+/// cannot run for a reason that may pass and nothing was changed (the file is locked and the library took back everything, or the project
+/// folder cannot be reached right now), they throw <see cref="StepDeferredException"/> and the history keeps the step. Every other failure
+/// throws <see cref="InvalidOperationException"/> with a short English detail (the history then drops the step). The first execution of an
+/// action is not a run of the step: the controller does the work in the runner and then records the step.
 /// </summary>
 public sealed class FileStep : IUndoableAction
 {
     private readonly Func<FileStepState, FileStepResult> _do;
     private readonly Func<FileStepState, FileStepResult> _undo;
+    private readonly string? _projectFolder;
     private FileStepState _state;
 
     /// <param name="filesAfterDo">The files (below pack\, with '\') that exist after Do.</param>
@@ -49,8 +53,12 @@ public sealed class FileStep : IUndoableAction
     /// <param name="initial">The state after the first execution.</param>
     /// <param name="doWork">Repeats the action (redo). Gets the state the last run left.</param>
     /// <param name="undoWork">Takes the action back. Gets the state the last run left.</param>
+    /// <param name="projectFolder">
+    /// The folder of the project. When it is given, it and its pack folder are looked at before every run: a folder that is missing or cannot
+    /// be read defers the step (<see cref="StepDeferredException"/>) before anything is touched.
+    /// </param>
     public FileStep(Guid projectId, string description, IReadOnlyList<string> filesAfterDo, IReadOnlyList<string> filesAfterUndo,
-        FileStepState initial, Func<FileStepState, FileStepResult> doWork, Func<FileStepState, FileStepResult> undoWork)
+        FileStepState initial, Func<FileStepState, FileStepResult> doWork, Func<FileStepState, FileStepResult> undoWork, string? projectFolder = null)
     {
         ArgumentNullException.ThrowIfNull(description);
         ArgumentNullException.ThrowIfNull(filesAfterDo);
@@ -66,6 +74,7 @@ public sealed class FileStep : IUndoableAction
         _state = initial;
         _do = doWork;
         _undo = undoWork;
+        _projectFolder = projectFolder;
     }
 
     public Guid ProjectId { get; }
@@ -85,15 +94,63 @@ public sealed class FileStep : IUndoableAction
 
     public void Undo() => Run(_undo);
 
-    // The state changes only when the run worked, so that a run that is tried again (it never is: the history drops the step) starts from the truth.
+    // The state changes only when the run worked, so that a run that is tried again (a deferred step) starts from the truth.
     private void Run(Func<FileStepState, FileStepResult> work)
     {
-        var result = work(_state);
-        if (result.Problem != FileOpProblem.None)
+        if (_projectFolder is not null && UnreachableReason(_projectFolder) is { } unreachable)
         {
-            throw new InvalidOperationException(result.Detail is null ? result.Problem.ToString() : result.Problem + ": " + result.Detail);
+            throw new StepDeferredException(unreachable, null);
         }
 
-        _state = result.State;
+        var result = work(_state);
+        if (result.Problem == FileOpProblem.None)
+        {
+            _state = result.State;
+            return;
+        }
+
+        var detail = result.Detail is null ? result.Problem.ToString() : result.Problem + ": " + result.Detail;
+
+        // Locked: the file was held by another program and the library left the disk as it was. With something left behind (a folder, a copy in
+        // the trash) the disk is no longer what the step describes, so that case is permanent like every other problem.
+        if (result.Problem == FileOpProblem.Locked && !result.LeftBehind)
+        {
+            throw new StepDeferredException(detail, null);
+        }
+
+        throw new InvalidOperationException(detail);
+    }
+
+    // Null when the project folder and its pack folder (if it exists; a missing pack folder is a state the library handles) can be read; else
+    // a short English reason. Nothing is changed.
+    private static string? UnreachableReason(string projectFolder)
+    {
+        try
+        {
+            if (!Directory.Exists(projectFolder))
+            {
+                return "the project folder cannot be reached: " + projectFolder;
+            }
+
+            ProbeListing(projectFolder);
+            var packFolder = Path.Combine(projectFolder, ProjectFile.PackFolder);
+            if (Directory.Exists(packFolder))
+            {
+                ProbeListing(packFolder);
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return "the project folder cannot be read: " + ex.Message;
+        }
+    }
+
+    // Reads the first entry of a folder: throws when the folder cannot be listed.
+    private static void ProbeListing(string folder)
+    {
+        using var entries = Directory.EnumerateFileSystemEntries(folder).GetEnumerator();
+        entries.MoveNext();
     }
 }

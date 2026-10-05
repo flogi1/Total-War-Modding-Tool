@@ -199,6 +199,73 @@ public sealed class ActionHistoryTests
     }
 
     [Fact]
+    public void A_deferred_Undo_keeps_the_step_on_top_raises_nothing_and_works_once_the_cause_is_gone()
+    {
+        var history = new ActionHistory();
+        var first = new TestAction("a");
+        var deferred = new TestAction("b");
+        var last = new TestAction("c");
+        history.Execute(first);
+        history.Execute(deferred);
+        history.Execute(last);
+        history.Undo();                                                          // c waits on the redo stack
+        deferred.DeferOnUndo = true;
+        var changed = 0;
+        history.Changed += () => changed++;
+
+        var ex = Assert.Throws<StepDeferredException>(() => history.Undo());
+
+        Assert.Equal("Undo deferred.", ex.Message);
+        Assert.Equal(0, changed);                                                // the stacks did not change
+        Assert.Same(deferred, history.NextUndo);
+        Assert.Same(last, history.NextRedo);
+        Assert.Equal(0, deferred.UndoCount);
+
+        deferred.DeferOnUndo = false;                                            // the other program let go
+
+        Assert.Same(deferred, history.Undo());
+        Assert.Equal(1, changed);
+        Assert.Same(first, history.NextUndo);
+        Assert.Same(deferred, history.NextRedo);
+        Assert.Same(deferred, history.Redo());
+        Assert.Same(last, history.Redo());
+    }
+
+    [Fact]
+    public void A_deferred_Redo_keeps_the_step_on_top_raises_nothing_and_works_once_the_cause_is_gone()
+    {
+        var history = new ActionHistory();
+        var first = new TestAction("a");
+        var deferred = new TestAction("b");
+        var last = new TestAction("c");
+        history.Execute(first);
+        history.Execute(deferred);
+        history.Execute(last);
+        history.Undo();
+        history.Undo();                                                          // b on top of the redo stack, c below it
+        deferred.DeferOnDo = true;
+        var changed = 0;
+        history.Changed += () => changed++;
+
+        var ex = Assert.Throws<StepDeferredException>(() => history.Redo());
+
+        Assert.Equal("Do deferred.", ex.Message);
+        Assert.IsType<IOException>(ex.InnerException);
+        Assert.Equal(0, changed);
+        Assert.Same(deferred, history.NextRedo);
+        Assert.Same(first, history.NextUndo);
+        Assert.Equal(1, deferred.DoCount);                                       // only the first execution
+
+        deferred.DeferOnDo = false;
+
+        Assert.Same(deferred, history.Redo());
+        Assert.Equal(1, changed);
+        Assert.Same(last, history.NextRedo);
+        Assert.Same(last, history.Redo());
+        Assert.False(history.CanRedo);
+    }
+
+    [Fact]
     public void RemoveWhere_removes_from_both_stacks_and_keeps_the_order()
     {
         var history = new ActionHistory();
@@ -412,11 +479,20 @@ public sealed class ActionHistoryTests
 
         public bool FailOnUndo { get; set; }
 
+        public bool DeferOnDo { get; set; }
+
+        public bool DeferOnUndo { get; set; }
+
         public void Do()
         {
             if (FailOnDo)
             {
                 throw new InvalidOperationException("Do failed.");
+            }
+
+            if (DeferOnDo)
+            {
+                throw new StepDeferredException("Do deferred.", new IOException("locked"));
             }
 
             DoCount++;
@@ -427,6 +503,11 @@ public sealed class ActionHistoryTests
             if (FailOnUndo)
             {
                 throw new InvalidOperationException("Undo failed.");
+            }
+
+            if (DeferOnUndo)
+            {
+                throw new StepDeferredException("Undo deferred.", null);
             }
 
             UndoCount++;

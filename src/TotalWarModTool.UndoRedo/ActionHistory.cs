@@ -19,7 +19,8 @@ public sealed class ActionHistory
 
     /// <summary>
     /// Raised after <see cref="Execute"/>, <see cref="Record"/>, <see cref="Undo"/>, <see cref="Redo"/>,
-    /// <see cref="Clear"/> and <see cref="RemoveWhere"/> (the latter only when a step was removed).
+    /// <see cref="Clear"/> and <see cref="RemoveWhere"/> (the latter only when a step was removed). Not raised by an undo or redo whose step
+    /// throws <see cref="StepDeferredException"/>: the stacks did not change.
     /// </summary>
     public event Action? Changed;
 
@@ -77,6 +78,8 @@ public sealed class ActionHistory
     /// <summary>
     /// Reverts the latest step and returns it. When the step's <c>Undo</c> throws, the step is dropped
     /// from both stacks, <see cref="Changed"/> is raised and the exception of the step goes to the caller.
+    /// A <see cref="StepDeferredException"/> is the exception: the step stays on top of the undo stack, nothing
+    /// changes, <see cref="Changed"/> is not raised, and the exception goes to the caller.
     /// </summary>
     /// <exception cref="InvalidOperationException">The undo stack is empty.</exception>
     public IUndoableAction Undo()
@@ -92,6 +95,8 @@ public sealed class ActionHistory
     /// <summary>
     /// Repeats the latest undone step and returns it. When the step's <c>Do</c> throws, the step is
     /// dropped from both stacks, <see cref="Changed"/> is raised and the exception of the step goes to the caller.
+    /// A <see cref="StepDeferredException"/> is the exception: the step stays on top of the redo stack, nothing
+    /// changes, <see cref="Changed"/> is not raised, and the exception goes to the caller.
     /// </summary>
     /// <exception cref="InvalidOperationException">The redo stack is empty.</exception>
     public IUndoableAction Redo()
@@ -139,8 +144,9 @@ public sealed class ActionHistory
 
     /// <summary>
     /// Takes the top step of <paramref name="source"/>, performs it and puts it on <paramref name="target"/>.
-    /// When the step throws, it is dropped, <see cref="Changed"/> is raised and the step's own exception
-    /// is rethrown; an exception of a <see cref="Changed"/> handler is dropped in that one case.
+    /// When the step throws <see cref="StepDeferredException"/>, it goes back on top of <paramref name="source"/>, <see cref="Changed"/>
+    /// is not raised and the exception is rethrown. When the step throws anything else, it is dropped, <see cref="Changed"/> is raised and
+    /// the step's own exception is rethrown; an exception of a <see cref="Changed"/> handler is dropped in that one case.
     /// </summary>
     private IUndoableAction MoveStep(
         List<IUndoableAction> source,
@@ -155,6 +161,12 @@ public sealed class ActionHistory
         {
             perform(action);
             target.Add(action);
+        }
+        catch (StepDeferredException)
+        {
+            // Nothing was changed and the cause may pass: the step goes back to where it was, the stacks are as before, so Changed is not raised.
+            source.Add(action);
+            throw;
         }
         catch (Exception ex)
         {

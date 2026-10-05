@@ -13,7 +13,14 @@ public sealed record TrashedFile(Guid ProjectId, string TrashFile, string Relati
 /// The outcome of <see cref="ProjectTrash.MoveToTrash(string, Guid, string, string, TimeProvider)"/>. <paramref name="Detail"/> is short technical
 /// English and null on success; for a failure it also names what the call could not take back. <paramref name="File"/> is set for Problem None only.
 /// </summary>
-public sealed record TrashResult(FileOpProblem Problem, string? Detail, TrashedFile? File);
+public sealed record TrashResult(FileOpProblem Problem, string? Detail, TrashedFile? File)
+{
+    /// <summary>
+    /// True when a call that did not succeed could not take back everything it did (a folder or a copy in the trash stays; the Detail names
+    /// it). False on success and when the failed call left the disk as it found it.
+    /// </summary>
+    public bool LeftBehind { get; init; }
+}
 
 /// <summary>
 /// The trash of the tool for files deleted from the pack folder of a project: <c>&lt;trash root&gt;\&lt;project id D&gt;\&lt;yyyyMMdd-HHmmss&gt;-&lt;8 hex&gt;\&lt;file name&gt;</c>
@@ -107,7 +114,13 @@ public static class ProjectTrash
         {
             var result = MoveCore(root, projectId, projectFolder, relativeFile, time, hooks, source, baseFolder, [.. missing], trashResolve, folders);
             finished = true;
-            return result.Problem == FileOpProblem.None ? result : result with { Detail = result.Detail + Leftovers(folders.Clean()) };
+            if (result.Problem == FileOpProblem.None)
+            {
+                return result;
+            }
+
+            var leftovers = folders.Clean();
+            return result with { Detail = result.Detail + Leftovers(leftovers), LeftBehind = result.LeftBehind || leftovers.Count > 0 };
         }
         finally
         {
@@ -178,7 +191,7 @@ public static class ProjectTrash
 
             if (sourceThere && targetThere && !folders.TryDeleteFile(target))
             {
-                return AsTrash(SafeFolders.Failure(FileOpProblem.Locked, $"the file could not be moved: {ex.Message} (a copy is left behind: '{target}')"));
+                return AsTrash(SafeFolders.Failure(FileOpProblem.Locked, $"the file could not be moved: {ex.Message} (a copy is left behind: '{target}')")) with { LeftBehind = true };
             }
 
             return AsTrash(SafeFolders.Failure(sourceThere ? FileOpProblem.Locked : FileOpProblem.Failed, "the file could not be moved to the trash: " + ex.Message));
@@ -254,7 +267,13 @@ public static class ProjectTrash
         {
             var result = RestoreCore(parts, file, projectFolder, packFolder, target, hooks, packResolve, folders);
             finished = true;
-            return result.Problem == FileOpProblem.None ? result : result with { Detail = result.Detail + Leftovers(folders.Clean()) };
+            if (result.Problem == FileOpProblem.None)
+            {
+                return result;
+            }
+
+            var leftovers = folders.Clean();
+            return result with { Detail = result.Detail + Leftovers(leftovers), LeftBehind = result.LeftBehind || leftovers.Count > 0 };
         }
         finally
         {
@@ -854,7 +873,7 @@ public static class ProjectTrash
 
     // ---- links and folders ----
 
-    private static TrashResult AsTrash(FileOpResult result) => new(result.Problem, result.Detail, null);
+    private static TrashResult AsTrash(FileOpResult result) => new(result.Problem, result.Detail, null) { LeftBehind = result.LeftBehind };
 
     private static string Leftovers(IReadOnlyList<string> leftovers) =>
         leftovers.Count == 0 ? string.Empty : " (left behind: " + string.Join(", ", leftovers) + ")";

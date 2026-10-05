@@ -605,7 +605,8 @@ public sealed class ProjectFilesController
         var (projectId, folder, trashRoot, time) = (state.Id, state.Folder, _trashRoot, _time);
         return new FileStep(projectId, "Create " + file, [file], [], new FileStepState(null, created.CreatedFolders, created.Fingerprint),
             doWork: current => BringBack(trashRoot, folder, current),
-            undoWork: current => MoveAway(trashRoot, projectId, folder, file, time, current, removeCreatedFolders: true));
+            undoWork: current => MoveAway(trashRoot, projectId, folder, file, time, current, removeCreatedFolders: true),
+            projectFolder: folder);
     }
 
     // A deleted file: undo brings it back from the trash, redo moves it there again (a new entry of the trash; the step remembers the last).
@@ -614,7 +615,8 @@ public sealed class ProjectFilesController
         var (projectId, folder, trashRoot, time) = (state.Id, state.Folder, _trashRoot, _time);
         return new FileStep(projectId, "Delete " + file, [], [file], new FileStepState(trashed, [], null),
             doWork: current => MoveAway(trashRoot, projectId, folder, file, time, current, removeCreatedFolders: false),
-            undoWork: current => BringBack(trashRoot, folder, current));
+            undoWork: current => BringBack(trashRoot, folder, current),
+            projectFolder: folder);
     }
 
     // A renamed file: undo renames it back, redo renames it again. The content is never touched.
@@ -623,7 +625,8 @@ public sealed class ProjectFilesController
         var folder = state.Folder;
         return new FileStep(state.Id, "Rename " + from + " to " + to, [to], [from], FileStepState.Empty,
             doWork: current => Renamed(ProjectFileOps.Rename(folder, from, to), current),
-            undoWork: current => Renamed(ProjectFileOps.Rename(folder, to, from), current));
+            undoWork: current => Renamed(ProjectFileOps.Rename(folder, to, from), current),
+            projectFolder: folder);
     }
 
     // Moves the file to the trash, but only while it is the file the step left in the project: a step never puts content into the trash that it
@@ -635,7 +638,7 @@ public sealed class ProjectFilesController
         var moved = ProjectTrash.MoveToTrash(trashRoot, projectId, folder, file, time);
         if (moved.File is not { } trashed)
         {
-            return new FileStepResult(moved.Problem, moved.Detail, current);
+            return new FileStepResult(moved.Problem, moved.Detail, current, moved.LeftBehind);
         }
 
         if (removeCreatedFolders)
@@ -646,7 +649,8 @@ public sealed class ProjectFilesController
         return new FileStepResult(FileOpProblem.None, null, new FileStepState(trashed, [], null));
     }
 
-    // Brings the file back from the trash. A failure names the file that stays in the trash: the step is dropped, so nothing else will.
+    // Brings the file back from the trash. When that fails the file stays in the trash; the step still holds it, and the message of a dropped
+    // step lists its place.
     private static FileStepResult BringBack(string trashRoot, string folder, FileStepState current)
     {
         if (current.Trash is not { } trashed)
@@ -657,7 +661,7 @@ public sealed class ProjectFilesController
         var restored = ProjectTrash.Restore(trashed, folder, trashRoot);
         return restored.Problem == FileOpProblem.None
             ? new FileStepResult(FileOpProblem.None, null, new FileStepState(null, restored.CreatedFolders, restored.Fingerprint))
-            : new FileStepResult(restored.Problem, "the file stays in the trash at '" + trashed.TrashFile + "': " + restored.Detail, current);
+            : new FileStepResult(restored.Problem, "the file stays in the trash: " + restored.Detail, current, restored.LeftBehind);
     }
 
     private static void RequireUnchanged(string folder, string file, FileFingerprint? placed)
@@ -679,5 +683,5 @@ public sealed class ProjectFilesController
         }
     }
 
-    private static FileStepResult Renamed(FileOpResult result, FileStepState current) => new(result.Problem, result.Detail, current);
+    private static FileStepResult Renamed(FileOpResult result, FileStepState current) => new(result.Problem, result.Detail, current, result.LeftBehind);
 }
