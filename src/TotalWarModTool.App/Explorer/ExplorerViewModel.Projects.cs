@@ -12,6 +12,9 @@ public sealed partial class ExplorerViewModel
     /// <summary>How often the entries of a pack entry node were built. For tests: they must be built only when a menu asks.</summary>
     internal int EntryActionBuilds { get; private set; }
 
+    /// <summary>How often the entries of a project file node were built. For tests, like <see cref="EntryActionBuilds"/>.</summary>
+    internal int FileActionBuilds { get; private set; }
+
     /// <summary>The projects whose files are shown, in list order.</summary>
     public IReadOnlyList<Guid> ExpandedProjectIds => ProjectNodes().Where(node => node.IsOpen).Select(node => node.ProjectId).ToList();
 
@@ -293,11 +296,15 @@ public sealed partial class ExplorerViewModel
         ];
     }
 
+    // The reasons of the file view model include "another operation runs". MakeAction asks that live (the command) and adds the text itself, so the
+    // reason handed to it is the one of the project alone; otherwise a list built during a run would stay disabled after the run.
+    private string? WithoutBusy(string? reason) => reason == Texts.ProjectBusy ? null : reason;
+
     // The entries of the project node for new files: "New table", "New loc file" and the line that keeps them apart from the rest. Not followed by
     // a listing here: the controller announces every change of the files, and the explorer follows that in one place (OnProjectFilesChanged).
     private NodeAction[] FileActionsOfProject(ProjectFilesViewModel files, Guid id)
     {
-        var reason = files.NewFileDisabledReason(id);
+        var reason = WithoutBusy(files.NewFileDisabledReason(id));
         return
         [
             MakeAction(Texts.FileNewTableTitle, reason, () => files.NewTableAsync(id)),
@@ -311,16 +318,17 @@ public sealed partial class ExplorerViewModel
     {
         EntryActionBuilds++;
         var files = _files!;
-        return [MakeAction(Texts.FileAddTitle, files.AdoptDisabledReason, () => files.AdoptAsync(node.Pack, node.EntryPath))];
+        return [MakeAction(Texts.FileAddTitle, WithoutBusy(files.AdoptDisabledReason), () => files.AdoptAsync(node.Pack, node.EntryPath))];
     }
 
     // The menu of a file of a project, built when a menu asks (see ProjectFileNode): "Rename" and "Delete".
     private IReadOnlyList<NodeAction> FileActions(ProjectFileNode node)
     {
+        FileActionBuilds++;
         var files = _files!;
         var id = node.ProjectId;
         var file = node.RelativeFile;
-        var reason = files.FileActionDisabledReason(id, file);
+        var reason = WithoutBusy(files.FileActionDisabledReason(id, file));
         return
         [
             MakeAction(Texts.FileRenameTitle, reason, () => files.RenameAsync(id, file)),

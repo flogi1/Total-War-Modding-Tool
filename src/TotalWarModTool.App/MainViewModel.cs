@@ -34,10 +34,9 @@ public sealed class MainViewModel : ObservableObject
     /// <param name="projectCommands">The project commands the menu, the hotkeys and the context menus use; null without projects.</param>
     /// <param name="documents">The editable documents, undo and redo; null: no menu "Edit". The window shows its tab list (<see cref="DocumentsController.Tabs"/>).</param>
     /// <param name="projectFiles">The file commands of the projects; null: no menu entries for new files, no context menu entries for files. Their results go to the project status item.</param>
-    /// <param name="projectFilesController">Passed on to the explorer, which follows the changes of the files with it.</param>
     public MainViewModel(AppTexts texts, AppPaths paths, Action<string> openFolder, IOperationRunner progress, Action openSettings,
         WorkspaceController workspace, Action? openGameSettings = null, ProjectsController? projects = null, ProjectsViewModel? projectCommands = null,
-        DocumentsController? documents = null, ProjectFilesViewModel? projectFiles = null, ProjectFilesController? projectFilesController = null)
+        DocumentsController? documents = null, ProjectFilesViewModel? projectFiles = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         Texts = texts;
@@ -68,7 +67,7 @@ public sealed class MainViewModel : ObservableObject
         // The controller works on the tab list, so the window must show that very list.
         Tabs = documents?.Tabs ?? new TabsViewModel(texts);
         Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync,
-            projectFiles, projectFilesController);
+            projectFiles);
         RowCommands = new RowCommandsViewModel(Tabs, texts);
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.

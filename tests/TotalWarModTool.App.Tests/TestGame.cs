@@ -149,7 +149,7 @@ internal sealed class TestGame : IDisposable
             files = new ProjectFilesViewModel(filesController, projects, fileDialogs, Texts);
         }
 
-        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents, files, filesController);
+        var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents, files);
         return new MainSetup(main, projects, dialogs, documents, files, fileDialogs);
     }
 

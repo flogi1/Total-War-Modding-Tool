@@ -46,10 +46,9 @@ public sealed partial class ExplorerViewModel : ObservableObject
     /// The file commands (new table, new loc file, add to the project, rename, delete); without them the nodes of files and entries have no menu
     /// and the project nodes have no entries for new files. A file that it asks to open is opened through <paramref name="openProjectFile"/>, after its project was expanded.
     /// </param>
-    /// <param name="projectFilesController">Tells when the files of a project changed (also by undo and redo), so that the open project nodes list again. Needed with <paramref name="projectFiles"/>.</param>
     public ExplorerViewModel(WorkspaceController workspace, AppTexts texts, Func<PackSource, string, Task> openEntry, Action openSettings,
         ProjectsController? projects = null, ProjectsViewModel? projectCommands = null, Func<Guid, string, Task>? openProjectFile = null,
-        ProjectFilesViewModel? projectFiles = null, ProjectFilesController? projectFilesController = null)
+        ProjectFilesViewModel? projectFiles = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(texts);
@@ -77,12 +76,9 @@ public sealed partial class ExplorerViewModel : ObservableObject
 
                 // A file that was created, added or renamed while it was open: show it and open it.
                 projectFiles.OpenRequested += (_, request) => OnOpenRequested(request.ProjectId, request.RelativeFile);
-            }
 
-            if (projectFilesController is not null)
-            {
                 // The one place that follows file actions and the undo and redo of them: what is open lists again, silently.
-                projectFilesController.FilesChanged += (_, _) => OnProjectFilesChanged();
+                projectFiles.FilesChanged += (_, _) => OnProjectFilesChanged();
             }
 
             _projectsGroup = new ProjectsGroupNode(texts.ExplorerProjectsGroup(0), isExpanded: true);

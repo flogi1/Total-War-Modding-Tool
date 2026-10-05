@@ -305,7 +305,7 @@ public class ExplorerViewTests
 
     // ---- file operations -------------------------------------------------------------------------------------------------------
 
-    private sealed record FilesSetup(Setup Setup, ProjectsController Projects) : IDisposable
+    private sealed record FilesSetup(Setup Setup, ProjectsController Projects, FakeFileDialogs Dialogs) : IDisposable
     {
         public void Dispose() => Setup.Dispose();
     }
@@ -320,9 +320,10 @@ public class ExplorerViewTests
         var history = new TotalWarModTool.UndoRedo.ActionHistory();
         var documents = new DocumentsController(new TabsViewModel(game.Texts), p, history, game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
         var filesController = new ProjectFilesController(p, controller, documents, history, game.Runner, game.Root.File("trash"), game.Log, game.Texts, TimeProvider.System);
-        var files = new ProjectFilesViewModel(filesController, p, new FakeFileDialogs(), game.Texts);
+        var dialogs = new FakeFileDialogs();
+        var files = new ProjectFilesViewModel(filesController, p, dialogs, game.Texts);
         var viewModel = new ExplorerViewModel(controller, game.Texts, (_, _) => Task.CompletedTask, () => { }, p,
-            new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts), (_, _) => Task.CompletedTask, files, filesController);
+            new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts), (_, _) => Task.CompletedTask, files);
         await controller.LoadAsync();
         var view = new ExplorerView(viewModel);
         view.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(
@@ -331,7 +332,7 @@ public class ExplorerViewTests
         var window = new Window { Width = 400, Height = 400, Content = view };
         window.Show();
         Pump(window);
-        return new FilesSetup(new Setup(game, controller, viewModel, view, window, [], []), p);
+        return new FilesSetup(new Setup(game, controller, viewModel, view, window, [], []), p, dialogs);
     }
 
     // Opens the context menu of a row the way the view does (the row is the placement target) and returns its realized items.
@@ -355,7 +356,8 @@ public class ExplorerViewTests
         var packContainer = ContainerOf(window, groupContainer, pack);
         var entry = pack.Children.OfType<EntryNode>().Single();
         var row = RowOf(ContainerOf(window, packContainer, entry), entry);
-        Assert.NotNull(row.ContextMenu);                                             // an entry has a menu without a list having been built
+        Assert.NotNull(row.ContextMenu);                                             // an entry has a menu ...
+        Assert.Equal(0, vm.EntryActionBuilds);                                       // ... without a list having been built for its row
 
         // No project is active yet: the entry is there, disabled, and says why.
         var items = OpenMenu(window, row);
@@ -366,11 +368,14 @@ public class ExplorerViewTests
             Assert.Equal(texts.ProjectNoneActive, item.ToolTip);
             Assert.False(item.IsEnabled);
             Assert.True(ToolTipService.GetShowOnDisabled(item));
+            Assert.Equal(1, vm.EntryActionBuilds);                                   // one list for the opening
         }
         finally
         {
             row.ContextMenu!.IsOpen = false;
         }
+
+        Assert.Equal(1, vm.EntryActionBuilds);                                       // none for the closing
 
         // A project became the active one meanwhile: the same menu of the same row shows the state of now.
         setup.Setup.Game.NewProject(setup.Projects, "Alpha");
@@ -381,11 +386,112 @@ public class ExplorerViewTests
             Assert.Equal(texts.FileAddTitle, item.Header);
             Assert.Null(item.ToolTip);
             Assert.True(item.IsEnabled);
+            Assert.Equal(2, vm.EntryActionBuilds);
         }
         finally
         {
             row.ContextMenu!.IsOpen = false;
         }
+
+        Assert.Equal(2, vm.EntryActionBuilds);
+    });
+
+    // Invokes an item of an open menu the way a click does (the automation peer calls OnClick, which runs the command), and lets the dispatcher work.
+    private static void Click(Window window, MenuItem item)
+    {
+        ((IInvokeProvider)new MenuItemAutomationPeer(item).GetPattern(PatternInterface.Invoke)!).Invoke();
+        Pump(window);
+    }
+
+    [Fact] public void A_click_on_an_item_of_an_entry_menu_runs_its_command_once() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithFiles(g => g.AddPack("a.pack", ("a.loc", new byte[] { 1 })), (g, p) => g.NewProject(p, "Alpha"));
+        var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var pack = vm.Groups.OfType<GroupNode>().Single().Children.OfType<PackNode>().Single();
+        pack.IsExpanded = true;
+        var entry = pack.Children.OfType<EntryNode>().Single();
+        var row = RowOf(ContainerOf(window, ContainerOf(window, ContainerOf(window, setup.Setup.Tree, vm.Groups[1]), pack), entry), entry);
+
+        var items = OpenMenu(window, row);
+        try
+        {
+            Assert.Equal(1, vm.EntryActionBuilds);
+            Click(window, Assert.Single(items));
+            Assert.Equal(1, vm.EntryActionBuilds);                                   // the click did not replace the list under itself
+        }
+        finally
+        {
+            row.ContextMenu!.IsOpen = false;
+        }
+
+        Assert.Equal(1, vm.EntryActionBuilds);
+        Assert.Equal(texts.FileAddTitle, Assert.Single(setup.Dialogs.NameAsks).Title);   // the command asked for the name, once
+    });
+
+    [Fact] public void A_click_on_an_item_of_a_file_menu_acts_on_its_own_file_also_when_another_one_is_selected() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithFiles(_ => { }, (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x"), ("b.lua", "y")));
+        var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var group = (ProjectsGroupNode)vm.Groups[0];
+        var alpha = group.Children.OfType<ProjectNode>().Single();
+        var alphaContainer = ContainerOf(window, ContainerOf(window, setup.Setup.Tree, group), alpha);
+        alpha.IsExpanded = true;
+        var a = alpha.Children.OfType<ProjectFileNode>().Single(file => file.Name == "a.lua");
+        var b = alpha.Children.OfType<ProjectFileNode>().Single(file => file.Name == "b.lua");
+        var aContainer = ContainerOf(window, alphaContainer, a);
+        var bRow = RowOf(ContainerOf(window, alphaContainer, b), b);
+        aContainer.IsSelected = true;                                                // the selected node is a.lua; the menu opens on b.lua
+
+        var items = OpenMenu(window, bRow);
+        try
+        {
+            Assert.Equal([texts.FileRenameTitle, texts.FileActionDelete], items.Select(i => i.Header));
+            Assert.Equal(1, vm.FileActionBuilds);
+            Click(window, items[0]);
+            Assert.Equal(1, vm.FileActionBuilds);
+        }
+        finally
+        {
+            bRow.ContextMenu!.IsOpen = false;
+        }
+
+        var ask = Assert.Single(setup.Dialogs.NameAsks);                             // "Rename" asked for the name of b.lua, once
+        Assert.Equal((texts.FileRenameTitle, "b"), (ask.Title, ask.Suggestion));
+
+        items = OpenMenu(window, bRow);
+        try
+        {
+            Click(window, items[1]);                                                 // "Delete" removes b.lua, not the selected a.lua
+        }
+        finally
+        {
+            bRow.ContextMenu!.IsOpen = false;
+        }
+
+        var pack = Path.Combine(setup.Projects.Projects[0].Folder, "pack");
+        Assert.True(File.Exists(Path.Combine(pack, "a.lua")));
+        Assert.False(File.Exists(Path.Combine(pack, "b.lua")));
+    });
+
+    [Fact] public void A_click_on_an_item_of_a_project_menu_runs_its_command_once() => Sta.RunAsync(async () =>
+    {
+        using var setup = await CreateWithFiles(_ => { }, (g, p) => g.NewProject(p, "Alpha"));
+        var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
+        var group = (ProjectsGroupNode)vm.Groups[0];
+        var alpha = group.Children.OfType<ProjectNode>().Single();
+        var row = RowOf(ContainerOf(window, ContainerOf(window, setup.Setup.Tree, group), alpha), alpha);
+
+        var items = OpenMenu(window, row);
+        try
+        {
+            Click(window, items[1]);                                                 // "New loc file"
+        }
+        finally
+        {
+            row.ContextMenu!.IsOpen = false;
+        }
+
+        Assert.Equal(texts.FileNewLocTitle, Assert.Single(setup.Dialogs.NameAsks).Title);
     });
 
     [Fact] public void The_menu_of_a_project_has_a_separator_and_the_menu_of_a_file_has_rename_and_delete() => Sta.RunAsync(async () =>

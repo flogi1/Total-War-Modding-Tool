@@ -44,6 +44,7 @@ public sealed class ProjectFilesViewModel : ObservableObject
 
         // A file that was open is opened again under its new name: the controller asks for that, the rest of the app listens in one place.
         files.OpenRequested += (_, request) => OpenRequested?.Invoke(this, request);
+        files.FilesChanged += (_, projectId) => FilesChanged?.Invoke(this, projectId);
         projects.Changed += (_, _) => OnPropertyChanged(nameof(AdoptDisabledReason));
         projects.OperationStateChanged += (_, _) => OnPropertyChanged(nameof(AdoptDisabledReason));
     }
@@ -53,6 +54,9 @@ public sealed class ProjectFilesViewModel : ObservableObject
     /// opened in a tab.
     /// </summary>
     public event EventHandler<(Guid ProjectId, string RelativeFile)>? OpenRequested;
+
+    /// <summary>Raised with the project after a file action, or the undo or redo of one, changed its files (the explorer lists the open projects again).</summary>
+    public event EventHandler<Guid>? FilesChanged;
 
     /// <summary>The result line of the last command (a note or a success text), for the status bar; null when there is none. It can have several lines.</summary>
     public string? StatusMessage

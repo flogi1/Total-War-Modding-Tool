@@ -1,8 +1,10 @@
 using TotalWarModTool.Localization;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
+using TotalWarModTool.Schema;
 using TotalWarModTool.Session;
 using TotalWarModTool.Storage;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App.Tests;
@@ -348,7 +350,8 @@ public class ExplorerViewModelTests
     // ---- projects --------------------------------------------------------------------------------------------------------------
 
     private sealed record ProjectSetup(TestGame Game, WorkspaceController C, ProjectsController Projects, ProjectsViewModel Commands,
-        ExplorerViewModel Vm, List<(Guid Id, string File)> OpenedFiles, ProjectFilesViewModel? Files = null, FakeFileDialogs? Dialogs = null) : IDisposable
+        ExplorerViewModel Vm, List<(Guid Id, string File)> OpenedFiles, ProjectFilesViewModel? Files = null, FakeFileDialogs? Dialogs = null,
+        DocumentsController? Documents = null) : IDisposable
     {
         public AppTexts Texts => Game.Texts;
 
@@ -373,19 +376,20 @@ public class ExplorerViewModelTests
         ProjectFilesController? filesController = null;
         ProjectFilesViewModel? files = null;
         FakeFileDialogs? dialogs = null;
+        DocumentsController? documents = null;
         if (withFiles)
         {
             var history = new TotalWarModTool.UndoRedo.ActionHistory();
-            var documents = new DocumentsController(new TabsViewModel(game.Texts), p, history, game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
+            documents = new DocumentsController(new TabsViewModel(game.Texts), p, history, game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
             filesController = new ProjectFilesController(p, c, documents, history, game.Runner, game.Root.File("trash"), game.Log, game.Texts, TimeProvider.System);
             dialogs = new FakeFileDialogs();
             files = new ProjectFilesViewModel(filesController, p, dialogs, game.Texts);
         }
 
         var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (id, file) => { whenOpened?.Invoke(id, file); opened.Add((id, file)); return Task.CompletedTask; },
-            files, filesController);
+            files);
         await c.LoadAsync();
-        return new ProjectSetup(game, c, p, commands, vm, opened, files, dialogs);
+        return new ProjectSetup(game, c, p, commands, vm, opened, files, dialogs, documents);
     }
 
     // The silent listing after a file action runs on a pool thread: waits for what it shows. The timeout is the guard, not a sleep.
@@ -920,6 +924,7 @@ public class ExplorerViewModelTests
         Assert.Same(NodeAction.Separator, actions[2]);
         Assert.All(actions.Take(2), a => Assert.Equal(((string?)null, true), (a.DisabledReason, a.Command.CanExecute(null))));
         Assert.False(actions[2].Command.CanExecute(null));
+        Assert.IsNotType<RelayCommand>(actions[2].Command);                          // the shared separator holds no command that keeps subscribers
 
         // Without the file operations the menu is the one of plan 3.
         using var plain = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"));
@@ -1072,5 +1077,123 @@ public class ExplorerViewModelTests
         Assert.Equal((alpha.ProjectId, @"text\db\mine.loc.tsv"), setup.OpenedFiles[0]);
         Assert.False(alpha.IsExpanded);
         Assert.Empty(setup.Vm.ExpandedProjectIds);
+    }
+
+    // The reason of the entries is the one of the project; "busy" is asked live (as in the other entries), so a list that was built during a run
+    // does not stay disabled after the run.
+    [Fact] public async Task Entries_built_while_another_operation_runs_work_again_when_it_ends()
+    {
+        using var setup = await CreateWithProjects(g => g.AddPack("a.pack", ("readme.txt", "hello"u8.ToArray())),
+            projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")), withFiles: true);
+        var texts = setup.Texts; var runner = setup.Game.Runner;
+        var alpha = setup.NodeOf("Alpha");
+        alpha.IsExpanded = true;
+        var file = Assert.IsType<ProjectFileNode>(Assert.Single(alpha.Children));
+        var entry = EntryNodeOf(setup.Vm, "a.pack", "readme.txt");
+
+        runner.IsRunning = true;
+        setup.Vm.RefreshProjectActions();                                            // the lists of the project node are built during the run
+        var lists = new[] { alpha.Actions.Take(2).ToList(), file.Actions.ToList(), entry.Actions.ToList() };
+        Assert.All(lists.SelectMany(list => list), a => Assert.Equal((texts.ProjectBusy, false), (a.DisabledReason, a.Command.CanExecute(null))));
+
+        runner.IsRunning = false;
+        Assert.All(lists.SelectMany(list => list), a => Assert.True(a.Command.CanExecute(null)));
+    }
+
+    [Fact] public async Task After_an_undo_and_a_redo_of_a_file_step_the_open_project_node_shows_the_right_files()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")), withFiles: true);
+        var alpha = setup.NodeOf("Alpha");
+        alpha.IsExpanded = true;
+        var created = Path.Combine(setup.Projects.Projects[0].Folder, "pack", "text", "db", "mine.loc.tsv");
+        bool HasText() => alpha.Children.OfType<ProjectFolderNode>().Any(folder => folder.Name == "text");
+
+        setup.Dialogs!.NameAnswers.Enqueue("mine");
+        await setup.Files!.NewLocAsync(alpha.ProjectId);
+        await WaitUntil(HasText);
+        Assert.True(File.Exists(created));
+
+        setup.Documents!.UndoCommand.Execute(null);                                  // the step is taken back: the listing follows without a refresh
+        await WaitUntil(() => !HasText());
+        Assert.Equal(["a.lua"], alpha.Children.Select(n => n.Name));
+        Assert.False(File.Exists(created));
+
+        setup.Documents.RedoCommand.Execute(null);
+        await WaitUntil(HasText);
+        Assert.True(File.Exists(created));
+        Assert.True(alpha.IsExpanded);
+    }
+
+    [Fact] public async Task A_file_action_lists_the_open_projects_exactly_once()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", ("a.lua", "x")), withFiles: true);
+        var alpha = setup.NodeOf("Alpha");
+        alpha.IsExpanded = true;
+        var listings = 0;
+        setup.Vm.SilentListing = id =>
+        {
+            listings++;
+            return Task.FromResult<ProjectFileList?>(ProjectFiles.List(setup.Projects.Projects.Single(state => state.Id == id).Folder, CancellationToken.None));
+        };
+
+        setup.Dialogs!.NameAnswers.Enqueue("mine");
+        await setup.Files!.NewLocAsync(alpha.ProjectId);
+        await WaitUntil(() => alpha.Children.OfType<ProjectFolderNode>().Any(folder => folder.Name == "text"));
+        Assert.Equal(1, listings);
+
+        await setup.Files.DeleteAsync(alpha.ProjectId, "a.lua");
+        await WaitUntil(() => alpha.Children.All(node => node.Name != "a.lua"));
+        Assert.Equal(2, listings);
+    }
+
+    [Fact] public async Task The_menu_of_a_file_acts_on_its_own_project_while_another_one_is_active()
+    {
+        using var setup = await CreateWithProjects(projects: (g, p) =>
+        {
+            g.NewProject(p, "Alpha", ("a.lua", "x"));
+            var beta = g.NewProject(p, "Beta", ("a.lua", "y"));
+            p.SetActive(beta.Id);
+        }, withFiles: true);
+        var alpha = setup.NodeOf("Alpha");
+        alpha.IsExpanded = true;
+        var file = Assert.IsType<ProjectFileNode>(Assert.Single(alpha.Children));
+
+        file.Actions[1].Command.Execute(null);                                       // "Delete"
+
+        Assert.False(File.Exists(Path.Combine(setup.Projects.Projects[0].Folder, "pack", "a.lua")));
+        Assert.True(File.Exists(Path.Combine(setup.Projects.Projects[1].Folder, "pack", "a.lua")));
+        await WaitUntil(() => alpha.Children.Count == 0);
+    }
+
+    [Fact] public async Task The_entries_of_a_file_follow_the_unsaved_work_of_its_tab_at_the_time_the_menu_opens()
+    {
+        const string table = @"db\x_tables\a.tsv";
+        var def = new TableDefinition(0, [new FieldDefinition("value", FieldType.I32, nameof(FieldType.I32), false, null)]);
+        var text = TableTsv.Write("x_tables", 0, "db/x_tables/a", def, [[42]]).Text!;
+        using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha", (table, text)), withFiles: true);
+        var texts = setup.Texts;
+        var alpha = setup.NodeOf("Alpha");
+        alpha.IsExpanded = true;
+        var db = alpha.Children.OfType<ProjectFolderNode>().Single(); db.IsExpanded = true;
+        var folder = db.Children.OfType<ProjectFolderNode>().Single(); folder.IsExpanded = true;
+        var file = Assert.IsType<ProjectFileNode>(Assert.Single(folder.Children));
+        var project = setup.Projects.Projects[0];
+
+        var opened = await setup.Projects.OpenFileAsync(project.Id, table);
+        Assert.NotNull(opened);
+        setup.Documents!.Tabs.Add(TabSource.ForProject(project.Id, project.DisplayName), opened, setup.C.Schema);
+        var tab = Assert.IsType<EditableRowsTabViewModel>(setup.Documents.Tabs.Tabs[^1]);
+
+        // Open, nothing to lose: both entries can run.
+        Assert.All(file.Actions, a => Assert.Equal(((string?)null, true), (a.DisabledReason, a.Command.CanExecute(null))));
+
+        // Changed in the tab: both are off and say so, at the next read (the menu reads when it opens).
+        tab.Rows[0][0] = "50";
+        var reason = texts.FileTabUnsaved("db/x_tables/a.tsv");
+        Assert.All(file.Actions, a => Assert.Equal((reason, false), (a.DisabledReason, a.Command.CanExecute(null))));
+
+        // Saved: both can run again.
+        Assert.True(await setup.Documents.SaveAsync([tab]));
+        Assert.All(file.Actions, a => Assert.Equal(((string?)null, true), (a.DisabledReason, a.Command.CanExecute(null))));
     }
 }

@@ -179,7 +179,7 @@ public partial class App : Application
         projectCommands.BeforeBuild = documents.ConfirmSaveBeforeBuildAsync;
 
         // The file operations of the projects: new table, new loc file, add a pack entry, rename, delete (to the trash of the app). The explorer and
-        // the menu use the view model; the explorer follows the changes of the files through the controller.
+        // the menu use the view model, which also tells the explorer when the files changed.
         var projectFilesController = new ProjectFilesController(projects, workspace, documents, history, progressRunner, paths.TrashDirectory, log, texts,
             TimeProvider.System);
         var projectFiles = new ProjectFilesViewModel(projectFilesController, projects, new FileDialogs(texts, () => mainWindow), texts);
@@ -189,7 +189,7 @@ public partial class App : Application
         {
             settingsViewModel.SelectedCategory = SettingsViewModel.GameCategory;
             settingsWindows.ShowOrActivate();
-        }, projects, projectCommands, documents, projectFiles, projectFilesController);
+        }, projects, projectCommands, documents, projectFiles);
 
         SessionCoordinator? session = null;
         if (sessionStore is not null)
