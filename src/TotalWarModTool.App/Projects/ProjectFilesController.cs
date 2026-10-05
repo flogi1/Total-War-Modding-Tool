@@ -14,9 +14,11 @@ namespace TotalWarModTool.App;
 /// <summary>
 /// Outcome of a file action. With <paramref name="Ok"/> false, <paramref name="Message"/> says why (a ready UI text) and nothing changed.
 /// <paramref name="RelativeFile"/> is the new or renamed file (below pack\, with '\') when there is one. <paramref name="Note"/> is a hint
-/// (a ready UI text) the user should see although the action worked, for example a table that stayed binary.
+/// (a ready UI text) the user should see although the action worked, for example a table that stayed binary. <paramref name="Problem"/> is
+/// the problem of the file operation behind a refusal (for example <see cref="FileOpProblem.TargetExists"/> for a taken name), so that a caller
+/// decides on it instead of comparing texts; null for a success and for a refusal of another kind.
 /// </summary>
-public sealed record FileActionResult(bool Ok, string? Message, string? RelativeFile = null, string? Note = null);
+public sealed record FileActionResult(bool Ok, string? Message, string? RelativeFile = null, string? Note = null, FileOpProblem? Problem = null);
 
 /// <summary>
 /// The file operations of a mod project: a new table, a new loc file, a pack entry added to the project, rename and delete. Every action
@@ -27,6 +29,7 @@ public sealed record FileActionResult(bool Ok, string? Message, string? Relative
 public sealed class ProjectFilesController
 {
     private const int MaxNameChars = 100;
+    private const int MaxCleanupFailureLines = 20;
     private static readonly TimeSpan TrashMaxAge = TimeSpan.FromDays(30);
     private const string TextExtension = ".tsv";
     private const string LocTextExtension = ".loc.tsv";
@@ -170,13 +173,20 @@ public sealed class ProjectFilesController
     /// UI text that says why not. A table or loc file name must follow <see cref="NewFiles.NameIssueOf"/>; every file must be a path that
     /// the write boundary accepts and must not be one that a project leaves out of the pack, and nothing may be there already.
     /// </summary>
-    public string? CheckNewName(Guid projectId, string relativeFolder, string name, string extension, string? currentFile = null)
+    public string? CheckNewName(Guid projectId, string relativeFolder, string name, string extension, string? currentFile = null) =>
+        CheckNewNameResult(projectId, relativeFolder, name, extension, currentFile)?.Message;
+
+    /// <summary>
+    /// <see cref="CheckNewName"/> as a refusal: null when the name can be used; else a result with the UI text and, for a name that is taken,
+    /// <see cref="FileActionResult.Problem"/> <see cref="FileOpProblem.TargetExists"/>.
+    /// </summary>
+    public FileActionResult? CheckNewNameResult(Guid projectId, string relativeFolder, string name, string extension, string? currentFile = null)
     {
         ArgumentNullException.ThrowIfNull(relativeFolder);
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(extension);
 
-        return StateOf(projectId) is not { } state ? _texts.ProjectUnknown : NameCheck(state.Folder, relativeFolder, name, extension, currentFile);
+        return StateOf(projectId) is not { } state ? Fail(_texts.ProjectUnknown) : NameCheck(state.Folder, relativeFolder, name, extension, currentFile);
     }
 
     // ---- the actions -----------------------------------------------------------------------------------------------------------------
@@ -274,9 +284,9 @@ public sealed class ProjectFilesController
 
         relativeFile = relativeFile.Replace('/', '\\');
         var (folder, _, extension, kind) = SplitFile(relativeFile);
-        if (NameCheck(state.Folder, folder, newName, extension, relativeFile) is { } nameText)
+        if (NameCheck(state.Folder, folder, newName, extension, relativeFile) is { } nameRefusal)
         {
-            return Fail(nameText);
+            return nameRefusal;
         }
 
         var target = JoinFile(folder, newName + extension);
@@ -434,13 +444,13 @@ public sealed class ProjectFilesController
 
     private string UnusableText(ProjectState state) => MessageText.WithDetail(_texts.ProjectProblemText(state.Problem), ShownDetail(state.Detail));
 
-    private static FileActionResult Fail(string message) => new(false, message);
+    private static FileActionResult Fail(string message, FileOpProblem? problem = null) => new(false, message, Problem: problem);
 
     // A problem of the library as a ready message (the text of the problem and the technical detail behind it, escaped), and a log line.
     private FileActionResult Failed(string action, string relativeFile, FileOpProblem problem, string? detail, string text)
     {
         _log.Warn($"{action} of \"{DisplayText.Safe(relativeFile)}\" failed ({problem}): {DisplayText.Safe(detail ?? string.Empty)}");
-        return Fail(MessageText.WithDetail(text, ShownDetail(detail)));
+        return Fail(MessageText.WithDetail(text, ShownDetail(detail)), problem);
     }
 
     // Foreign or user text (a path, a technical detail) as the UI shows it: escaped and cut with the marker of the current language.
@@ -478,19 +488,30 @@ public sealed class ProjectFilesController
     // ---- the trash -------------------------------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Deletes the entries of the trash that are older than 30 days (<see cref="ProjectTrash.Cleanup"/>). Silent housekeeping for the start
-    /// of the app: it runs on a pool thread, not through the operation runner (no window, no lock of the main window), logs the number of
-    /// removed entries when there are any, and never throws: a problem with the trash is a log line, the app goes on.
+    /// Deletes the entries of the trash that are older than 30 days (<see cref="ProjectTrash.CleanupDetailed"/>). Silent housekeeping for the
+    /// start of the app: it runs on a pool thread, not through the operation runner (no window, no lock of the main window), logs the number of
+    /// removed entries when there are any and one line per entry that could not be deleted (at most <see cref="MaxCleanupFailureLines"/>, then
+    /// their number), and never throws for the file system: a problem with the trash is a log line, the app goes on.
     /// </summary>
     public async Task CleanupTrashAsync()
     {
         var (trashRoot, time) = (_trashRoot, _time);
         try
         {
-            var removed = await Task.Run(() => ProjectTrash.Cleanup(trashRoot, TrashMaxAge, time, CancellationToken.None));
-            if (removed > 0)
+            var result = await Task.Run(() => ProjectTrash.CleanupDetailed(trashRoot, TrashMaxAge, time, CancellationToken.None));
+            if (result.Deleted > 0)
             {
-                _log.Info($"The cleanup of the trash removed {removed} entries older than {TrashMaxAge.Days} days.");
+                _log.Info($"The cleanup of the trash removed {result.Deleted} entries older than {TrashMaxAge.Days} days.");
+            }
+
+            foreach (var failure in result.Failed.Take(MaxCleanupFailureLines))
+            {
+                _log.Warn($"The cleanup of the trash could not delete the entry {DisplayText.Safe(failure.Entry)}: {DisplayText.Safe(failure.Reason)}");
+            }
+
+            if (result.Failed.Count > MaxCleanupFailureLines)
+            {
+                _log.Warn($"The cleanup of the trash could not delete {result.Failed.Count - MaxCleanupFailureLines} further entries.");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
@@ -515,15 +536,15 @@ public sealed class ProjectFilesController
     // ---- names -----------------------------------------------------------------------------------------------------------------------
 
     // The check behind CheckNewName. ownFile is the file that is renamed, if one is: the name it has already is "unchanged", and a name that
-    // differs from it only in case is no collision with itself.
-    private string? NameCheck(string projectFolder, string relativeFolder, string name, string extension, string? ownFile)
+    // differs from it only in case is no collision with itself. Null when the name can be used, else the refusal.
+    private FileActionResult? NameCheck(string projectFolder, string relativeFolder, string name, string extension, string? ownFile)
     {
         // Callers may give either separator (the entry path of a tab uses '/'): the candidate is compared with the current file as '\' text.
         relativeFolder = relativeFolder.Replace('/', '\\');
         var candidate = JoinFile(relativeFolder, name + extension);
         if (ownFile is not null && string.Equals(candidate, ownFile.Replace('/', '\\'), StringComparison.Ordinal))
         {
-            return _texts.FileNameUnchanged;
+            return Fail(_texts.FileNameUnchanged);
         }
 
         var isText = extension.Equals(TextExtension, StringComparison.OrdinalIgnoreCase)
@@ -531,7 +552,7 @@ public sealed class ProjectFilesController
         var issue = isText ? NewFiles.NameIssueOf(name) : PlainNameIssue(name);
         if (issue != NameIssue.None)
         {
-            return _texts.FileNameIssueText(issue);
+            return Fail(_texts.FileNameIssueText(issue));
         }
 
         // A path that the write boundary refuses (too long, a character or a name Windows does not allow): the sentence says what to do, the
@@ -539,22 +560,22 @@ public sealed class ProjectFilesController
         var check = PackFolderPaths.ResolveForWrite(projectFolder, candidate);
         if (check.Problem == PackPathProblem.UnsafePath)
         {
-            return MessageText.WithDetail(_texts.FileProblemUnsafePath, ShownDetail(check.Detail));
+            return Fail(MessageText.WithDetail(_texts.FileProblemUnsafePath, ShownDetail(check.Detail)), FileOpProblem.UnsafePath);
         }
 
         if (check.Problem == PackPathProblem.Link)
         {
-            return _texts.FileProblemLink;
+            return Fail(_texts.FileProblemLink, FileOpProblem.Link);
         }
 
         // The name checks of a table or loc file cover this already.
         if (!isText && ProjectFiles.IsIgnored(name + extension, default))
         {
-            return _texts.FileNameIssueText(NameIssue.Ignored);
+            return Fail(_texts.FileNameIssueText(NameIssue.Ignored));
         }
 
         var onlyCaseDiffers = ownFile is not null && SameFile(candidate, ownFile);   // the exactly equal name returned above
-        return !onlyCaseDiffers && ProjectFileOps.Exists(projectFolder, candidate) ? _texts.FileProblemTargetExists : null;
+        return !onlyCaseDiffers && ProjectFileOps.Exists(projectFolder, candidate) ? Fail(_texts.FileProblemTargetExists, FileOpProblem.TargetExists) : null;
     }
 
     // The name of a file that is neither a table nor a loc file: one segment; dots are fine (the extension stays separate). The rest is the

@@ -28,6 +28,9 @@ public sealed class ActionHistory
     /// Raised by <see cref="Execute"/> and <see cref="Record"/> when the new step removed steps from the redo stack, with those steps
     /// (the one that was next to redo first). Not raised when the redo stack was empty. The stacks are final when it is raised, and it
     /// comes before <see cref="Changed"/>. Steps that <see cref="Clear"/>, <see cref="RemoveWhere"/> or a failing step drop are not reported.
+    /// A handler that throws does not undo the new step and does not skip <see cref="Changed"/>: <see cref="Changed"/> is raised all the same,
+    /// and the handler's exception goes to the caller of <see cref="Execute"/> or <see cref="Record"/> afterwards (an exception of a
+    /// <see cref="Changed"/> handler in that moment replaces it).
     /// </summary>
     public event Action<IReadOnlyList<IUndoableAction>>? RedoDiscarded;
 
@@ -67,12 +70,18 @@ public sealed class ActionHistory
         var discarded = _redoStack.Count > 0 ? _redoStack.AsEnumerable().Reverse().ToList() : null;
         _undoStack.Add(action);
         _redoStack.Clear();
-        if (discarded is not null)
+        try
         {
-            RedoDiscarded?.Invoke(discarded);
+            if (discarded is not null)
+            {
+                RedoDiscarded?.Invoke(discarded);
+            }
         }
-
-        Changed?.Invoke();
+        finally
+        {
+            // The step is recorded whatever the handler did, so the listeners of Changed must hear of it.
+            Changed?.Invoke();
+        }
     }
 
     /// <summary>

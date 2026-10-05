@@ -100,7 +100,7 @@ public sealed class ProjectFilesViewModel : ObservableObject
             return;
         }
 
-        var suggestion = Suggest(NameOf(projectId), name => tables.Count == 0 ? null : CheckTable(projectId, tables[0], name));
+        var suggestion = Suggest(NameOf(projectId), name => tables.Count == 0 ? null : CheckTableResult(projectId, tables[0], name));
         if (_dialogs.AskNewTable(tables, suggestion, input => CheckTable(projectId, input.TableName, input.Name)) is not { } chosen || !StillCanStart())
         {
             return;
@@ -119,9 +119,10 @@ public sealed class ProjectFilesViewModel : ObservableObject
         }
 
         var folder = NewFiles.LocFolder.Replace('/', '\\');
-        string? Check(string name) => _files.CheckNewName(projectId, folder, name, LocTextExtension);
+        FileActionResult? Result(string name) => _files.CheckNewNameResult(projectId, folder, name, LocTextExtension);
+        string? Check(string name) => Result(name)?.Message;
 
-        var suggestion = Suggest(NameOf(projectId), Check);
+        var suggestion = Suggest(NameOf(projectId), Result);
         if (_dialogs.AskName(_texts.FileNewLocTitle, _texts.DialogName, suggestion, Check) is not { } chosen || !StillCanStart())
         {
             return;
@@ -160,10 +161,11 @@ public sealed class ProjectFilesViewModel : ObservableObject
 
             // The file becomes text when that is lossless and stays as it is otherwise, and the dialog cannot know which: a name is free only
             // when it is free in both forms, so that the dialog never says "free" for a name that the action refuses.
-            string? Check(string name) => _files.CheckNewName(active.Id, folder, name, extension)
-                ?? (_files.CheckNewName(active.Id, folder, name, rawExtension) == _texts.FileProblemTargetExists ? _texts.FileProblemTargetExists : null);
+            FileActionResult? Result(string name) => _files.CheckNewNameResult(active.Id, folder, name, extension)
+                ?? (_files.CheckNewNameResult(active.Id, folder, name, rawExtension) is { Problem: FileOpProblem.TargetExists } taken ? taken : null);
+            string? Check(string name) => Result(name)?.Message;
 
-            var suggestion = Suggest(active.DisplayName, Check);
+            var suggestion = Suggest(active.DisplayName, Result);
             while (true)
             {
                 if (_dialogs.AskName(_texts.FileAddTitle, _texts.DialogName, suggestion, Check) is not { } chosen)
@@ -289,8 +291,10 @@ public sealed class ProjectFilesViewModel : ObservableObject
         }
     }
 
-    private string? CheckTable(Guid projectId, string tableName, string name) =>
-        _files.CheckNewName(projectId, "db\\" + tableName, name, TextExtension);
+    private string? CheckTable(Guid projectId, string tableName, string name) => CheckTableResult(projectId, tableName, name)?.Message;
+
+    private FileActionResult? CheckTableResult(Guid projectId, string tableName, string name) =>
+        _files.CheckNewNameResult(projectId, "db\\" + tableName, name, TextExtension);
 
     // Where the file of an entry lands in the project and with which extension: a table in db\<table> as .tsv (as it is: no extension), a
     // loc file in the folder of the entry as .loc.tsv (as it is: .loc).
@@ -308,19 +312,20 @@ public sealed class ProjectFilesViewModel : ObservableObject
     private string NameOf(Guid projectId) => _projects.Projects.FirstOrDefault(state => state.Id == projectId)?.DisplayName ?? string.Empty;
 
     // The name that the dialog starts with: the project name as a file name, counted up when it is taken. A name that is refused for another
-    // reason (for example too long) gives "new", which is counted up in the same way.
-    private string Suggest(string projectName, Func<string, string?> check)
+    // reason (for example too long) gives "new", which is counted up in the same way. "Taken" is the problem of the refusal, not its text.
+    private static string Suggest(string projectName, Func<string, FileActionResult?> check)
     {
+        static bool Taken(FileActionResult? refusal) => refusal?.Problem == FileOpProblem.TargetExists;
+
         var name = SuggestedName(projectName);
-        var taken = _texts.FileProblemTargetExists;
-        var reason = check(name);
-        if (reason is not null && reason != taken)
+        var refusal = check(name);
+        if (refusal is not null && !Taken(refusal))
         {
             name = FallbackName;
-            reason = check(name);
+            refusal = check(name);
         }
 
-        if (reason != taken)
+        if (!Taken(refusal))
         {
             return name;
         }

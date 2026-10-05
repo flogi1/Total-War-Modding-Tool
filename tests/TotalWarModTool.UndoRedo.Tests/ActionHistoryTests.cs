@@ -132,6 +132,24 @@ public sealed class ActionHistoryTests
     }
 
     [Fact]
+    public void A_throwing_RedoDiscarded_handler_still_raises_Changed_and_then_propagates()
+    {
+        var history = new ActionHistory();
+        history.Execute(new TestAction("a"));
+        history.Undo();
+        var changed = 0;
+        history.RedoDiscarded += _ => throw new FormatException("handler");
+        history.Changed += () => changed++;
+        var next = new TestAction("b");
+
+        Assert.Throws<FormatException>(() => history.Record(next));
+
+        Assert.Equal(1, changed);                                                // the commands still learn about the new step
+        Assert.Same(next, history.NextUndo);
+        Assert.False(history.CanRedo);
+    }
+
+    [Fact]
     public void Undo_on_an_empty_history_throws_InvalidOperationException()
     {
         var history = new ActionHistory();

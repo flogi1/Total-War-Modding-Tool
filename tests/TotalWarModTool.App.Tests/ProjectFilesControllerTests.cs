@@ -878,6 +878,39 @@ public class ProjectFilesControllerTests
         Assert.True(setup.Exists(@"script\plain"));
     }
 
+    [Fact] public async Task An_undone_rename_whose_file_cannot_be_opened_again_right_now_asks_anyway_and_names_the_file_in_the_log()
+    {
+        // The workspace has a runner of its own: a silent run of the workspace (start-up load, session restore) blocks every new operation,
+        // while undo and redo, which only look at their own runner, still run.
+        using var game = new TestGame(withSchema: true);
+        var workspaceRunner = new FakeOperationRunner();
+        var workspace = game.NewController(runner: workspaceRunner);
+        await workspace.LoadAsync();
+        var projects = game.NewProjects(workspace);
+        var project = game.NewProject(projects, "Alpha", Table(TableA, 42));
+        var tabs = new TabsViewModel(game.Texts);
+        var history = new ActionHistory();
+        var documents = new DocumentsController(tabs, projects, history, game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
+        var files = new ProjectFilesController(projects, workspace, documents, history, game.Runner, game.Root.File("trash"), game.Log, game.Texts, TimeProvider.System);
+        var requests = new List<(Guid ProjectId, string RelativeFile)>();
+        files.OpenRequested += (_, request) => requests.Add(request);
+        var renamed = Ok(await files.RenameAsync(project.Id, TableA, "z"));
+        var opened = await projects.OpenFileAsync(project.Id, renamed.RelativeFile!);
+        tabs.Add(TabSource.ForProject(project.Id, project.DisplayName), opened!, workspace.Schema);
+        var tab = tabs.Tabs[^1];
+
+        workspaceRunner.IsRunning = true;
+        Assert.False(projects.CanStartOperation);
+        var warnings = game.Log.Warnings.Count;
+        documents.UndoCommand.Execute(null);
+
+        Assert.True(File.Exists(Path.Combine(project.Folder, "pack", TableA)));
+        Assert.DoesNotContain(tab, tabs.Tabs);                                   // the tab of the old name is closed
+        Assert.Equal((project.Id, TableA), requests[^1]);                         // the request is raised all the same
+        var line = Assert.Single(game.Log.Warnings.Skip(warnings));
+        Assert.Contains(TableA, line, StringComparison.Ordinal);                 // the user can find out which tab went
+    }
+
     [Fact] public async Task Rename_reopens_the_tab_under_the_new_name()
     {
         using var setup = await CreateAsync(Table(TableA, 42), Table(TableB, 7));
@@ -1132,6 +1165,42 @@ public class ProjectFilesControllerTests
         Assert.True(Directory.Exists(young));
     }
 
+    [Fact] public async Task CleanupTrashAsync_logs_every_entry_it_could_not_delete_up_to_twenty_and_the_number_of_the_rest()
+    {
+        using var setup = await CreateAsync();
+        var now = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.Zero);
+        var held = new List<FileStream>();
+        var entries = new List<string>();
+        try
+        {
+            for (var i = 0; i < 22; i++)
+            {
+                var entry = TrashEntry(setup, now - TimeSpan.FromDays(40), i.ToString("x8", System.Globalization.CultureInfo.InvariantCulture));
+                entries.Add(entry);
+                held.Add(new FileStream(Path.Combine(entry, "a.txt"), FileMode.Open, FileAccess.Read, FileShare.None));   // another program holds it
+            }
+
+            var deletable = TrashEntry(setup, now - TimeSpan.FromDays(40), "ffffffff");
+            var files = ControllerWith(setup, new FakeTimeProvider(now));
+
+            await files.CleanupTrashAsync();
+
+            Assert.False(Directory.Exists(deletable));
+            Assert.Contains(setup.Game.Log.Infos, info => info.Contains("trash", StringComparison.OrdinalIgnoreCase) && info.Contains("1", StringComparison.Ordinal));
+            var named = entries.Where(entry => setup.Game.Log.Warnings.Any(line => line.Contains(entry, StringComparison.Ordinal))).ToList();
+            Assert.Equal(20, named.Count);                                      // one line per entry, at most 20
+            Assert.Single(setup.Game.Log.Warnings, line => line.Contains("2", StringComparison.Ordinal) && !entries.Any(entry => line.Contains(entry, StringComparison.Ordinal)));
+            Assert.Equal(21, setup.Game.Log.Warnings.Count);
+            Assert.All(entries, entry => Assert.True(Directory.Exists(entry)));
+            Assert.Empty(setup.Dialogs.Messages);
+            Assert.Empty(setup.Game.Log.Errors);
+        }
+        finally
+        {
+            held.ForEach(stream => stream.Dispose());
+        }
+    }
+
     [Fact] public async Task CleanupTrashAsync_without_a_trash_folder_does_nothing()
     {
         using var setup = await CreateAsync();
@@ -1182,6 +1251,26 @@ public class ProjectFilesControllerTests
         // A path that the write boundary refuses: the localized sentence first, the technical detail of the library after it.
         Assert.StartsWith(setup.Game.Texts.FileProblemUnsafePath + "\n\n", setup.Files.CheckNewName(setup.Id, @"..\outside", "x", ".lua"), StringComparison.Ordinal);
         Assert.StartsWith(setup.Game.Texts.FileProblemUnsafePath + "\n\n", setup.Files.CheckNewName(setup.Id, "script", "con", ".lua"), StringComparison.Ordinal);
+    }
+
+    [Fact] public async Task A_refusal_carries_the_problem_so_that_a_taken_name_is_known_without_comparing_texts()
+    {
+        using var setup = await CreateAsync(Table(TableA, 42), Table(TableB, 7));
+
+        var taken = setup.Files.CheckNewNameResult(setup.Id, @"db\x_tables", "b", ".tsv");
+        Assert.NotNull(taken);
+        Assert.Equal((false, setup.Game.Texts.FileProblemTargetExists, FileOpProblem.TargetExists), (taken.Ok, taken.Message, taken.Problem));
+
+        var dot = setup.Files.CheckNewNameResult(setup.Id, @"db\x_tables", "a.b", ".tsv");
+        Assert.NotNull(dot);
+        Assert.Equal((setup.Game.Texts.FileNameDot, (FileOpProblem?)null), (dot.Message, dot.Problem));
+        Assert.Null(setup.Files.CheckNewNameResult(setup.Id, @"db\x_tables", "fresh", ".tsv"));
+        Assert.Equal(dot.Message, setup.Files.CheckNewName(setup.Id, @"db\x_tables", "a.b", ".tsv"));
+
+        // The action says the same.
+        var renamed = Refused(await setup.Files.RenameAsync(setup.Id, TableA, "b"));
+        Assert.Equal(FileOpProblem.TargetExists, renamed.Problem);
+        Assert.Null(Ok(await setup.Files.RenameAsync(setup.Id, TableA, "c")).Problem);
     }
 
     [Fact] public async Task CheckNewName_names_every_kind_of_bad_name_in_the_language_of_the_UI()

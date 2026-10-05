@@ -149,13 +149,20 @@ public sealed partial class DocumentsController
     }
 
     // After the step ran: the tabs of the files it took away are closed (a file that still exists keeps its tabs), the project is announced,
-    // and a file that was open under another name is asked for again.
+    // and a file that was open under another name is asked for again. Undo and redo only wait for the runner, while opening a file also waits
+    // for a silent run of the workspace: when no operation can start now, the request is raised all the same (a receiver that can open it
+    // later may), and the log names the file, so that a tab that went is never lost without a word.
     private void ApplyFileStep(FileStepPlan plan)
     {
         CloseTabsOfFile(plan.Tabs);
         FileStepApplied?.Invoke(this, plan.Step.ProjectId);
         if (plan.Reopen is { } file)
         {
+            if (!_projects.CanStartOperation)
+            {
+                _log.Warn($"The tab of a renamed file was closed and cannot be opened again right now, because another operation runs. Open \"{DisplayText.Safe(file)}\" from the explorer.");
+            }
+
             FileReopenRequested?.Invoke(this, (plan.Step.ProjectId, file));
         }
     }

@@ -22,6 +22,12 @@ public sealed record TrashResult(FileOpProblem Problem, string? Detail, TrashedF
     public bool LeftBehind { get; init; }
 }
 
+/// <summary>An entry of the trash that <see cref="ProjectTrash.CleanupDetailed"/> chose to delete but could not: its full path and a short English reason.</summary>
+public sealed record TrashCleanupFailure(string Entry, string Reason);
+
+/// <summary>The outcome of <see cref="ProjectTrash.CleanupDetailed"/>: the number of deleted entries and the entries that stay although they were due.</summary>
+public sealed record TrashCleanupResult(int Deleted, IReadOnlyList<TrashCleanupFailure> Failed);
+
 /// <summary>
 /// The trash of the tool for files deleted from the pack folder of a project: <c>&lt;trash root&gt;\&lt;project id D&gt;\&lt;yyyyMMdd-HHmmss&gt;-&lt;8 hex&gt;\&lt;file name&gt;</c>
 /// (the time is the UTC time of the delete; the 8 hex characters keep two deletes of the same second apart). The trash root lies outside
@@ -53,6 +59,7 @@ public static class ProjectTrash
     private const int EntryNameAttempts = 5;
     private const int MaxEntryDepth = 64;
     private const string TrashBaseName = "trash";
+    private const string ChangedWayReason = "a part of the way is a link, is gone or cannot be checked";
 
     /// <summary>
     /// Moves pack\&lt;relativeFile&gt; to <c>&lt;trashRoot&gt;\&lt;projectId D&gt;\&lt;yyyyMMdd-HHmmss&gt;-&lt;8 hex&gt;\&lt;file name&gt;</c> without
@@ -420,21 +427,33 @@ public static class ProjectTrash
     /// <paramref name="trashRoot"/> otherwise.
     /// </summary>
     public static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken) =>
-        Cleanup(trashRoot, maxAge, time, cancellationToken, null);
+        CleanupCore(trashRoot, maxAge, time, cancellationToken, null).Deleted;
 
-    internal static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken, TrashHooks? hooks)
+    internal static int Cleanup(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken, TrashHooks? hooks) =>
+        CleanupCore(trashRoot, maxAge, time, cancellationToken, hooks).Deleted;
+
+    /// <summary>
+    /// <see cref="Cleanup(string, TimeSpan, TimeProvider, CancellationToken)"/> with the entries it chose to delete (old enough) but could not
+    /// delete, each with a short English reason; such an entry stays, perhaps partly emptied. Entries that are not due or not of the form of an
+    /// entry are no failures.
+    /// </summary>
+    public static TrashCleanupResult CleanupDetailed(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken) =>
+        CleanupCore(trashRoot, maxAge, time, cancellationToken, null);
+
+    private static TrashCleanupResult CleanupCore(string trashRoot, TimeSpan maxAge, TimeProvider time, CancellationToken cancellationToken, TrashHooks? hooks)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(trashRoot);
         ArgumentNullException.ThrowIfNull(time);
 
+        var failed = new List<TrashCleanupFailure>();
         if (maxAge < TimeSpan.Zero || ValidateRoot(trashRoot, out var root) is not null)
         {
-            return 0;
+            return new TrashCleanupResult(0, failed);
         }
 
         if (!Directory.Exists(root) || IsLinkOrUnknown(root))
         {
-            return 0;
+            return new TrashCleanupResult(0, failed);
         }
 
         var now = time.GetUtcNow().UtcDateTime;
@@ -443,7 +462,7 @@ public static class ProjectTrash
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return deleted;
+                return new TrashCleanupResult(deleted, failed);
             }
 
             if (!Guid.TryParseExact(Path.GetFileName(projectTrash), "D", out _) || !IsBelow(root, projectTrash) || IsLinkOrUnknown(projectTrash))
@@ -456,7 +475,7 @@ public static class ProjectTrash
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return deleted;
+                    return new TrashCleanupResult(deleted, failed);
                 }
 
                 if (!TryParseEntryName(Path.GetFileName(entry), out var stamp) || stamp > now || now - stamp <= maxAge)
@@ -465,7 +484,11 @@ public static class ProjectTrash
                 }
 
                 hooks?.BeforeDeleteEntry?.Invoke(entry);
-                if (TryDeleteEntry(root, projectTrash, entry))
+                if (DeleteEntry(root, projectTrash, entry) is { } reason)
+                {
+                    failed.Add(new TrashCleanupFailure(entry, reason));
+                }
+                else
                 {
                     deleted++;
                     deletedHere++;
@@ -478,15 +501,15 @@ public static class ProjectTrash
             }
         }
 
-        return deleted;
+        return new TrashCleanupResult(deleted, failed);
     }
 
     /// <summary>
     /// Deletes one entry folder with everything in it. The chain trash root, folder of the project and entry is checked right before (a link
-    /// may have taken the place of one of them) and again before every folder that is entered and every file that is deleted. False when a
-    /// part of the chain is a link or gone, or when anything cannot be deleted.
+    /// may have taken the place of one of them) and again before every folder that is entered and every file that is deleted. Null when the
+    /// entry is gone; else why it stays: a part of the chain is a link or gone, or something cannot be deleted.
     /// </summary>
-    private static bool TryDeleteEntry(string root, string projectTrash, string entry)
+    private static string? DeleteEntry(string root, string projectTrash, string entry)
     {
         bool ChainClean()
         {
@@ -501,21 +524,27 @@ public static class ProjectTrash
             return true;
         }
 
-        return ChainClean() && DeleteTree(entry, 0, ChainClean);
+        return ChainClean() ? DeleteTree(entry, 0, ChainClean) : ChangedWayReason;
     }
 
     /// <summary>
     /// Deletes a folder and its content without following links: a link inside is removed as a link, a real folder is emptied first, a real
     /// file is deleted (a read-only file fails). The chain above the entry (<paramref name="chainClean"/>) and the folder itself are looked at
-    /// for a link right before the folder is entered and right before every file, link and folder is deleted. False at the first doubt or failure.
+    /// for a link right before the folder is entered and right before every file, link and folder is deleted. Null when it is gone; else the
+    /// reason of the first doubt or failure, where it stops.
     /// </summary>
-    private static bool DeleteTree(string folder, int depth, Func<bool> chainClean)
+    private static string? DeleteTree(string folder, int depth, Func<bool> chainClean)
     {
         bool Safe() => chainClean() && !IsLinkOrUnknown(folder);
 
-        if (depth > MaxEntryDepth || !Safe())
+        if (depth > MaxEntryDepth)
         {
-            return false;
+            return "the folders are nested too deep";
+        }
+
+        if (!Safe())
+        {
+            return ChangedWayReason;
         }
 
         try
@@ -524,7 +553,7 @@ public static class ProjectTrash
             {
                 if (!Safe())
                 {
-                    return false;
+                    return ChangedWayReason;
                 }
 
                 var attributes = File.GetAttributes(path);
@@ -542,9 +571,9 @@ public static class ProjectTrash
                 }
                 else if (isFolder)
                 {
-                    if (!DeleteTree(path, depth + 1, chainClean))
+                    if (DeleteTree(path, depth + 1, chainClean) is { } inner)
                     {
-                        return false;
+                        return inner;
                     }
                 }
                 else
@@ -555,15 +584,15 @@ public static class ProjectTrash
 
             if (!Safe())
             {
-                return false;
+                return ChangedWayReason;
             }
 
             Directory.Delete(folder, recursive: false);
-            return true;
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
-            return false;
+            return ex.Message;
         }
     }
 

@@ -1111,6 +1111,47 @@ public class ProjectTrashTests
         }
     }
 
+    [Fact] public void CleanupDetailed_names_every_entry_it_could_not_delete_with_a_reason()
+    {
+        using var dir = new TempDir();
+        var trash = NewTrashRoot(dir);
+        var time = new FakeTimeProvider(Start);
+        var readOnly = PutEntry(trash, Id, EntryName(Start.AddDays(-100), "00000001"), "a.tsv");
+        var held = PutEntry(trash, Id, EntryName(Start.AddDays(-100), "00000002"), "b.tsv");
+        var plain = PutEntry(trash, Id, EntryName(Start.AddDays(-100), "00000003"), "c.tsv");
+        var young = PutEntry(trash, Id, EntryName(Start.AddDays(-1), "00000004"), "d.tsv");
+        File.SetAttributes(readOnly, FileAttributes.ReadOnly);
+
+        try
+        {
+            TrashCleanupResult result;
+            using (new FileStream(held, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                result = ProjectTrash.CleanupDetailed(trash, TimeSpan.FromDays(30), time, CancellationToken.None);
+            }
+
+            Assert.Equal(1, result.Deleted);
+            Assert.False(File.Exists(plain));
+            Assert.True(File.Exists(young));                                     // too young: no failure, just not due
+            Assert.Equal(
+                [Path.GetDirectoryName(readOnly)!, Path.GetDirectoryName(held)!],
+                result.Failed.Select(failure => failure.Entry).Order(StringComparer.Ordinal));
+            Assert.All(result.Failed, failure => Assert.False(string.IsNullOrWhiteSpace(failure.Reason)));
+
+            // Cleanup keeps its answer: the number of deleted entries.
+            File.SetAttributes(readOnly, FileAttributes.Normal);
+            Assert.Equal(2, ProjectTrash.Cleanup(trash, TimeSpan.FromDays(30), time, CancellationToken.None));
+            Assert.Empty(ProjectTrash.CleanupDetailed(trash, TimeSpan.FromDays(30), time, CancellationToken.None).Failed);
+        }
+        finally
+        {
+            if (File.Exists(readOnly))
+            {
+                File.SetAttributes(readOnly, FileAttributes.Normal);
+            }
+        }
+    }
+
     [Fact] public void Cleanup_removes_an_empty_project_folder_only_when_this_run_deleted_an_entry_from_it()
     {
         using var dir = new TempDir();

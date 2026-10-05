@@ -241,7 +241,7 @@ public partial class App : Application
         _ = LoadGameAsync(workspace, session, crashHandler);
 
         // Silent housekeeping after the window is shown: old entries of the trash go. It runs on a pool thread and does not block the start.
-        _ = CleanupTrashAsync(projectFilesController, crashHandler);
+        _ = CleanupTrashAsync(projectFilesController, log);
     }
 
     // The profile of the stored id (ignoring case), else the first one; null without profiles.
@@ -282,8 +282,9 @@ public partial class App : Application
         }
     }
 
-    // The controller logs what it can meet (a problem with the trash is only a log line); a surprise from here goes to the crash handler.
-    private static async Task CleanupTrashAsync(ProjectFilesController files, CrashHandler crashHandler)
+    // The controller logs what it can meet. The trash is housekeeping: whatever else goes wrong here is only a log line too, never the crash
+    // dialog (as FlushSafely does at exit); the app runs on.
+    private static async Task CleanupTrashAsync(ProjectFilesController files, IAppLog log)
     {
         try
         {
@@ -291,8 +292,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            // Not fatal: the trash is housekeeping, the app runs on.
-            crashHandler.Handle(ex, CrashHandler.SourceTask);
+            log.Error("The cleanup of the trash failed.", ex);
         }
     }
 
