@@ -51,8 +51,6 @@ public sealed record FileProbe(FileProbeState State, FileFingerprint? Fingerprin
 /// </summary>
 public static class ProjectFileWriter
 {
-    private const int TempNameAttempts = 5;
-
     // Strict on purpose: a lone surrogate is an error, never a U+FFFD in the file.
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
@@ -65,7 +63,7 @@ public static class ProjectFileWriter
     /// errors are thrown. In every case other than success the old file is unchanged and no temp file of this write is left.
     /// </summary>
     public static FileWriteResult WriteText(string projectFolder, string relativeFile, string text) =>
-        WriteText(projectFolder, relativeFile, text, NewTempSuffix);
+        WriteText(projectFolder, relativeFile, text, ProjectTempFiles.NewSuffix);
 
     /// <summary>The overload with the source of the 8-character temp name part, so that a test can provoke a name collision.</summary>
     internal static FileWriteResult WriteText(string projectFolder, string relativeFile, string text, Func<string> tempSuffix)
@@ -108,7 +106,7 @@ public static class ProjectFileWriter
         {
             try
             {
-                temp = CreateTempFile(target, bytes, tempSuffix);
+                temp = ProjectTempFiles.Create(target, bytes, tempSuffix);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
             {
@@ -135,7 +133,7 @@ public static class ProjectFileWriter
         {
             if (temp is not null && !replaced)
             {
-                TryDelete(temp);
+                ProjectTempFiles.TryDelete(temp);   // best effort; the problem that is reported is the one that matters
             }
         }
 
@@ -204,57 +202,5 @@ public static class ProjectFileWriter
         }
     }
 
-    private static string NewTempSuffix() => Guid.NewGuid().ToString("N")[..8];
-
-    /// <summary>
-    /// Creates <c>target.suffix.tmp</c> with <see cref="FileMode.CreateNew"/> and writes the bytes. Returns its path, or null when every
-    /// name was taken. A name that is taken (file or folder) is never touched. A write error after the creation deletes the new file.
-    /// </summary>
-    private static string? CreateTempFile(string target, byte[] bytes, Func<string> tempSuffix)
-    {
-        for (var attempt = 0; attempt < TempNameAttempts; attempt++)
-        {
-            var temp = target + "." + tempSuffix() + ".tmp";
-            FileStream stream;
-            try
-            {
-                stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && (File.Exists(temp) || Directory.Exists(temp)))
-            {
-                continue;   // the name is taken by something that is not ours
-            }
-
-            try
-            {
-                using (stream)
-                {
-                    stream.Write(bytes);
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-            {
-                TryDelete(temp);
-                throw;
-            }
-
-            return temp;
-        }
-
-        return null;
-    }
-
     private static FileWriteResult Failure(FileWriteProblem problem, string? detail) => new(problem, detail, null);
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            // Cleanup is best effort; the problem that is reported is the one that matters.
-        }
-    }
 }

@@ -276,12 +276,15 @@ public class ProjectFileOpsTests
         // A file appears at the target after the folders were made: the move fails, the temp file goes, the new file is not touched.
         var target = PackFile(project, @"new\sub\a.tsv");
         var raced = ProjectFileOps.Create(project, @"new\sub\a.tsv", new byte[] { 5 }, CancellationToken.None,
-            () => File.WriteAllBytes(target, [9]));
+            new ProjectFileOps.OpsHooks { AfterFolders = () => File.WriteAllBytes(target, [9]) });
 
         Assert.Equal(FileOpProblem.TargetExists, raced.Problem);
         Assert.Empty(raced.CreatedFolders);
         Assert.Equal([9], File.ReadAllBytes(target));
         Assert.Empty(TempFilesBelow(dir.Path));
+        // The folders now hold someone else's file: they stay, and the detail names them so that the caller can tell the user.
+        Assert.Contains("left behind", raced.Detail);
+        Assert.Contains(@"new\sub", raced.Detail);
     }
 
     [Fact] public void A_cancelled_create_leaves_nothing_behind()
@@ -299,10 +302,13 @@ public class ProjectFileOpsTests
         // Cancelled while the folders already exist: they are removed again.
         using var late = new CancellationTokenSource();
         Assert.Throws<OperationCanceledException>(() =>
-            ProjectFileOps.Create(project, @"db\x_tables\a.tsv", new byte[] { 1 }, late.Token, () =>
+            ProjectFileOps.Create(project, @"db\x_tables\a.tsv", new byte[] { 1 }, late.Token, new ProjectFileOps.OpsHooks
             {
-                Assert.True(Directory.Exists(PackFile(project, @"db\x_tables")));
-                late.Cancel();
+                AfterFolders = () =>
+                {
+                    Assert.True(Directory.Exists(PackFile(project, @"db\x_tables")));
+                    late.Cancel();
+                },
             }));
         Assert.Equal(before, Snapshot(dir.Path));
         Assert.Empty(TempFilesBelow(dir.Path));
@@ -508,6 +514,298 @@ public class ProjectFileOpsTests
         Assert.False(ProjectFileOps.Exists(project, ""));   // unsafe
         Assert.False(ProjectFileOps.Exists(project, @"..\project\pack\db\A.tsv"));   // unsafe, although it names an existing file
         Assert.False(ProjectFileOps.Exists(project, "a.tsv:stream"));
+    }
+
+    [Fact] public void Exists_is_true_when_a_file_is_in_the_place_of_a_folder_on_the_way()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        Put(project, "a.tsv", [1]);
+
+        Assert.True(ProjectFileOps.Exists(project, @"a.tsv\b.tsv"));   // like Create: no folder can be made there
+        Assert.True(ProjectFileOps.Exists(project, @"A.TSV\deeper\b.tsv"));
+        Assert.False(ProjectFileOps.Exists(project, @"other\b.tsv"));
+        Assert.Equal(FileOpProblem.TargetExists, ProjectFileOps.Create(project, @"a.tsv\b.tsv", new byte[] { 1 }, CancellationToken.None).Problem);
+    }
+
+    // ---- links: refused at the target name, as the source, and when they appear while the operation runs ----
+
+    /// <summary>A folder in the temp dir that stands for "somewhere behind a link": one file whose content must never change.</summary>
+    private static string NewOutside(TempDir dir)
+    {
+        var outside = Path.Combine(dir.Path, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllBytes(Path.Combine(outside, "a.tsv"), [7, 7, 7]);
+        return outside;
+    }
+
+    /// <summary>Removes a junction (the link itself, never what it points to) if it is there.</summary>
+    private static void DropLink(string link)
+    {
+        if (Directory.Exists(link))
+        {
+            Directory.Delete(link);
+        }
+    }
+
+    private static void AssertOutsideUntouched(string outside, string[] before)
+    {
+        Assert.Equal(before, Snapshot(outside));
+        Assert.Equal([7, 7, 7], File.ReadAllBytes(Path.Combine(outside, "a.tsv")));
+    }
+
+    [Fact] public void A_link_at_the_name_of_the_target_or_of_the_source_is_refused_and_not_moved()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);
+        Put(project, "own.tsv", [4]);
+        var link = PackFile(project, "linked");
+        if (!JunctionHelper.TryCreate(link, outside))
+        {
+            return;   // junctions cannot be created in this environment
+        }
+
+        try
+        {
+            var before = Snapshot(outside);
+
+            var create = ProjectFileOps.Create(project, "linked", new byte[] { 1 }, CancellationToken.None);
+            var renameOnto = ProjectFileOps.Rename(project, "own.tsv", "linked");
+            var renameLink = ProjectFileOps.Rename(project, "linked", "moved");
+
+            Assert.Equal(FileOpProblem.Link, create.Problem);
+            Assert.Equal(FileOpProblem.Link, renameOnto.Problem);
+            Assert.Equal(FileOpProblem.Link, renameLink.Problem);
+            Assert.True(Directory.Exists(link));   // still the link, not moved
+            Assert.False(Directory.Exists(PackFile(project, "moved")));
+            Assert.True(File.Exists(PackFile(project, "own.tsv")));
+            AssertOutsideUntouched(outside, before);
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void A_link_that_appears_under_the_name_of_a_missing_folder_is_refused_by_Create()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);
+        var before = Snapshot(outside);
+        var link = PackFile(project, "newdir");
+        var made = false;
+
+        try
+        {
+            var result = ProjectFileOps.Create(project, @"newdir\sub\a.tsv", new byte[] { 1 }, CancellationToken.None,
+                new ProjectFileOps.OpsHooks { BeforeFolders = () => made = JunctionHelper.TryCreate(link, outside) });
+
+            if (!made)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, result.Problem);
+            Assert.Contains("newdir", result.Detail);
+            Assert.Empty(result.CreatedFolders);
+            Assert.True(Directory.Exists(link));   // the link is not ours and is not removed
+            Assert.Equal([link], Directory.GetFileSystemEntries(PackFile(project, "")));   // nothing was made next to the link
+            AssertOutsideUntouched(outside, before);
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void A_link_that_takes_the_place_of_a_created_folder_is_refused_by_Create()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);
+        var before = Snapshot(outside);
+        var folder = PackFile(project, "newdir");
+        var swapBefore = false;
+        var swapMove = false;
+
+        try
+        {
+            // Before anything is written: the empty folder this call made is replaced by a link.
+            var early = ProjectFileOps.Create(project, @"newdir\a.tsv", new byte[] { 1 }, CancellationToken.None, new ProjectFileOps.OpsHooks
+            {
+                AfterFolders = () =>
+                {
+                    Directory.Delete(folder);
+                    swapBefore = JunctionHelper.TryCreate(folder, outside);
+                },
+            });
+
+            if (!swapBefore)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, early.Problem);
+            Assert.True(Directory.Exists(folder));   // the link is left alone
+            Assert.Contains("left behind", early.Detail);
+            AssertOutsideUntouched(outside, before);
+            DropLink(folder);
+
+            // After the temp file was written: the folder, with the temp file in it, is replaced by a link.
+            var late = ProjectFileOps.Create(project, @"newdir\a.tsv", new byte[] { 1 }, CancellationToken.None, new ProjectFileOps.OpsHooks
+            {
+                BeforeMove = () =>
+                {
+                    Directory.Delete(folder, recursive: true);
+                    swapMove = JunctionHelper.TryCreate(folder, outside);
+                },
+            });
+
+            Assert.True(swapMove);
+            Assert.Equal(FileOpProblem.Link, late.Problem);
+            Assert.True(Directory.Exists(folder));
+            AssertOutsideUntouched(outside, before);
+        }
+        finally
+        {
+            DropLink(folder);
+        }
+    }
+
+    [Fact] public void A_link_that_appears_while_a_file_is_renamed_is_refused()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);
+        var before = Snapshot(outside);
+        Put(project, "own.tsv", [4]);
+        var link = PackFile(project, "newdir");
+        var made = false;
+
+        try
+        {
+            // A link under the name of a missing target folder.
+            var viaMissing = ProjectFileOps.Rename(project, "own.tsv", @"newdir\b.tsv",
+                new ProjectFileOps.OpsHooks { BeforeFolders = () => made = JunctionHelper.TryCreate(link, outside) });
+
+            if (!made)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, viaMissing.Problem);
+            Assert.Contains("newdir", viaMissing.Detail);
+            Assert.True(File.Exists(PackFile(project, "own.tsv")));
+            AssertOutsideUntouched(outside, before);
+            DropLink(link);
+
+            // A link that takes the place of the target folder this call made.
+            var swapped = false;
+            var viaCreated = ProjectFileOps.Rename(project, "own.tsv", @"newdir\b.tsv", new ProjectFileOps.OpsHooks
+            {
+                AfterFolders = () =>
+                {
+                    Directory.Delete(link);
+                    swapped = JunctionHelper.TryCreate(link, outside);
+                },
+            });
+
+            Assert.True(swapped);
+            Assert.Equal(FileOpProblem.Link, viaCreated.Problem);
+            Assert.True(File.Exists(PackFile(project, "own.tsv")));
+            Assert.True(Directory.Exists(link));
+            AssertOutsideUntouched(outside, before);
+        }
+        finally
+        {
+            DropLink(link);
+        }
+    }
+
+    [Fact] public void A_source_folder_that_becomes_a_link_before_the_move_is_not_moved()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var outside = NewOutside(dir);   // holds an "a.tsv", like the folder "plain" does
+        var before = Snapshot(outside);
+        Put(project, @"plain\a.tsv", [4]);
+        var folder = PackFile(project, "plain");
+        var swapped = false;
+
+        try
+        {
+            var result = ProjectFileOps.Rename(project, @"plain\a.tsv", "b.tsv", new ProjectFileOps.OpsHooks
+            {
+                BeforeMove = () =>
+                {
+                    Directory.Delete(folder, recursive: true);
+                    swapped = JunctionHelper.TryCreate(folder, outside);
+                },
+            });
+
+            if (!swapped)
+            {
+                return;   // junctions cannot be created in this environment
+            }
+
+            Assert.Equal(FileOpProblem.Link, result.Problem);
+            Assert.Contains("source", result.Detail);
+            Assert.False(File.Exists(PackFile(project, "b.tsv")));
+            AssertOutsideUntouched(outside, before);
+        }
+        finally
+        {
+            DropLink(folder);
+        }
+    }
+
+    // ---- a sharing violation of the move is waited out, but a file is never overwritten ----
+
+    [Fact] public async Task Create_waits_for_a_program_that_holds_the_temp_file_briefly()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        Task? release = null;
+
+        var result = ProjectFileOps.Create(project, "a.tsv", new byte[] { 1, 2 }, CancellationToken.None, new ProjectFileOps.OpsHooks
+        {
+            BeforeMove = () =>
+            {
+                var holder = new FileStream(Directory.GetFiles(PackFile(project, ""), "*.tmp").Single(), FileMode.Open, FileAccess.Read, FileShare.None);
+                release = Task.Run(async () =>
+                {
+                    await Task.Delay(150);
+                    holder.Dispose();
+                });
+            },
+        });
+
+        await release!.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(FileOpProblem.None, result.Problem);
+        Assert.Equal([1, 2],File.ReadAllBytes(PackFile(project, "a.tsv")));
+        Assert.Empty(TempFilesBelow(dir.Path));
+    }
+
+    [Fact] public async Task Rename_waits_for_a_program_that_holds_the_file_briefly()
+    {
+        using var dir = new TempDir();
+        var project = NewProject(dir);
+        var file = Put(project, "a.tsv", [1, 2, 3]);
+
+        var holder = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(150);
+            holder.Dispose();
+        });
+        var result = ProjectFileOps.Rename(project, "a.tsv", "b.tsv");
+
+        await release.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(FileOpProblem.None, result.Problem);
+        Assert.False(File.Exists(file));
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(PackFile(project, "b.tsv")));
     }
 
     [Fact] public void Argument_errors_are_thrown()
