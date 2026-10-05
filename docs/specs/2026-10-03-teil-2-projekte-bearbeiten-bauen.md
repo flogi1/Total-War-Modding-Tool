@@ -514,9 +514,11 @@ Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5.
     geschrieben. Eine Meldung nennt höchstens 10 Dateien. Speichern und Alle speichern (Menü „Projekt“,
     `Strg+S`, `Strg+Umschalt+S`) sind gesperrt, solange eine Operation läuft.
 19. Eine Zelle, die noch im Editiermodus ist, wird vor „Speichern“, „Alle speichern“, dem Schließen eines
-    Tabs, dem Schließen der App und dem Bauen bestätigt, ebenso vor dem Öffnen des Kontextmenüs. Ein
-    ungültiger Wert hält die Aktion mit einer Meldung an. Eine getippte Zelle in einem sonst
-    unveränderten Tab gilt als „etwas zu speichern“.
+    Tabs, dem Schließen der App, dem Bauen, Rückgängig und Wiederholen, dem Verlassen des Tabs, dem
+    Umschalten auf die Textansicht und dem Neu laden bestätigt (zu den letzten drei die Punkte 24 und 26),
+    ebenso vor dem Öffnen des Kontextmenüs. Ein ungültiger Wert hält die Aktion mit einer Meldung an. Eine
+    getippte Zelle in einem sonst unveränderten Tab gilt als „etwas zu speichern“. Eine geöffnete, aber
+    nicht geänderte Zelle gilt nicht als Änderung: nichts zu speichern, kein Schritt.
 20. `Strg+Z` und `Strg+Y` in einer Zelle im Editiermodus wirken nur in der Zelle und erreichen nie die
     globale History. Außerhalb davon sind Rückgängig und Wiederholen gesperrt, solange eine Operation
     läuft. Scheitert ein Schritt beim Zurücknehmen, fällt er aus der History, und eine Meldung nennt
@@ -537,6 +539,31 @@ Dateioperationen und „Ins Projekt übernehmen“ aus 5.6 und 5.8 sind Plan 5.
 23. Die Zeilenkopfzelle zeigt die Zeilennummer (ab 1). Nach einem Zeilenbefehl (Einfügen, Duplizieren,
     Einfügen aus der Zwischenablage, Löschen) sind die betroffenen Zeilen markiert, bei mehr als 2.000
     Zeilen nur die erste. Ein anderer Tab beginnt ohne Markierung.
+24. Ein getippter Wert geht beim Verlassen eines Tabs nie still verloren. Das gilt für den Klick auf
+    einen anderen Tab, für die Tasten (`Strg+Tab`, auch mit Umschalt, `Strg+Bild auf` und `Strg+Bild ab`;
+    Pfeiltasten, `Pos1` und `Ende`, solange die Kopfzeile eines Tabs den Fokus hat) und für den Wechsel
+    durch die App selbst (Rückgängig und Wiederholen zeigen den Tab der Änderung, ein geöffneter Eintrag
+    wird ausgewählt). Ein gültiger Wert wird vorher geschrieben, als ein Schritt der History. Ein ungültiger
+    Wert hält den Nutzer im Tab: die Zelle bleibt im Editiermodus, und die Meldung zur Zelle steht unter
+    der Kopfzeile; bei Rückgängig, Wiederholen und dem Wechsel zu einem anderen Tab kommt ein Dialog
+    „Ungültiger Wert in einer Zelle“ dazu, beim Umschalten auf die Textansicht nur die Zeile unter der
+    Kopfzeile, und die Ansicht springt zurück auf das Raster.
+25. Raster, Einzelheiten: Eine Zelle mit Kästchen (Wahrheitswert) beendet ihr Bearbeiten gleich nach dem
+    Umschalten. Ein Rechtsklick bestätigt zuerst eine Zelle im Editiermodus (ein ungültiger Wert lässt den
+    Klick wirkungslos) und markiert dann die Zeile unter der Maus, wenn sie nicht markiert ist; ein
+    Rechtsklick auf die Zelle im Editiermodus selbst gehört deren Textfeld mit seinem eigenen Menü.
+26. Entfernt die App das Raster selbst (ein Tab wird ohne Rückfrage geschlossen oder durch einen anderen
+    ersetzt) oder ändert sie die Zeilen unter der Zelle, kann die Zelle nicht mehr gefragt werden: Ein
+    gültiger Text, dessen Zeile noch da ist, wird geschrieben; ein ungültiger Text oder eine Zeile, die
+    weg ist, verwirft ihn, und ein Hinweis im Tab nennt das. „Neu laden“ über den Knopf bestätigt eine
+    getippte Zelle zuerst: ein gültiger Wert macht den Tab geändert, damit wird nicht neu geladen (die
+    Rückfrage beim nächsten Speichern ist der Weg); ein ungültiger Wert hält das Neu laden mit der Meldung
+    an. Tippt der Nutzer, während die Datei gelesen wird, bleibt der Tab unverändert stehen. Wählt der
+    Nutzer in der Rückfrage beim Speichern „Neu laden“, ist das gewollt: eine noch offene Zelle wird vor
+    dem Ersetzen des Dokuments ohne Hinweis verworfen, damit sie nicht in das neue Dokument schreibt.
+27. Einfügen läuft im UI-Thread und ist auf 20.000.000 Zeichen und 100.000 Zeilen begrenzt (die Zeilenzahl
+    des Kopierens). Beides wird geprüft, bevor der Text gelesen wird; die Zeilen werden dafür nur gezählt.
+    Ein größerer Text wird mit einer Meldung abgelehnt und ändert nichts.
 
 ### 5.5 Import
 

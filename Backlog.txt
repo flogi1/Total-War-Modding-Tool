@@ -200,6 +200,8 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Der Fall „Zieldatei ist selbst ein symbolischer Link“ des `ProjectFileWriter` ist ohne Administratorrechte nicht automatisch testbar
 - Sehr große Auswahl: Nach einem Zeilenbefehl über mehr als 2.000 Zeilen wird nur die erste Zeile markiert
 - Ein fremder Abonnent von `RowsDocument.Changed`, der wirft, kann die Zeilen des Tabs aus dem Takt bringen (es gibt keinen solchen Abonnenten)
+- Ein bearbeitbarer Tab mit veraltetem Schema speichert mit der alten Definition und bietet kein Neuladen an
+- Einfügen läuft im UI-Thread (bis 100.000 Zeilen), bei Bedarf über die Fortschritts-Komponente
 
 == Wartet auf ein öffentliches Remote ==
 
