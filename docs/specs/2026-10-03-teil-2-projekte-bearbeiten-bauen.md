@@ -174,9 +174,12 @@ Das Tool schreibt in Teil 2 zusätzlich zu `%APPDATA%\TotalWarModTool` und
    `<Pack-Name>.twmt-tmp` im selben Ordner.
 3. **In den Papierkorb des Tools** `%LocalAppData%\TotalWarModTool\trash\<Projekt-GUID>\` (er liegt unter
    dem Ordner, den der Absatz oben nennt): Eine gelöschte Datei wandert nach
-   `<Projekt-GUID>\<yyyyMMdd-HHmmss>-<8 Hex>\<Dateiname>` (die Zeit ist UTC). Das Tool legt dort nur diese
-   Ordner an und verschiebt Dateien hinein und wieder heraus. Gelöscht wird dort nur beim Aufräumen beim
-   Start (Abschnitt 5.8): Es entfernt nur Eintragsordner mit gültigem Datumsnamen unterhalb eines
+   `<Projekt-GUID>\<yyyyMMdd-HHmmss>-<8 Hex>\<Dateiname>` (die Zeit ist UTC); ebenso die Datei eines
+   Anlegens oder Übernehmens, das rückgängig gemacht wird. Das Tool legt dort nur diese Ordner an und
+   verschiebt Dateien hinein und wieder heraus. Gelöscht wird dort sonst nur zweierlei: Scheitert das
+   Verschieben in den Papierkorb oder gelingt es nur halb (Festlegungen aus Plan 5, Punkt 15), nimmt das Tool
+   seine eigene Kopie dort und die Ordner, die es dafür angelegt hat, wieder zurück; und das Aufräumen beim
+   Start (Abschnitt 5.8) entfernt nur Eintragsordner mit gültigem Datumsnamen unterhalb eines
    `<Projekt-GUID>\`-Ordners, die älter als 30 Tage sind, und danach einen Projektordner, den dieser Lauf
    geleert hat. Einer Verknüpfung folgt es nie; eine Verknüpfung in einem Eintrag entfernt es als
    Verknüpfung. Nach dem Zurückholen einer Datei entfernt das Tool den leeren Eintragsordner und den
@@ -666,18 +669,19 @@ die Umsetzung genauer oder anders entschieden hat.
     liegen, und die Meldung nennt „Löschen“ als Weg. Folge: „Anlegen rückgängig“ geht nicht mehr, nachdem in der
     Datei etwas gespeichert wurde. Eine gleich große Änderung innerhalb der Zeitauflösung fällt nicht auf
     (Backlog). Umbenennen vergleicht nichts, der Inhalt bleibt unberührt.
-18. Scheitert das Zurückholen aus dem Papierkorb (Ziel belegt, Datei weg, gesperrt), fällt der Schritt aus der
-    History, und Meldung und Log nennen den vollen Papierkorb-Pfad der Datei, die dort bleibt.
+18. Scheitert das Zurückholen aus dem Papierkorb dauerhaft (Ziel belegt, Datei weg), fällt der Schritt aus der
+    History, und Meldung und Log nennen den vollen Papierkorb-Pfad der Datei, die dort bleibt. Eine Sperre
+    allein lässt den Schritt in der History (Punkt 29).
 19. Fallen Schritte aus anderen Gründen weg (das Projekt verlässt die Liste, ein neuer Schritt verwirft
     „Wiederholen“, ein Schritt ist nicht mehr ausführbar), steht jede Datei, die dadurch ohne Schritt im Papierkorb
     bleibt, mit ihrem Pfad im Log. `ActionHistory.RedoDiscarded` meldet dafür die Schritte, die ein neuer Schritt aus
     „Wiederholen“ verdrängt. Eine solche Datei ist nur über das Log zu finden (Backlog: Papierkorb ansehen).
-20. Fällt ein Dateischritt weg, weil er nicht mehr laufen kann, entfernt die App auch die übrigen Schritte
+20. Fällt ein Dateischritt weg, weil er dauerhaft nicht mehr laufen kann, entfernt die App auch die übrigen Schritte
     desselben Projekts, die dieselbe Datei betreffen (auch unter einem früheren oder späteren Namen einer
     Umbenennungskette), aus beiden Stapeln, jeweils mit einer Logzeile (und dem Papierkorb-Pfad, wenn ein Schritt
     eine Datei dort hält). Sie beschreiben eine Platte, die es nicht mehr gibt; ein liegen gebliebenes Umbenennen
-    könnte sonst eine fremde Datei umbenennen. Die Meldung des entfallenen Schritts sagt einmal, dass die übrigen
-    Schritte der Datei ebenfalls entfernt wurden.
+    könnte sonst eine fremde Datei umbenennen. Die Meldung des entfallenen Schritts sagt einmal, wie viele weitere
+    Schritte der Datei ebenfalls entfernt wurden, und nennt die Papierkorb-Pfade (Punkt 29).
 21. Tabs bei Umbenennen: Eine offene Datei wird unter dem neuen Namen wieder geöffnet, auch bei Rückgängig und bei
     einer Umbenennung, die nur die Groß-/Kleinschreibung ändert (der Tab zeigt dann die alte Schreibweise und
     wird ersetzt). Ein Tab einer gelöschten Datei bleibt zu. Eine neue oder übernommene Datei öffnet sich in einem
@@ -695,7 +699,7 @@ die Umsetzung genauer oder anders entschieden hat.
     liest jede Tabelle des Schemas einmal) und wird gemerkt; ein neu geladenes Schema rechnet sie neu. Der Dialog
     filtert sie ohne Rücksicht auf Groß-/Kleinschreibung nach einem Textteil und virtualisiert sie (geprüft mit
     1.500 Tabellen).
-25. Die Namensprüfung im Dialog und die Aktion nutzen dieselben Regeln (`NewFiles.NameProblem`, die Pfadregeln
+25. Die Namensprüfung im Dialog und die Aktion nutzen dieselben Regeln (`NewFiles.NameIssueOf`, die Pfadregeln
     des Schreibens, die Ignorierregel und die Prüfung „Ziel belegt“). `ProjectFilesController.CheckNewName`
     bündelt sie für die Dialoge und für das Umbenennen; Anlegen und Übernehmen wenden sie über `NewFiles` und
     `ProjectFileOps.Create` an. `CheckNewName` nimmt `/` und `\` im Ordner gleich. Eine Aktion, die an einem
@@ -709,11 +713,31 @@ die Umsetzung genauer oder anders entschieden hat.
     offenen Projekte still neu; zugeklappte bleiben zu.
 27. Aufräumen beim Start: still (kein Fortschrittsfenster, keine Sperre des Hauptfensters), auf einem Pool-Thread,
     einmal nach dem Anzeigen des Hauptfensters, mit 30 Tagen (`ProjectFilesController.CleanupTrashAsync`). Ist die
-    Zahl der entfernten Einträge größer als 0, steht sie im Log; ein Problem mit dem Papierkorb ist nur eine Logzeile
-    und hält den Start nie auf.
+    Zahl der entfernten Einträge größer als 0, steht sie im Log. Jeder fällige Eintrag, der sich nicht löschen
+    lässt (schreibgeschützt, gesperrt, eine Verknüpfung im Weg), steht mit Pfad und Grund im Log
+    (`ProjectTrash.CleanupDetailed`; höchstens 20 Zeilen, dann ihre Zahl). Jedes Problem beim Aufräumen, auch ein
+    unerwarteter Fehler, ist nur eine Logzeile, nie ein Dialog, und hält den Start nie auf.
 28. Statuszeile: Die jüngere Meldung aus Projektbefehlen und Dateiaktionen steht dort (der Tooltip zeigt den
     ganzen Text); „Löschen“ nennt darin „Rückgängig“. Eine Aktion, die wirklich startet, löscht die alte Meldung
     zuerst; ein Befehl, der nicht startet (beschäftigt, Dialog abgebrochen), lässt sie stehen.
+29. Ein Dateischritt, der an einer Sperre oder an einem nicht erreichbaren Projektordner scheitert, bleibt in der
+    History: Er wirft `StepDeferredException`, `ActionHistory` lässt ihn oben auf seinem Stapel, ändert nichts und
+    meldet kein `Changed`. Die App meldet „nichts geändert, versuche es erneut“, entfernt keine weiteren Schritte und
+    lässt die Tabs offen. Vor jedem Lauf prüft `FileStep` den Projektordner und `pack\` (fehlt oder nicht lesbar);
+    `FileOpProblem.Locked` zählt nur, wenn die Bibliothek alles zurückgenommen hat. Bleibt dabei etwas liegen (ein
+    Ordner, eine Kopie im Papierkorb, `LeftBehind`), ist der Fehler dauerhaft. Nur dauerhafte Fehler lassen den
+    Schritt und die weiteren Schritte derselben Datei entfallen (Punkt 20); die Meldung nennt dann jeden
+    Papierkorb-Pfad, den die entfernten Schritte hinterlassen, je auf einer eigenen Zeile und ungekürzt (höchstens
+    10, dann ihre Zahl; das Log nennt alle).
+30. Gründe für abgelehnte Namen sind übersetzte Texte: `NewFiles.NameIssueOf` liefert die Art des Problems
+    (`NameIssue`), die App zeigt pro Art einen eigenen Text aus `locales`. Dasselbe gilt für die Regeln anderer
+    Dateien (leer, Schrägstrich, ein Name, den das Projekt ignoriert). Lehnt die Schreibgrenze den Pfad ab (zum
+    Beispiel zu lang), steht der übersetzte Satz vorn und die englische Angabe der Bibliothek als technisches
+    Detail dahinter. Ob ein Name vergeben ist, entscheidet die App über `FileActionResult.Problem`, nie über den Text.
+31. Läuft Rückgängig oder Wiederholen einer Umbenennung, während eine stille Operation des Arbeitsbereichs läuft
+    (Laden beim Start, Wiederherstellen der Sitzung), kann die Datei nicht sofort wieder geöffnet werden: Der
+    Tab des alten Namens wird trotzdem geschlossen, die Anfrage zum Öffnen geht trotzdem hinaus, und das Log nennt
+    die Datei, damit der Tab nicht wortlos verschwindet.
 
 ### 5.5 Import
 
@@ -910,11 +934,12 @@ Projekt kopiert, mit denselben Regeln pro Eintrag wie beim Import.
 | Pack in `data` gehört nicht dem Tool | Installieren und Deinstallieren brechen mit Meldung ab. |
 | `packName` gleicht einem Vanilla-Pack | Beim Anlegen, Umbenennen und Installieren abgelehnt. |
 | Spiel sperrt das Pack in `data` | Meldung, alte Datei bleibt. |
-| Undo einer Dateioperation scheitert (Papierkorb-Datei fehlt, Ziel belegt, Datei gesperrt) | Meldung, der Schritt fällt aus der History, kein Teilzustand. Liegt eine Datei im Papierkorb, nennen Meldung und Log den vollen Pfad. Die übrigen Schritte derselben Datei fallen mit weg, und die Meldung sagt das einmal. |
+| Undo oder Redo einer Dateioperation scheitert dauerhaft (Papierkorb-Datei fehlt, Ziel belegt) | Meldung, der Schritt fällt aus der History, kein Teilzustand. Die übrigen Schritte derselben Datei fallen mit weg; die Meldung sagt einmal, wie viele, und nennt jeden Papierkorb-Pfad, den die entfernten Schritte hinterlassen, auf einer eigenen Zeile (höchstens 10, das Log nennt alle). |
+| Undo oder Redo einer Dateioperation trifft auf eine gesperrte Datei oder einen nicht erreichbaren Projektordner | Meldung „nichts geändert, versuche es erneut“. Der Schritt bleibt in der History, keine weiteren Schritte fallen weg, die Tabs bleiben offen. |
 | Datei seit dem Schritt geändert (von außen oder durch Speichern), Rückgängig von Anlegen oder Übernehmen, Wiederholen von Löschen | Nichts wird in den Papierkorb verschoben, die Datei bleibt, der Schritt fällt aus der History. Die Meldung nennt die Datei und „Löschen“ als Weg. |
 | Ziel einer neuen, übernommenen oder umbenannten Datei existiert schon | Abbruch mit Meldung, nichts wird geändert. Der Dialog lehnt den Namen schon bei der Eingabe ab. |
 | Löschen oder Umbenennen einer Datei mit ungespeichertem Tab | Abgelehnt mit Meldung, die Datei und Tab nennt. Der Eintrag im Explorer ist gesperrt und nennt den Grund. |
-| Aufräumen des Papierkorbs scheitert | Nur eine Logzeile, der Start läuft weiter. Ein schreibgeschützter Eintrag bleibt liegen. |
+| Aufräumen des Papierkorbs scheitert | Nur Logzeilen, nie ein Dialog; der Start läuft weiter. Ein Eintrag, der sich nicht löschen lässt (zum Beispiel schreibgeschützt), bleibt liegen und steht mit Grund im Log. |
 | Zwei Dateien im Projekt ergeben denselben Pack-Pfad | Bauen stoppt und nennt beide. |
 
 ---

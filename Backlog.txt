@@ -217,6 +217,8 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Namensprüfung im Dialog greift bei jedem Tastendruck auf die Platte zu
 - `CreatableTables` enthält Tabellen mit extrem langem Namen nicht (ab 152 Zeichen; im Schema gibt es keine), obwohl sich mit einem kurzen Dateinamen eine anlegen ließe
 - Eine Aktion, die nach dem Namensdialog abgelehnt wird (zum Beispiel weil das Ziel inzwischen belegt ist), fragt den Namen nicht erneut; die Eingabe geht verloren
+- Welche Schritte nach einem dauerhaft gescheiterten Dateischritt mit entfernt werden, entscheidet der Dateiname (Umbenennungsketten werden verfolgt): Ein Schritt einer anderen Datei, die später denselben Namen bekam, kann mit aus der History fallen; auf der Platte wird dabei nichts angefasst
+- Die Meldung eines dauerhaft gescheiterten Dateischritts kann mit vielen Papierkorb-Pfaden lang werden (bis zu 10 Pfade und die Zahl der übrigen)
 
 == Wartet auf ein öffentliches Remote ==
 
