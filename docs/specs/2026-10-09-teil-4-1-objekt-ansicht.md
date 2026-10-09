@@ -167,6 +167,21 @@ mod "QueBatAutResv1.pack";
 `data\language.txt` enthält den Sprachcode des Spiels (`DE`). Die Loc-Packs heißen `local_<suffix>.pack`
 mit abweichenden Suffixen (`DE` → `local_ge.pack`); die Zuordnung ist Profildaten.
 
+### 3.7 Echtdaten-Tests aus Plan 1 (2026-10-09)
+
+Gemessen mit den Echtdaten-Tests der Objects-Bibliothek (Spiel-Loc `local_ge.pack`, 264 Quellen mit 2 Mods aus
+`used_mods.txt`, 0 Warnungen der Ladereihenfolge, jeweils 0 Objektwarnungen):
+
+| Objekt | Dauer | Texte | Abschnitte |
+|---|---|---|---|
+| `wh_main_emp_barracks_2` (Gebäude) | erster Aufbau 1217 ms, zweiter Aufbau mit demselben Store 66 ms | 13 | 8 |
+| `wh_main_emp_empire` (Fraktion, frischer Store) | 1352 ms | 31 | 32 |
+| `wh_main_trait_all_personality_all_hates_dwarfs` (Trait) | nicht gemessen | 2 | 1 |
+| Alle 1742 Schematabellen zusammenführen | 4406 ms, 339 MB Cache | nicht zutreffend | nicht zutreffend |
+
+Loc-Spalten: Rund 130 von 138 Loc-Spalten fehlen im Schema. Die Regel, die daraus folgt (Spalten aus den
+Loc-Schlüsseln ableiten), steht unter 5.4 „Festlegungen aus Plan 1“.
+
 ## 4. Schreibgrenze
 
 Teil 4.1 schreibt nichts. Die Schreibgrenze aus Teil 2 Abschnitt 4 bleibt unverändert. Insbesondere:
@@ -413,11 +428,11 @@ Titel-Schlüssel stehen in `locales/en.json` und `de.json`.
 | Nr. | Annahme | Prüfung |
 |---|---|---|
 | 1 | Klappgrenze 20 und Vorschau 5 machen eine Fraktion lesbar. | Abnahme Plan 2 mit `wh_main_emp_empire`. |
-| 2 | 200 MB Cache reichen, um zwischen Gebäude, Einheit und Fraktion zu springen, ohne neu zu dekodieren. | Abnahme Plan 2: drei Objektarten nacheinander, zweiter Durchgang unter 0,2 s. |
+| 2 | 200 MB Cache reichen, um zwischen Gebäude, Einheit und Fraktion zu springen, ohne neu zu dekodieren. | Abnahme Plan 2: drei Objektarten nacheinander, zweiter Durchgang unter 0,2 s. Hinweis aus Plan 1: Das Zusammenführen aller Tabellen braucht 339 MB; die Grenze von 200 MB erzwingt daher Verdrängung, wenn der Nutzer durch viele Objektarten läuft. Status offen für Plan 2. |
 | 3 | `used_mods.txt` bildet die Launcher-Auswahl des Nutzers ab. | Nutzer vergleicht mit dem Launcher. |
-| 4 | Der Name eines Traits liegt unter `character_trait_levels_onscreen_name_<level>`. | Echtdaten-Test Plan 1; sonst Loc-Konstruktion für Abschnittszeilen erweitern. |
+| 4 | Der Name eines Traits liegt unter `character_trait_levels_onscreen_name_<level>`. | **Bestätigt** (Echtdaten-Test 2026-10-09): Der Name liegt unter `character_trait_levels_onscreen_name_<trait>_<stufe>`, erreichbar über die Abschnittszeilen und `TryDisplayName`. |
 | 5 | Die Junction-Regel passt auch bei Einheiten und Traits. | Abnahme Plan 2; sonst Kategorie-Datei. |
-| 6 | Zusammenführung über Feldnamen genügt für die 104 Mod-Einträge mit älterem Layout. | Echtdaten-Test Plan 1 über alle Tabellen der Ladereihenfolge: keine Exception, Anzahl `OlderLayout`. |
+| 6 | Zusammenführung über Feldnamen genügt für die 104 Mod-Einträge mit älterem Layout. | **Bestätigt** (Echtdaten-Test 2026-10-09 über alle Tabellen der Ladereihenfolge): 1742 Tabellen, 964.436 Zeilen, 94.453 Zeilen mit älterem Layout, 1 Eintrag `VersionNotInSchema`, keine Exception, 4,4 s, 339 MB ohne Obergrenze. |
 | 7 | `FlowDocument` mit einigen hundert Zeilen und Hyperlinks bleibt flüssig. | Abnahme Plan 2 mit der Fraktion. |
 
 ## 11. Entscheidungen des Nutzers (2026-10-09)
