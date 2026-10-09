@@ -194,7 +194,8 @@ internal sealed class SourceReader
     private (PackData? Data, string Token, ReadProblem? Problem) OpenPack(TableSource source, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var fingerprint = FileFingerprint.TryRead(source.Path);
+        // An empty path names no file; FileFingerprint would throw for it.
+        var fingerprint = string.IsNullOrEmpty(source.Path) ? null : FileFingerprint.TryRead(source.Path);
         if (fingerprint is null)
         {
             return (null, "missing", PackProblemOf(source, "The pack file was not found or is not accessible", transient: false));
@@ -271,7 +272,8 @@ internal sealed class SourceReader
 
     private static SourceListing ListProjectTable(TableSource source, string tableName)
     {
-        if (!IsPlainName(tableName))
+        // An empty project path would resolve against the working directory.
+        if (string.IsNullOrEmpty(source.Path) || !IsPlainName(tableName))
         {
             return new SourceListing(source, NoFolderToken, [], []);
         }
@@ -302,6 +304,11 @@ internal sealed class SourceReader
 
     private static SourceListing ListProjectLoc(TableSource source)
     {
+        if (string.IsNullOrEmpty(source.Path))
+        {
+            return new SourceListing(source, NoFolderToken, [], []);
+        }
+
         var root = new DirectoryInfo(Path.Combine(source.Path, ProjectFile.PackFolder));
         var files = new List<(string Relative, string State)>();
         var problems = new List<ReadProblem>();

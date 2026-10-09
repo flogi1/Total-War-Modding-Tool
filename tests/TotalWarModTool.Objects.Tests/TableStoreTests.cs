@@ -449,6 +449,26 @@ public class TableStoreTests
     }
 
     [Fact]
+    public void An_empty_source_path_is_missing_not_an_exception()
+    {
+        var pack = new TableSource(SourceKind.Mod, "empty.pack", "");
+        var project = new TableSource(SourceKind.Project, "empty", "");
+        var order = TestSources.OrderWithLoc(new TableSource(SourceKind.Vanilla, "local_en.pack", ""), pack, project);
+        var store = NewStore();
+
+        var table = store.Get("units_tables", order, None);
+
+        Assert.Empty(table.Rows);
+        var problem = Assert.Single(table.Problems);
+        Assert.Equal(pack, problem.Source);
+        Assert.Equal(SourceProblemKind.Unreadable, problem.Kind);
+        Assert.Equal("missing\nnone", store.SignatureOf("units_tables", order, None));
+        var loc = new LocStore().Get(order, None);
+        Assert.Equal(0, loc.Count);
+        Assert.Equal(2, loc.Problems.Count);
+    }
+
+    [Fact]
     public void SignatureOf_equals_the_cache_key_and_changes_with_the_pack()
     {
         using var tmp = new TempDir();
