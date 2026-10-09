@@ -17,6 +17,7 @@
     <ProjectReference Include="..\TotalWarModTool.GameProfiles\TotalWarModTool.GameProfiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Logging\TotalWarModTool.Logging.csproj" />
+    <ProjectReference Include="..\TotalWarModTool.Objects\TotalWarModTool.Objects.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Operations\TotalWarModTool.Operations.csproj" />
     <ProjectReference Include="..\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Projects\TotalWarModTool.Projects.csproj" />

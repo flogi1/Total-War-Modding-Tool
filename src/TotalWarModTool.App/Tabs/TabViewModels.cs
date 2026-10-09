@@ -34,6 +34,8 @@ public abstract class TabViewModel : ObservableObject, IDisposable
     private OutsideChange _outside;
     private StaleKind _stale;
     private string _staleText = string.Empty;
+    private string _title;
+    private string _toolTip;
     private bool _disposed;
 
     // In the order of strength: a later one wins over every earlier one.
@@ -48,8 +50,8 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         _texts = texts;
         PackPath = source.Key;
         EntryPath = entryPath;
-        Title = entryPath[(entryPath.LastIndexOf('/') + 1)..];
-        ToolTip = $"{source.Name}: {entryPath}";
+        _title = entryPath[(entryPath.LastIndexOf('/') + 1)..];
+        _toolTip = $"{source.Name}: {entryPath}";
         CloseCommand = new RelayCommand(() => close(this));
         _texts.PropertyChanged += OnTextsChanged;
     }
@@ -62,11 +64,11 @@ public abstract class TabViewModel : ObservableObject, IDisposable
 
     public string EntryPath { get; }
 
-    /// <summary>The last segment of <see cref="EntryPath"/>.</summary>
-    public string Title { get; }
+    /// <summary>The last segment of <see cref="EntryPath"/>. A tab whose identity moves (the object tab) sets it again.</summary>
+    public string Title { get => _title; protected set => SetProperty(ref _title, value); }
 
     /// <summary>"&lt;source name&gt;: &lt;entry path&gt;"; both are data, not UI texts.</summary>
-    public string ToolTip { get; }
+    public string ToolTip { get => _toolTip; protected set => SetProperty(ref _toolTip, value); }
 
     /// <summary>
     /// True when the pack changed on disk, the schema changed or the file of a project tab was changed or deleted outside after the tab
@@ -159,10 +161,16 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         OnStaleChanged();
     }
 
+    /// <summary>The text of the pack mark. A tab that is not made of one pack says what its sources are.</summary>
+    protected virtual string PackStaleText => _texts.TabStale;
+
+    /// <summary>The text of the schema mark.</summary>
+    protected virtual string SchemaStaleText => _texts.TabStaleSchema;
+
     private string StaleTextFor(StaleKind kind) => kind switch
     {
-        StaleKind.Pack => _texts.TabStale,
-        StaleKind.Schema => _texts.TabStaleSchema,
+        StaleKind.Pack => PackStaleText,
+        StaleKind.Schema => SchemaStaleText,
         StaleKind.ChangedOutside => _texts.TabStaleChanged,
         StaleKind.DeletedOutside => _texts.TabStaleDeleted,
         _ => string.Empty,

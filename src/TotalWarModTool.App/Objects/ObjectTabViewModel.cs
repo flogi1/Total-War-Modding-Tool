@@ -1,0 +1,435 @@
+using System.Windows.Input;
+using TotalWarModTool.Objects;
+
+namespace TotalWarModTool.App;
+
+public enum ObjectTabState { Idle, Building, Ready, Cancelled, Failed }
+
+/// <summary>What the controller found out when it tried to jump from the object to its row.</summary>
+public enum JumpOutcome { None, SourceGone, RowNotFound }
+
+/// <summary>
+/// The tab of one object: the history of the objects it showed, the state of the build, and the lines of the last result. The tab does not build
+/// anything itself; the controller sets the handlers and reports the outcome of a build through <see cref="BeginBuild"/>,
+/// <see cref="ApplyResult"/>, <see cref="ApplyCancelled"/> and <see cref="ApplyFailed"/>. Lines, status and warnings belong to the last result and
+/// stay (also while a build runs, after it was cancelled or failed) until the tab moves to another object or a new result comes.
+/// </summary>
+public sealed class ObjectTabViewModel : TabViewModel
+{
+    public const int MaxHistory = 50;
+
+    private readonly List<ObjectRef> _history;
+    private readonly Func<string, string> _translate;
+    private readonly HashSet<int> _expanded = [];
+    private readonly Dictionary<ObjectId, string?> _displayNames = [];
+    private readonly RelayCommand _backCommand;
+    private readonly RelayCommand _forwardCommand;
+    private readonly RelayCommand _refreshCommand;
+    private readonly RelayCommand _jumpToRowCommand;
+    private Action<ObjectTabViewModel>? _jumpHandler;
+    private int _position;
+    private ObjectTabState _state = ObjectTabState.Idle;
+    private ObjectBuildResult? _result;
+    private IReadOnlyList<ObjectLine> _lines = [];
+    private string _status = string.Empty;
+    private string? _warningsText;
+    private string? _notice;
+    private string? _failedReason;
+    private bool _unsavedSource;
+    private bool _categoryUnreadable;
+    private JumpOutcome _jumpOutcome;
+
+    /// <param name="history">The entries so far, at least one.</param>
+    /// <param name="position">The index of the one shown. The tab starts Idle.</param>
+    /// <param name="translate">A loc key of a section title to its text.</param>
+    public ObjectTabViewModel(AppTexts texts, Action<TabViewModel> close, IReadOnlyList<ObjectRef> history, int position, Func<string, string> translate)
+        : base(SourceOf(texts, history, position), history[position].ToObjectId().ToString(), texts, close)
+    {
+        ArgumentNullException.ThrowIfNull(translate);
+        _history = [.. history];
+        _position = position;
+        _translate = translate;
+        _backCommand = new RelayCommand(Back, () => _position > 0 && !IsBuilding);
+        _forwardCommand = new RelayCommand(Forward, () => _position < _history.Count - 1 && !IsBuilding);
+        _refreshCommand = new RelayCommand(() => BuildHandler?.Invoke(this), () => !IsBuilding);
+        _jumpToRowCommand = new RelayCommand(() => JumpHandler?.Invoke(this), CanJump);
+        _notice = NoticeText();
+        ShowCurrent();
+    }
+
+    public ObjectRef Current => _history[_position];
+
+    public IReadOnlyList<ObjectRef> History => _history;
+
+    public int Position => _position;
+
+    public ObjectTabState State => _state;
+
+    /// <summary>The last successful build of <see cref="Current"/>; null before the first one and after the tab moved to another object.</summary>
+    public ObjectBuildResult? Result => _result;
+
+    /// <summary>The lines of <see cref="Result"/>; empty while there is none.</summary>
+    public IReadOnlyList<ObjectLine> Lines => _lines;
+
+    /// <summary>"Vanilla + 2 mods + project", plus ", 2 of 3 mods loaded" when a mod pack is missing, plus ", 3 warnings" when there are warnings; empty without a result.</summary>
+    public string Status => _status;
+
+    /// <summary>Every warning of the view as "Kind: Name: Detail" lines (data, escaped), for the tool tip of the status; null without warnings.</summary>
+    public string? WarningsText => _warningsText;
+
+    /// <summary>
+    /// What the user must know, one line each, joined with line breaks: the state (Idle, Building, Cancelled, Failed), object not found, unsaved
+    /// source, root pack added, used_mods.txt missing, category file unreadable, row source gone, row not found. Null when there is nothing.
+    /// </summary>
+    public string? Notice => _notice;
+
+    /// <summary>Position &gt; 0 and no build running.</summary>
+    public ICommand BackCommand => _backCommand;
+
+    /// <summary>Position before the last entry and no build running.</summary>
+    public ICommand ForwardCommand => _forwardCommand;
+
+    /// <summary>Builds the current object again; no build running.</summary>
+    public ICommand RefreshCommand => _refreshCommand;
+
+    /// <summary>Ready, the object has a row, and the controller can jump.</summary>
+    public ICommand JumpToRowCommand => _jumpToRowCommand;
+
+    /// <summary>The sections that are shown in full. Emptied with every new result.</summary>
+    public IReadOnlySet<int> ExpandedSections => _expanded;
+
+    /// <summary>Set by the controller: builds the current object and reports through <c>BeginBuild</c> and the <c>Apply</c> methods. Without it the tab stays as it is.</summary>
+    internal Action<ObjectTabViewModel>? BuildHandler { get; set; }
+
+    /// <summary>Set by the controller: opens the target in a new tab (from, target, newTab).</summary>
+    internal Action<ObjectTabViewModel, ObjectRef, bool>? OpenHandler { get; set; }
+
+    /// <summary>Set by the controller: selects the row of the object in the table tab it came from.</summary>
+    internal Action<ObjectTabViewModel>? JumpHandler
+    {
+        get => _jumpHandler;
+        set
+        {
+            _jumpHandler = value;
+            _jumpToRowCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    protected override string PackStaleText => Texts.ObjectsStale;
+
+    private bool IsBuilding => _state == ObjectTabState.Building;
+
+    /// <summary>Renders again with the section expanded; never builds.</summary>
+    public void ExpandSection(int section)
+    {
+        if (_expanded.Add(section))
+        {
+            RenderLines();
+        }
+    }
+
+    /// <summary>Renders again with the section collapsed again; never builds.</summary>
+    public void CollapseSection(int section)
+    {
+        if (_expanded.Remove(section))
+        {
+            RenderLines();
+        }
+    }
+
+    /// <summary>
+    /// A link: the target replaces the forward part of the history (or opens a new tab) and is built. The target keeps the
+    /// <see cref="ObjectRef.RootPackPath"/> of <see cref="Current"/>.
+    /// </summary>
+    public void NavigateTo(ObjectId target, bool newTab)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var entry = new ObjectRef(target.Table, target.KeyValues, Current.RootPackPath);
+        if (newTab)
+        {
+            OpenHandler?.Invoke(this, entry, true);
+            return;
+        }
+
+        _history.RemoveRange(_position + 1, _history.Count - _position - 1);
+        _history.Add(entry);
+        if (_history.Count > MaxHistory)
+        {
+            _history.RemoveRange(0, _history.Count - MaxHistory);
+        }
+
+        MoveTo(_history.Count - 1);
+    }
+
+    /// <summary>Display name of a link target from the loc table of the last build; null when none or not Ready.</summary>
+    public string? DisplayNameOf(ObjectId target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (_state != ObjectTabState.Ready || _result is null)
+        {
+            return null;
+        }
+
+        if (!_displayNames.TryGetValue(target, out var name))
+        {
+            name = ObjectBuilder.DisplayName(_result.Loc, target) is { } text ? MessageText.EscapeControlCharacters(text) : null;
+            _displayNames[target] = name;
+        }
+
+        return name;
+    }
+
+    /// <summary>The build started. The lines stay until the result comes.</summary>
+    public void BeginBuild()
+    {
+        _failedReason = null;
+        SetState(ObjectTabState.Building);
+    }
+
+    /// <summary>The build delivered <paramref name="result"/>: it is rendered, the expanded sections and the notice of a jump are forgotten.</summary>
+    public void ApplyResult(ObjectBuildResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        _result = result;
+        _failedReason = null;
+        _jumpOutcome = JumpOutcome.None;
+        _expanded.Clear();
+        _displayNames.Clear();
+        OnPropertyChanged(nameof(Result));
+        _state = ObjectTabState.Ready;
+        OnPropertyChanged(nameof(State));
+        RenderLines();
+        SetProperty(ref _warningsText, WarningsOf(result), nameof(WarningsText));
+        RefreshDerived();
+    }
+
+    /// <summary>The build was cancelled. The old lines stay.</summary>
+    public void ApplyCancelled() => SetState(ObjectTabState.Cancelled);
+
+    /// <summary>The build failed. <paramref name="reason"/> null: the general text; else the given text (for example that no game is set).</summary>
+    public void ApplyFailed(string? reason = null)
+    {
+        _failedReason = reason;
+        SetState(ObjectTabState.Failed);
+    }
+
+    /// <summary>The tab the object was opened from has unsaved changes, so the view shows the saved state.</summary>
+    public void SetUnsavedSource(bool unsaved)
+    {
+        _unsavedSource = unsaved;
+        RefreshNotice();
+    }
+
+    /// <summary>The category file of the table could not be read, so the default layout is used.</summary>
+    public void SetCategoryProblem(bool unreadable)
+    {
+        _categoryUnreadable = unreadable;
+        RefreshNotice();
+    }
+
+    /// <summary>The outcome of the last jump to the row; it is forgotten with the next result.</summary>
+    public void SetJumpNotice(JumpOutcome outcome)
+    {
+        _jumpOutcome = outcome;
+        RefreshNotice();
+    }
+
+    protected override void RefreshTexts()
+    {
+        RenderLines();
+        RefreshDerived();
+    }
+
+    private static TabSource SourceOf(AppTexts texts, IReadOnlyList<ObjectRef> history, int position)
+    {
+        ArgumentNullException.ThrowIfNull(texts);
+        ArgumentNullException.ThrowIfNull(history);
+        if (history.Count == 0 || position < 0 || position >= history.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), "The history needs an entry at the position.");
+        }
+
+        return TabSource.ForObject(history[position].Table, texts.ObjectsTabSourceName);
+    }
+
+    private void Back()
+    {
+        if (_position > 0 && !IsBuilding)
+        {
+            MoveTo(_position - 1);
+        }
+    }
+
+    private void Forward()
+    {
+        if (_position < _history.Count - 1 && !IsBuilding)
+        {
+            MoveTo(_position + 1);
+        }
+    }
+
+    /// <summary>Shows another entry: what the old object showed is dropped, then the controller builds.</summary>
+    private void MoveTo(int position)
+    {
+        _position = position;
+        ShowCurrent();
+        _result = null;
+        _failedReason = null;
+        _jumpOutcome = JumpOutcome.None;
+        _expanded.Clear();
+        _displayNames.Clear();
+        _state = ObjectTabState.Idle;
+        _lines = [];
+        _status = string.Empty;
+        _warningsText = null;
+        OnPropertyChanged(nameof(Position));
+        OnPropertyChanged(nameof(Current));
+        OnPropertyChanged(nameof(History));
+        OnPropertyChanged(nameof(Result));
+        OnPropertyChanged(nameof(State));
+        OnPropertyChanged(nameof(Lines));
+        OnPropertyChanged(nameof(Status));
+        OnPropertyChanged(nameof(WarningsText));
+        RefreshNotice();
+        RaiseCommands();
+        BuildHandler?.Invoke(this);
+    }
+
+    private void ShowCurrent()
+    {
+        var key = MessageText.EscapeControlCharacters(Current.JoinedKey);
+        Title = key;
+        ToolTip = MessageText.EscapeControlCharacters(ObjectText.ShortTableName(Current.Table)) + ": " + key;
+    }
+
+    private void SetState(ObjectTabState state)
+    {
+        _state = state;
+        OnPropertyChanged(nameof(State));
+        RefreshNotice();
+        RaiseCommands();
+    }
+
+    private void RenderLines()
+    {
+        if (_result is null)
+        {
+            return;
+        }
+
+        var lines = ObjectText.Render(_result.View, _result.Category, new RenderOptions(_expanded));
+        _lines = ObjectLines.Build(lines, Texts, _translate);
+        OnPropertyChanged(nameof(Lines));
+    }
+
+    private void RefreshDerived()
+    {
+        SetProperty(ref _status, StatusText(), nameof(Status));
+        RefreshNotice();
+        RaiseCommands();
+    }
+
+    private void RefreshNotice() => SetProperty(ref _notice, NoticeText(), nameof(Notice));
+
+    private void RaiseCommands()
+    {
+        _backCommand.RaiseCanExecuteChanged();
+        _forwardCommand.RaiseCanExecuteChanged();
+        _refreshCommand.RaiseCanExecuteChanged();
+        _jumpToRowCommand.RaiseCanExecuteChanged();
+    }
+
+    private bool CanJump() => _state == ObjectTabState.Ready && _result?.View.Root is not null && _jumpHandler is not null;
+
+    private string StatusText()
+    {
+        if (_result is null)
+        {
+            return string.Empty;
+        }
+
+        var sources = _result.Order.Sources;
+        var mods = sources.Count(source => source.Kind == SourceKind.Mod);
+        var text = sources.Any(source => source.Kind == SourceKind.Project) ? Texts.ObjectsStatusWithProject(mods) : Texts.ObjectsStatus(mods);
+        var missing = _result.Order.Warnings.Count(warning => warning.Problem == LoadOrderProblem.ModPackMissing);
+        if (missing > 0)
+        {
+            text += ", " + Texts.ObjectsStatusModsLoaded(mods, mods + missing);
+        }
+
+        var warnings = _result.View.Warnings.Count;
+        return warnings > 0 ? text + ", " + Texts.ObjectsStatusWarnings(warnings) : text;
+    }
+
+    private static string? WarningsOf(ObjectBuildResult result)
+    {
+        if (result.View.Warnings.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join(Environment.NewLine, result.View.Warnings.Select(warning => MessageText.EscapeControlCharacters(
+            warning.Name is null ? warning.Kind + ": " + warning.Detail : warning.Kind + ": " + warning.Name + ": " + warning.Detail)));
+    }
+
+    private string? NoticeText()
+    {
+        var lines = new List<string>();
+        switch (_state)
+        {
+            case ObjectTabState.Idle:
+                lines.Add(Texts.ObjectsStateIdle);
+                break;
+            case ObjectTabState.Building:
+                lines.Add(Texts.ObjectsStateBuilding);
+                break;
+            case ObjectTabState.Cancelled:
+                lines.Add(Texts.ObjectsStateCancelled);
+                break;
+            case ObjectTabState.Failed:
+                lines.Add(_failedReason ?? Texts.ObjectsStateFailed);
+                break;
+        }
+
+        if (_result is { } result && result.View.Warnings.Any(warning => warning.Kind == ObjectWarningKind.RootNotFound))
+        {
+            lines.Add(Texts.ObjectsNotFound);
+        }
+
+        if (_unsavedSource)
+        {
+            lines.Add(Texts.ObjectsNoticeUnsavedSource);
+        }
+
+        if (_result is not null)
+        {
+            var problems = _result.Order.Warnings.Select(warning => warning.Problem).ToHashSet();
+            if (problems.Contains(LoadOrderProblem.RootPackAdded))
+            {
+                lines.Add(Texts.ObjectsNoticeRootPackAdded);
+            }
+
+            if (problems.Contains(LoadOrderProblem.UsedModsMissing) || problems.Contains(LoadOrderProblem.UsedModsUnreadable))
+            {
+                lines.Add(Texts.ObjectsNoticeNoUsedMods);
+            }
+        }
+
+        if (_categoryUnreadable)
+        {
+            lines.Add(Texts.ObjectsNoticeCategoryUnreadable);
+        }
+
+        switch (_jumpOutcome)
+        {
+            case JumpOutcome.SourceGone:
+                lines.Add(Texts.ObjectsNoticeRowSourceGone);
+                break;
+            case JumpOutcome.RowNotFound:
+                lines.Add(Texts.ObjectsNoticeRowNotFound);
+                break;
+        }
+
+        return lines.Count == 0 ? null : string.Join(Environment.NewLine, lines);
+    }
+}

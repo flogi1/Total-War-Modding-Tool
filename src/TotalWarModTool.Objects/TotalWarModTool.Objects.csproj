@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TotalWarModTool.Objects.Tests" />
+    <InternalsVisibleTo Include="TotalWarModTool.App.Tests" />
   </ItemGroup>
 
   <ItemGroup>
