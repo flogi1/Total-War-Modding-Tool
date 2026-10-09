@@ -217,7 +217,7 @@ public sealed class TableStore
                 var olderLayout = !IsIdentity(mapping, definition, read.Definition);
                 foreach (var row in read.Rows)
                 {
-                    var cells = olderLayout ? Remap(definition, mapping, row) : row;
+                    var cells = olderLayout ? Remap(definition, read.Definition, mapping, row) : row;
                     AddRow(rows, keyStates, definition, keyFields, listings, sourceIndex, cells, olderLayout);
                 }
             }
@@ -274,7 +274,7 @@ public sealed class TableStore
         state.Overridden = overridden;
     }
 
-    /// <summary>For every target field the index of the field of the same name and type in the source definition, -1 when there is none. Null when a target field has an unsupported type.</summary>
+    /// <summary>For every target field the index of the field of the same name (a changed type is converted in <see cref="Remap"/>) in the source definition, -1 when there is none. Null when a target field has an unsupported type.</summary>
     private static int[]? MapFields(TableDefinition target, TableDefinition source)
     {
         var mapping = new int[target.Fields.Count];
@@ -289,7 +289,7 @@ public sealed class TableStore
             mapping[i] = -1;
             for (var j = 0; j < source.Fields.Count; j++)
             {
-                if (source.Fields[j].Type == field.Type && string.Equals(source.Fields[j].Name, field.Name, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(source.Fields[j].Name, field.Name, StringComparison.OrdinalIgnoreCase))
                 {
                     mapping[i] = j;
                     break;
@@ -309,7 +309,7 @@ public sealed class TableStore
 
         for (var i = 0; i < mapping.Length; i++)
         {
-            if (mapping[i] != i)
+            if (mapping[i] != i || target.Fields[i].Type != source.Fields[i].Type)
             {
                 return false;
             }
@@ -318,14 +318,40 @@ public sealed class TableStore
         return true;
     }
 
-    private static object?[] Remap(TableDefinition target, int[] mapping, object?[] row)
+    private static object?[] Remap(TableDefinition target, TableDefinition source, int[] mapping, object?[] row)
     {
         var cells = new object?[mapping.Length];
         for (var i = 0; i < cells.Length; i++)
         {
-            cells[i] = mapping[i] >= 0 ? row[mapping[i]] : CellText.DefaultValue(target.Fields[i].Type);
+            var targetType = target.Fields[i].Type;
+            if (mapping[i] < 0)
+            {
+                cells[i] = CellText.DefaultValue(targetType);
+                continue;
+            }
+
+            var sourceType = source.Fields[mapping[i]].Type;
+            cells[i] = sourceType == targetType ? row[mapping[i]] : Convert(sourceType, targetType, row[mapping[i]]);
         }
 
         return cells;
+    }
+
+    /// <summary>A field whose type changed between versions: through its text, the default value when the text does not fit.</summary>
+    private static object? Convert(FieldType sourceType, FieldType targetType, object? value)
+    {
+        try
+        {
+            if (CellText.TryParse(targetType, CellText.Format(sourceType, value), out var converted, out _))
+            {
+                return converted;
+            }
+        }
+        catch (ArgumentException)
+        {
+            // The value does not have the type its definition says; the default value is the safe answer.
+        }
+
+        return CellText.DefaultValue(targetType);
     }
 }

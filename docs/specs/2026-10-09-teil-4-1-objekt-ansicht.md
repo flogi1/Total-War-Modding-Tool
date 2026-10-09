@@ -244,6 +244,11 @@ Ladereihenfolge:
 - Loc: `LocStore` hält Schlüssel → (Text, Herkunft) für die Loc-Quelle, einmal geladen
   (0,45 s gemessen), mit demselben Fingerprint-Prinzip.
 
+#### Festlegungen aus Plan 1
+
+- Hat sich der Typ eines Feldes zwischen Schema-Versionen geändert (gleicher Name), wird der Wert über seinen Text in den neuen Typ konvertiert (`CellText.Format`, dann `CellText.TryParse`); passt der Text nicht, gilt der Standardwert des Zieltyps. Die Zeile trägt in beiden Fällen `OlderLayout`.
+- Nennt die Meta-Zeile einer Projekt-TSV einen anderen Tabellennamen als der Ordner `pack\db\<tabelle>\`, in dem sie liegt, ist das ein `SourceProblem` `TsvInvalid`.
+
 ### 5.5 Objektmodell
 
 `ObjectBuilder.Build(ObjectId root, LoadOrder order, CancellationToken)` liefert `ObjectView`:

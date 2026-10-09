@@ -356,6 +356,82 @@ public class TableStoreTests
         Assert.Equal(2, table.FieldIndex("n"));
     }
 
+
+    [Fact]
+    public void A_field_whose_type_changed_is_converted_through_text()
+    {
+        var schema = Build(
+            ("conv_tables", 2, [Field("key", key: true), Field("cost", FieldType.F32)]),
+            ("conv_tables", 1, [Field("key", key: true), Field("cost", FieldType.I32)]),
+            ("text_tables", 2, [Field("key", key: true), Field("cost", FieldType.I32)]),
+            ("text_tables", 1, [Field("key", key: true), Field("cost")]));
+        using var tmp = new TempDir();
+        var mod = TestSources.Mod(TestSources.WritePack(tmp.File("mod.pack"), schema,
+            ("conv_tables", 1, [["k1", 5]]),
+            ("text_tables", 1, [["k1", "abc"], ["k2", "7"]])));
+        var store = new TableStore(schema, ReferenceGraph.Build(schema));
+        var order = TestSources.Order(mod);
+
+        var converted = store.Get("conv_tables", order, None);
+        var row = Assert.Single(converted.Rows);
+        Assert.Equal(5f, row.Cells[1]);
+        Assert.True(row.Provenance.OlderLayout);
+
+        var text = store.Get("text_tables", order, None);
+        Assert.Empty(text.Problems);
+        Assert.Equal(0, text.FindByKey(["k1"])[0].Cells[1]);
+        Assert.Equal(7, text.FindByKey(["k2"])[0].Cells[1]);
+        Assert.All(text.Rows, r => Assert.True(r.Provenance.OlderLayout));
+    }
+
+    [Fact]
+    public void A_pack_that_gains_the_table_invalidates_it()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema,
+            ("units_tables", 2, [U("u1", "Alpha", 10), U("u2", "Beta", 20)])));
+        var modPath = TestSources.WritePack(tmp.File("mod.pack"), Schema, ("pairs_tables", 1, [Pair("a1", "b1", 1)]));
+        var order = TestSources.Order(vanilla, TestSources.Mod(modPath));
+        var store = NewStore();
+        var before = store.Get("units_tables", order, None);
+        Assert.Equal(2, before.Rows.Count);
+
+        TestSources.WritePack(modPath, Schema, ("units_tables", 2, [U("u3", "Gamma", 30)]));
+
+        var after = store.Get("units_tables", order, None);
+        Assert.NotSame(before, after);
+        Assert.Equal(3, after.Rows.Count);
+    }
+
+    [Fact]
+    public void A_deleted_pack_invalidates_the_table()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema,
+            ("units_tables", 2, [U("u1", "Alpha", 10), U("u2", "Beta", 20)])));
+        var modPath = TestSources.WritePack(tmp.File("mod.pack"), Schema, ("units_tables", 2, [U("u3", "Gamma", 30)]));
+        var order = TestSources.Order(vanilla, TestSources.Mod(modPath));
+        var store = NewStore();
+        var before = store.Get("units_tables", order, None);
+        Assert.Equal(3, before.Rows.Count);
+
+        File.Delete(modPath);
+
+        var after = store.Get("units_tables", order, None);
+        Assert.NotSame(before, after);
+        Assert.Equal(2, after.Rows.Count);
+    }
+
+    [Fact]
+    public void FindByKey_returns_a_fresh_list_each_call()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema, ("units_tables", 2, [U("u1", "Alpha", 10)])));
+
+        var table = NewStore().Get("units_tables", TestSources.Order(vanilla), None);
+
+        Assert.NotSame(table.FindByKey(["u1"]), table.FindByKey(["u1"]));
+    }
     [Fact]
     public void Clear_drops_all_cached_state()
     {

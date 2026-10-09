@@ -18,6 +18,7 @@ public sealed record SourceProblem(TableSource Source, string EntryPath, SourceP
 /// <summary>Overridden lists the sources whose row with the same key this row replaced, earliest first.</summary>
 public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate);
 
+/// <summary>One merged row. Cells is shared with the cache (and may be the array the decoder produced): it must not be modified.</summary>
 public sealed record MergedRow(object?[] Cells, RowProvenance Provenance);
 
 /// <summary>One table merged over a load order: later sources replace rows with the same key. Read-only after construction.</summary>
@@ -59,7 +60,7 @@ public sealed class MergedTable
 
     public long EstimatedBytes { get; }
 
-    /// <summary>Rows whose key fields equal the values (ordinal, in KeyFields order). Empty when the table has no key.</summary>
+    /// <summary>Rows whose key fields equal the values (ordinal, in KeyFields order), as a new list. Empty when the table has no key.</summary>
     public IReadOnlyList<MergedRow> FindByKey(IReadOnlyList<string> keyValues)
     {
         ArgumentNullException.ThrowIfNull(keyValues);
@@ -68,7 +69,7 @@ public sealed class MergedTable
             return NoRows;
         }
 
-        return _byKey.Value.TryGetValue(string.Join(KeySeparator, keyValues), out var rows) ? rows : NoRows;
+        return _byKey.Value.TryGetValue(string.Join(KeySeparator, keyValues), out var rows) ? new List<MergedRow>(rows) : NoRows;
     }
 
     /// <summary>Rows whose cell in the field (by name, OrdinalIgnoreCase) formats to the value. Empty for an unknown field.</summary>
