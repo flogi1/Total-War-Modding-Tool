@@ -144,6 +144,25 @@ public class TableStoreTests
     }
 
     [Fact]
+    public void A_row_knows_the_entry_it_came_from()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePack(tmp.File("a.pack"), Schema,
+            ("units_tables", 2, [U("u1", "Alpha", 10), U("u2", "Beta", 20)])));
+        var proj = Path.Combine(tmp.Path, "proj");
+        TestSources.WriteProjectTable(proj, Schema, "units_tables", 2, "a", [U("u2", "Project", 99), U("u3", "Gamma", 30)]);
+        var project = TestSources.Project(proj);
+
+        var table = NewStore().Get("units_tables", TestSources.Order(vanilla, project), None);
+
+        Assert.Empty(table.Problems);
+        Assert.Equal("db/units_tables/data__", table.FindByKey(["u1"])[0].Provenance.EntryPath);
+        // The overridden row carries the entry of the source that won.
+        Assert.Equal(@"pack\db\units_tables\a.tsv", table.FindByKey(["u2"])[0].Provenance.EntryPath);
+        Assert.Equal(@"pack\db\units_tables\a.tsv", table.FindByKey(["u3"])[0].Provenance.EntryPath);
+    }
+
+    [Fact]
     public void A_broken_source_is_reported_and_the_others_are_merged()
     {
         using var tmp = new TempDir();

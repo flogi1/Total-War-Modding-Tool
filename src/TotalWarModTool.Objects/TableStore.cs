@@ -240,7 +240,7 @@ public sealed class TableStore
                 foreach (var row in read.Rows)
                 {
                     var cells = olderLayout ? Remap(definition, read.Definition, mapping, row) : row;
-                    AddRow(rows, keyStates, definition, keyFields, listings, sourceIndex, cells, olderLayout);
+                    AddRow(rows, keyStates, definition, keyFields, listings, sourceIndex, cells, olderLayout, entry.EntryPath);
                 }
             }
         }
@@ -250,12 +250,12 @@ public sealed class TableStore
     }
 
     private static void AddRow(List<MergedRow?> rows, Dictionary<string, KeyState> keyStates, TableDefinition definition,
-        IReadOnlyList<int> keyFields, List<SourceListing> listings, int sourceIndex, object?[] cells, bool olderLayout)
+        IReadOnlyList<int> keyFields, List<SourceListing> listings, int sourceIndex, object?[] cells, bool olderLayout, string entryPath)
     {
         var source = listings[sourceIndex].Source;
         if (keyFields.Count == 0)
         {
-            rows.Add(new MergedRow(cells, new RowProvenance(source, [], olderLayout, false)));
+            rows.Add(new MergedRow(cells, new RowProvenance(source, [], olderLayout, false, entryPath)));
             return;
         }
 
@@ -263,7 +263,7 @@ public sealed class TableStore
         if (!keyStates.TryGetValue(key, out var state))
         {
             keyStates[key] = new KeyState(sourceIndex, rows.Count);
-            rows.Add(new MergedRow(cells, new RowProvenance(source, [], olderLayout, false)));
+            rows.Add(new MergedRow(cells, new RowProvenance(source, [], olderLayout, false, entryPath)));
             return;
         }
 
@@ -277,7 +277,7 @@ public sealed class TableStore
             }
 
             state.Positions.Add(rows.Count);
-            rows.Add(new MergedRow(cells, new RowProvenance(source, state.Overridden, olderLayout, true)));
+            rows.Add(new MergedRow(cells, new RowProvenance(source, state.Overridden, olderLayout, true, entryPath)));
             return;
         }
 
@@ -290,7 +290,7 @@ public sealed class TableStore
         var first = state.Positions[0];
         state.History.Add(listings[state.SourceIndex].Source);
         var overridden = state.History.ToArray();
-        rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false));
+        rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false, entryPath));
         state.Positions = [first];
         state.SourceIndex = sourceIndex;
         state.Overridden = overridden;

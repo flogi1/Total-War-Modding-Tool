@@ -145,7 +145,8 @@ public sealed class ObjectBuilder
         return DisplayName(_loc.Get(order, cancellationToken), id);
     }
 
-    private static string? DisplayName(LocTable loc, ObjectId id)
+    /// <summary>Display name of an object from an already loaded loc table (first DisplayNameColumns hit), null when none. Pure dictionary lookups.</summary>
+    public static string? DisplayName(LocTable loc, ObjectId id)
     {
         var table = StripSuffix(id.Table);
         foreach (var column in DisplayColumns)

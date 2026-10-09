@@ -479,6 +479,17 @@ public class ObjectBuilderTests
     }
 
     [Fact]
+    public void DisplayName_takes_the_first_display_column_that_exists()
+    {
+        using var tmp = new TempDir();
+        var order = Single(tmp, [L("technologies_name_t1", "Other"), L("technologies_onscreen_name_t1", "Tech")]);
+        var loc = new LocStore().Get(order, None);
+
+        Assert.Equal("Tech", ObjectBuilder.DisplayName(loc, new ObjectId("technologies_tables", ["t1"])));
+        Assert.Null(ObjectBuilder.DisplayName(loc, new ObjectId("technologies_tables", ["t2"])));
+    }
+
+    [Fact]
     public void ObjectId_compares_the_table_ignoring_case_and_the_values_ordinal()
     {
         var a = new ObjectId("Pairs_Tables", ["x", "y"]);

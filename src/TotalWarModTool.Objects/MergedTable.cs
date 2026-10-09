@@ -15,8 +15,11 @@ public enum SourceProblemKind
 /// <summary>EntryPath is the pack entry path or the project file relative to the project folder. It is empty when the whole source is meant.</summary>
 public sealed record SourceProblem(TableSource Source, string EntryPath, SourceProblemKind Kind, string Detail);
 
-/// <summary>Overridden lists the sources whose row with the same key this row replaced, earliest first.</summary>
-public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate);
+/// <summary>
+/// Overridden lists the sources whose row with the same key this row replaced, earliest first. EntryPath is the pack entry ("db/x_tables/data__")
+/// or the project file below the project folder ("pack\db\x_tables\a.tsv") the row was read from; empty only for a row built without a listing.
+/// </summary>
+public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate, string EntryPath = "");
 
 /// <summary>One merged row. Cells is shared with the cache (and may be the array the decoder produced): it must not be modified.</summary>
 public sealed record MergedRow(object?[] Cells, RowProvenance Provenance);
