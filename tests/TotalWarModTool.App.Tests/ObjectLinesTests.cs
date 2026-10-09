@@ -43,6 +43,12 @@ public class ObjectLinesTests
         Assert.Null(lines[1].Spans[0].ToolTip);                          // a warning line of the view is data, no value
     }
 
+    [Fact] public void A_lone_warning_value_in_a_row_gets_the_target_unknown_tool_tip()
+    {
+        var lines = Build(Line(1, new TextSpan("missing", SpanKind.Warning)));
+        Assert.Equal(Texts.ObjectsTargetUnknown, lines[0].Spans[0].ToolTip);
+    }
+
     [Fact] public void Other_spans_pass_through_unchanged()
     {
         var target = new ObjectId("effects_tables", ["e1"]);

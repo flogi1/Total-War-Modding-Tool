@@ -268,7 +268,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         }
     }
 
-    /// <summary>Shows another entry: what the old object showed is dropped, then the controller builds.</summary>
+    /// <summary>Shows another entry: what the old object showed and the flags of its source tab are dropped, then the controller builds.</summary>
     private void MoveTo(int position)
     {
         _position = position;
@@ -276,6 +276,8 @@ public sealed class ObjectTabViewModel : TabViewModel
         _result = null;
         _failedReason = null;
         _jumpOutcome = JumpOutcome.None;
+        _unsavedSource = false;
+        _categoryUnreadable = false;
         _expanded.Clear();
         _displayNames.Clear();
         _state = ObjectTabState.Idle;

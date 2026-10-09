@@ -28,8 +28,8 @@ public static class ObjectLines
         SpanKind.Collapsed => new ObjectSpan(texts.ObjectsMoreRows(span.Count ?? 0), span.Kind, span.Target, span.Section),
         SpanKind.Duplicate => new ObjectSpan(texts.ObjectsDuplicate, span.Kind, span.Target, span.Section),
         SpanKind.OlderLayout => new ObjectSpan(texts.ObjectsOlderLayout, span.Kind, span.Target, span.Section),
-        // A warning line of the view is one Warning span; a Warning next to other spans is a value that has no target.
-        SpanKind.Warning when line.Spans.Count > 1 => new ObjectSpan(span.Text, span.Kind, span.Target, span.Section, texts.ObjectsTargetUnknown),
+        // A warning line of the view is one Warning span at indent 0 (data); any other Warning is a value that has no target.
+        SpanKind.Warning when !(line.Indent == 0 && line.Spans.Count == 1) => new ObjectSpan(span.Text, span.Kind, span.Target, span.Section, texts.ObjectsTargetUnknown),
         _ => new ObjectSpan(span.Text, span.Kind, span.Target, span.Section),
     };
 }

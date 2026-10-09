@@ -251,6 +251,19 @@ public class ObjectTabViewModelTests
         Assert.Null(tab.Notice);
     }
 
+    [Fact] public void Moving_to_another_object_forgets_the_flags_of_the_source_tab()
+    {
+        var tab = Tab();
+        tab.SetUnsavedSource(true);
+        tab.SetCategoryProblem(true);
+        Assert.Contains(Texts.ObjectsNoticeUnsavedSource, tab.Notice);
+        tab.NavigateTo(Id("b"), newTab: false);
+        Assert.Equal(Texts.ObjectsStateIdle, tab.Notice);
+        tab.SetUnsavedSource(true);
+        tab.RefreshCommand.Execute(null);                                 // a refresh keeps the flags
+        Assert.Contains(Texts.ObjectsNoticeUnsavedSource, tab.Notice);
+    }
+
     [Fact] public void The_status_counts_missing_mods()
     {
         var tab = Tab();
