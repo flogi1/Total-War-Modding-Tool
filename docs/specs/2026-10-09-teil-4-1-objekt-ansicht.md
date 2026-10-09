@@ -265,6 +265,10 @@ Ladereihenfolge:
 - Nennt die Meta-Zeile einer Projekt-TSV einen anderen Tabellennamen als der Ordner `pack\db\<tabelle>\`, in dem sie liegt, ist das ein `SourceProblem` `TsvInvalid`.
 - Loc-Spalten stammen aus den Loc-Schlüsseln selbst (Bereich mit Präfix `<tabelle>_`, die Schlüsselmenge der Tabelle als Trenner: der Rest nach dem Präfix wird von links an jedem `_` geteilt, der erste Schwanz, der ein `JoinedKey` einer Zeile der Tabelle ist, liefert die Spalte), nicht aus der Tabellendefinition, weil rund 130 von 138 Loc-Spalten im Schema fehlen (gemessen 2026-10-09). Die Texte einer Zeile (Wurzel, gefundene Referenzziele, Abschnittszeilen) werden mit dem `JoinedKey` der ganzen Zeile gesucht.
 - Bei Text-Tabellen ohne Schema (Ziel einer Referenz, das das Schema nicht kennt) werden zuerst die genauen Schlüssel `<tabelle>_<spalte>_<wert>` für die Anzeigespalten (`ObjectBuilder.DisplayNameColumns`, in deren Reihenfolge) gesucht; ohne Treffer gilt der kürzeste Loc-Schlüssel mit Präfix `<tabelle>_` und Suffix `_<wert>` (bei gleicher Länge der ordinal erste), die Spalte ist der Teil dazwischen; ohne Treffer bleibt es `NotFound` (Wurzelfelder) beziehungsweise `Unchecked` (Abschnittszeilen).
+- Abweichend von „Index pro Feld“ sucht Plan 1 Zeilen über ein Feld linear (`MergedTable.FindByField`); der warme Aufbau eines Gebäudes dauerte so 66 ms (Echtdaten-Lauf 2026-10-09, Abschnitt 3.7). Den Index pro Feld gibt es erst, wenn Plan 2 einen Bedarf misst.
+- Cache-Schlüssel: Ein Pack trägt nur dann seinen Fingerprint (Größe, mtime) zum Schlüssel einer Tabelle bei, wenn es Einträge dieser Tabelle hat, sonst `-` (fehlendes Pack `missing`, fehlender Projektordner `none`); so macht ein geändertes Pack nur seine eigenen Tabellen ungültig. Ergebnisse mit vorübergehenden Problemen (gesperrtes Pack, nicht lesbarer Eintrag oder Projektordner) werden nicht im Cache gehalten, damit eine Sperre nicht hängen bleibt.
+- Abschnitte im Modus `list` (Regel 4 in 5.6): Pro Zeile entfällt nur das Feld, das auf die Wurzel zeigt (`FieldName` des Abschnitts); Schlüsselfelder der Zeile bleiben sichtbar, weil sie die Zeile erst unterscheidbar machen.
+- Abschnittskopf (Regel 4 in 5.6): Er zeigt den Titel-Schlüssel aus der Kategorie-Datei oder, ohne Titel, den Tabellennamen ohne `_tables`, nicht beides; dahinter Zeilenzahl und Herkünfte.
 
 ### 5.5 Objektmodell
 
@@ -275,8 +279,9 @@ Ladereihenfolge:
   Felder als `FieldValue` (Name, Wert als Text über `CellText.Format`, `Reference` oder null,
   `Resolution`: `Found`, `NotFound`, `LocOnly`, plus Loc-Text bei `LocOnly`).
 - `Texts`: Loc-Einträge zur Wurzel: für die Wurzeltabelle und die Zieltabellen ihrer Referenzen
-  alle Schlüssel `<tabelle>_<spalte>_<schlüssel>`, die im `LocStore` existieren (Spalten siehe „Festlegungen aus Plan 1“). Kein Suchen über
-  Suffixe.
+  alle Schlüssel `<tabelle>_<spalte>_<schlüssel>`, die im `LocStore` existieren. Wie die Spalten
+  gefunden werden (aus den Loc-Schlüsseln, begrenzte Präfix-Bereiche) und dass auch die Texte der
+  Abschnittszeilen dazugehören, steht in 5.4 „Festlegungen aus Plan 1“.
 - `Sections`: eine pro `(SourceTable, FieldName)` aus `Incoming`, deren Feld auf ein Schlüsselfeld
   der Wurzel zeigt, mit mindestens einer Zeile. Jede Zeile hat `Provenance`, Felder und bei
   Junction-Tabellen `OtherEnd` (`ObjectId`, `Resolution`, Loc-Name). Zeilen mit gleichem Schlüssel
