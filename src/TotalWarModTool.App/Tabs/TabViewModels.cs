@@ -196,6 +196,8 @@ public abstract class RowsTabViewModel : TabViewModel
 
     private readonly IClipboard? _clipboard;
     private readonly RelayCommand _copyRowsCommand;
+    private readonly RelayCommand _showObjectCommand;
+    private readonly IRowObjectOpener? _objectOpener;
     private bool _showText;
     private bool _textBuilt;
     private string? _text;
@@ -206,11 +208,19 @@ public abstract class RowsTabViewModel : TabViewModel
     private string? _gridNotice;
 
     /// <param name="clipboard">Where copy puts the rows; null disables copying (and pasting, where a tab has it).</param>
-    protected RowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IClipboard? clipboard = null)
+    /// <param name="objectOpener">Opens a row as an object; null disables the command that shows it.</param>
+    protected RowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IClipboard? clipboard = null,
+        IRowObjectOpener? objectOpener = null)
         : base(source, entryPath, texts, close)
     {
         _clipboard = clipboard;
         _copyRowsCommand = new RelayCommand(CopyRows, CanCopyRows);
+        _showObjectCommand = new RelayCommand(ShowObject, CanShowObject);
+        _objectOpener = objectOpener;
+        if (objectOpener is not null)
+        {
+            objectOpener.Changed += OnObjectOpenerChanged;
+        }
     }
 
     /// <summary>The limit of the text; settable so that tests need no five million characters.</summary>
@@ -236,6 +246,89 @@ public abstract class RowsTabViewModel : TabViewModel
 
     /// <summary>Copies the selected rows to the clipboard (a header line with the column names, then one line per row). Disabled without a selection or a clipboard.</summary>
     public ICommand CopyRowsCommand => _copyRowsCommand;
+
+    /// <summary>The schema name of the table with suffix ("units_tables"); null for a loc tab.</summary>
+    public virtual string? TableName => null;
+
+    /// <summary>The key of a row by its index; null without a key column, without a definition or for an index outside the rows.</summary>
+    public RowKey? KeyOfRow(int index)
+    {
+        if (TableName is not { } table || !IsRowIndex(index) || GetCopySource() is not { } source)
+        {
+            return null;
+        }
+
+        var keyColumns = KeyColumns(source.Columns);
+        return keyColumns.Count == 0 || KeyValuesOf(source, keyColumns, index) is not { } values ? null : new RowKey(table, values);
+    }
+
+    /// <summary><see cref="KeyOfRow"/> of the first selected row that exists; null without a selection.</summary>
+    public RowKey? SelectedRowKey()
+    {
+        var selected = ValidSelection();
+        return selected.Count == 0 ? null : KeyOfRow(selected[0]);
+    }
+
+    /// <summary>Opens the selected row as an object through the opener. Disabled with <see cref="ShowObjectReason"/>.</summary>
+    public ICommand ShowObjectCommand => _showObjectCommand;
+
+    /// <summary>
+    /// Why <see cref="ShowObjectCommand"/> is disabled, in this order: no key column, no selected row, the reason of the opener. Null when
+    /// nothing speaks against it. Without an opener the command is disabled and there is no reason to tell (the entry is simply off).
+    /// </summary>
+    public string? ShowObjectReason
+    {
+        get
+        {
+            if (_objectOpener is null)
+            {
+                return null;
+            }
+
+            if (!HasKeyColumn())
+            {
+                return Texts.ObjectsNoKeyField;
+            }
+
+            return SelectedRowKey() is null ? Texts.ObjectsNoRowSelected : _objectOpener.DisabledReason(this);
+        }
+    }
+
+    /// <summary>
+    /// Raised with the rows the view should select (after a row command of an editable tab, after <see cref="SelectRowByKey"/>). View
+    /// wiring: the grid selects them and scrolls the first into view.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<int>>? SelectionRequested;
+
+    /// <summary>Asks the view to select these rows.</summary>
+    protected void RequestSelection(IReadOnlyList<int> rows) => SelectionRequested?.Invoke(this, rows);
+
+    /// <summary>Selects the first row whose key equals <paramref name="keyValues"/> (ordinal); false when there is none or the table has no key column.</summary>
+    public bool SelectRowByKey(IReadOnlyList<string> keyValues)
+    {
+        ArgumentNullException.ThrowIfNull(keyValues);
+        if (TableName is null || GetCopySource() is not { } source)
+        {
+            return false;
+        }
+
+        var keyColumns = KeyColumns(source.Columns);
+        if (keyColumns.Count == 0 || keyColumns.Count != keyValues.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < RowCount; index++)
+        {
+            if (KeyValuesOf(source, keyColumns, index) is { } values && values.SequenceEqual(keyValues, StringComparer.Ordinal))
+            {
+                RequestSelection([index]);
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// What the last copy or paste has to say (a refusal, the columns that a paste filled or dropped); null when there is nothing. The
@@ -303,6 +396,7 @@ public abstract class RowsTabViewModel : TabViewModel
             SetProperty(ref _gridNotice, _gridNoticeText(Texts), nameof(Notice));
         }
 
+        RefreshShowObject();
         RefreshMoreTexts();
     }
 
@@ -331,7 +425,11 @@ public abstract class RowsTabViewModel : TabViewModel
     }
 
     /// <summary>Called after <see cref="SelectedRows"/> was set; commands that depend on the selection ask again here.</summary>
-    protected virtual void OnSelectionChanged() => _copyRowsCommand.RaiseCanExecuteChanged();
+    protected virtual void OnSelectionChanged()
+    {
+        _copyRowsCommand.RaiseCanExecuteChanged();
+        RefreshShowObject();
+    }
 
     /// <summary>True when a selected index is a row.</summary>
     protected bool HasSelection() => _selectedRows.Any(IsRowIndex);
@@ -340,6 +438,64 @@ public abstract class RowsTabViewModel : TabViewModel
 
     /// <summary>The selected rows that exist, ascending and without repeats. The selection is set by the view and can be stale after a change.</summary>
     protected List<int> ValidSelection() => _selectedRows.Where(IsRowIndex).Distinct().Order().ToList();
+
+
+    private static List<int> KeyColumns(IReadOnlyList<FieldDefinition> columns)
+    {
+        var keys = new List<int>();
+        for (var i = 0; i < columns.Count; i++)
+        {
+            if (columns[i].IsKey)
+            {
+                keys.Add(i);
+            }
+        }
+
+        return keys;
+    }
+
+    // The key cells of a row as text; null when a cell does not have the type of its column (a table that cannot be edited).
+    private static List<string>? KeyValuesOf(CopySource source, List<int> keyColumns, int index)
+    {
+        try
+        {
+            var cells = source.RowAt(index);
+            return keyColumns.Select(c => CellText.Format(source.Columns[c].Type, cells[c])).ToList();
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private bool HasKeyColumn() => TableName is not null && GetCopySource() is { } source && KeyColumns(source.Columns).Count > 0;
+
+    private bool CanShowObject() => _objectOpener is not null && ShowObjectReason is null;
+
+    private void ShowObject()
+    {
+        if (_objectOpener is not null && ShowObjectReason is null && SelectedRowKey() is { } key)
+        {
+            _objectOpener.Show(this, key);
+        }
+    }
+
+    private void OnObjectOpenerChanged(object? sender, EventArgs e) => RefreshShowObject();
+
+    // The answer of ShowObjectReason may have changed (selection, opener, language).
+    private void RefreshShowObject()
+    {
+        _showObjectCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(ShowObjectReason));
+    }
+
+    protected override void OnDispose()
+    {
+        if (_objectOpener is not null)
+        {
+            _objectOpener.Changed -= OnObjectOpenerChanged;
+        }
+    }
 
     private bool CanCopyRows() => _clipboard is not null && HasSelection();
 
@@ -485,8 +641,8 @@ public sealed class TableTabViewModel : RowsTabViewModel
     private string _header;
 
     public TableTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, DecodedTable table,
-        IClipboard? clipboard = null)
-        : base(source, entryPath, texts, close, clipboard)
+        IClipboard? clipboard = null, IRowObjectOpener? objectOpener = null)
+        : base(source, entryPath, texts, close, clipboard, objectOpener)
     {
         _table = table;
         _header = HeaderText();
@@ -501,6 +657,8 @@ public sealed class TableTabViewModel : RowsTabViewModel
     public IReadOnlyList<object?[]> Rows => _table.Rows;
 
     internal override bool IsTableEntry => true;
+
+    public override string? TableName => _table.TableName;
 
     protected override void RefreshHeader() => SetProperty(ref _header, HeaderText(), nameof(Header));
 
@@ -523,8 +681,8 @@ public sealed class LocTabViewModel : RowsTabViewModel
     private string _header;
 
     public LocTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close, IReadOnlyList<LocRow> rows,
-        IClipboard? clipboard = null)
-        : base(source, entryPath, texts, close, clipboard)
+        IClipboard? clipboard = null, IRowObjectOpener? objectOpener = null)
+        : base(source, entryPath, texts, close, clipboard, objectOpener)
     {
         Rows = rows;
         _header = HeaderText();

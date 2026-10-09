@@ -365,5 +365,8 @@
   "file.renamedStatus": "Renamed {0} to {1}.",
   "file.deletedStatus": "Deleted {0}. Undo brings it back.",
   "edit.undoBlocked.title": "Undo not possible",
-  "edit.redoBlocked.title": "Redo not possible"
+  "edit.redoBlocked.title": "Redo not possible",
+  "grid.showObject": "Show as object",
+  "objects.reason.noKeyField": "This table has no key column, so its rows cannot be shown as objects.",
+  "objects.reason.noRow": "Select a row first."
 }

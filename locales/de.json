@@ -365,5 +365,8 @@
   "file.renamedStatus": "{0} in {1} umbenannt.",
   "file.deletedStatus": "{0} gelöscht. Mit Rückgängig kommt die Datei zurück.",
   "edit.undoBlocked.title": "Rückgängig nicht möglich",
-  "edit.redoBlocked.title": "Wiederholen nicht möglich"
+  "edit.redoBlocked.title": "Wiederholen nicht möglich",
+  "grid.showObject": "Als Objekt anzeigen",
+  "objects.reason.noKeyField": "Diese Tabelle hat keine Schlüsselspalte, ihre Zeilen lassen sich nicht als Objekt anzeigen.",
+  "objects.reason.noRow": "Wähle zuerst eine Zeile aus."
 }

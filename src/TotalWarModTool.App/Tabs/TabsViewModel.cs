@@ -79,6 +79,12 @@ public sealed class TabsViewModel : ObservableObject
     /// </summary>
     public IClipboard? Clipboard { get; set; }
 
+    /// <summary>
+    /// The opener of the object view; set by the composition root. The tabs made after it is set get it, like <see cref="Clipboard"/>. Without
+    /// it the command that shows a row as an object is disabled.
+    /// </summary>
+    public IRowObjectOpener? ObjectOpener { get; set; }
+
     /// <summary>Asked before a tab is closed by its command, by Ctrl+W or by the middle button; false keeps it open.</summary>
     public Func<TabViewModel, bool>? CanClose { get; set; }
 
@@ -101,7 +107,17 @@ public sealed class TabsViewModel : ObservableObject
     /// <summary>Appends the tab for an opened entry. It is selected when <paramref name="select"/> is set or nothing is selected yet.</summary>
     public void Add(TabSource source, OpenedEntry entry, ResolvedSchema? schema, bool select = true)
     {
-        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close, Clipboard);
+        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close, Clipboard, ObjectOpener);
+        AddTab(tab, select);
+    }
+
+    /// <summary>
+    /// Appends a tab that was made elsewhere (an object tab). It is selected when <paramref name="select"/> is set or nothing is selected
+    /// yet. The tab must have been made with <see cref="Close"/> as its close callback.
+    /// </summary>
+    public void AddTab(TabViewModel tab, bool select = true)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
         Tabs.Add(tab);
         if (select || SelectedTab is null)
         {
@@ -123,7 +139,7 @@ public sealed class TabsViewModel : ObservableObject
             return false;
         }
 
-        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close, Clipboard);
+        var tab = SpecialTab?.Invoke(source, entry, Close) ?? TabFactory.Create(source, entry, schema, Texts, Close, Clipboard, ObjectOpener);
         var wasSelected = ReferenceEquals(SelectedTab, old);
 
         // The new tab is in the list before the old one leaves, and it is selected before that, so the tab control never has to pick one.

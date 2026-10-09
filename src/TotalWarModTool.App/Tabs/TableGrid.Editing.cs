@@ -56,9 +56,9 @@ public sealed partial class TableGrid
         {
             editable.CommitPendingEdit = _commitPendingEdit;
             editable.CancelPendingEdit = _cancelPendingEdit;
-            editable.SelectionRequested += _selectionRequested;
         }
 
+        model.SelectionRequested += _selectionRequested;
         model.SelectedRows = IndexesOfSelection();
     }
 
@@ -86,10 +86,10 @@ public sealed partial class TableGrid
                 editable.CancelPendingEdit = null;
             }
 
-            editable.SelectionRequested -= _selectionRequested;
             editable.SetPendingEdit(false);
         }
 
+        model.SelectionRequested -= _selectionRequested;
         model.SelectedRows = [];
     }
 

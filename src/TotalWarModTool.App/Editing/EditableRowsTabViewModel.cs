@@ -39,9 +39,10 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     public const int DefaultMaxPasteChars = 20_000_000;
 
     /// <param name="clipboard">Where copy and paste go; null disables both commands.</param>
+    /// <param name="objectOpener">Opens a row as an object; null disables the command that shows it.</param>
     public EditableRowsTabViewModel(TabSource source, string entryPath, AppTexts texts, Action<TabViewModel> close,
-        RowsDocument document, ActionHistory history, IClipboard? clipboard = null)
-        : base(RequireProject(source), entryPath, texts, close, clipboard)
+        RowsDocument document, ActionHistory history, IClipboard? clipboard = null, IRowObjectOpener? objectOpener = null)
+        : base(RequireProject(source), entryPath, texts, close, clipboard, objectOpener)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(history);
@@ -62,6 +63,8 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
     /// <summary>The document the rows show. Another one after <see cref="ReplaceDocument"/>.</summary>
     public RowsDocument Document => _document;
+
+    public override string? TableName => _document.Kind == DocumentKind.Table ? _document.TableName : null;
 
     /// <summary>The id of the project the file belongs to, from the key of the source.</summary>
     public Guid ProjectId { get; }
@@ -107,13 +110,6 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
     /// Disabled without a clipboard.
     /// </summary>
     public ICommand PasteRowsCommand => _pasteRowsCommand;
-
-    /// <summary>
-    /// Raised after a row command (insert, duplicate, paste, delete) with the rows that the view should select: the new rows, or after a
-    /// delete the row that took the place of the first deleted one (none when no row is left). View wiring: the grid selects them and
-    /// scrolls the first into view.
-    /// </summary>
-    public event EventHandler<IReadOnlyList<int>>? SelectionRequested;
 
     /// <summary>
     /// Commits the cell that is being edited in the grid and returns whether that worked; set by the view. False means the cell stays in
@@ -301,6 +297,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
 
     protected override void OnDispose()
     {
+        base.OnDispose();
         _disposed = true;
         Unsubscribe(_document);
     }
@@ -444,8 +441,6 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         _deleteRowsCommand.RaiseCanExecuteChanged();
         _duplicateRowsCommand.RaiseCanExecuteChanged();
     }
-
-    private void RequestSelection(IReadOnlyList<int> rows) => SelectionRequested?.Invoke(this, rows);
 
     // A row index after the last selected row, or the end of the rows.
     private int InsertionIndex(List<int> selected) => selected.Count > 0 ? selected[^1] + 1 : _document.Rows.Count;

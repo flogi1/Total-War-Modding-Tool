@@ -126,7 +126,7 @@ public sealed partial class DocumentsController
                 return null;
             }
 
-            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history, _tabs.Clipboard)
+            return new EditableRowsTabViewModel(source, entry.EntryPath, _texts, close, document, _history, _tabs.Clipboard, _tabs.ObjectOpener)
             {
                 ReloadHandler = tab => RunDetached(() => ReloadAsync(tab), "Reloading a tab"),
             };
