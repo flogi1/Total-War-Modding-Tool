@@ -7,9 +7,12 @@ namespace TotalWarModTool.Objects;
 /// <summary>
 /// Builds the <see cref="ObjectView"/> of one row: the row itself with its references resolved, its loc texts, and every row of
 /// other tables whose reference field points at it. Reads only; holds no state, so one builder can serve several threads.
-/// Loc texts are looked up as table_column_key for (a) the root with its key values joined, (b) the objects the root references found, with their joined
-/// key, (c) every section row that has a RowId, with the joined key of the whole row (composite keys concatenate all key values).
-/// Reference fields of section rows never ask the table store: a target table unknown to the schema is looked up in loc only (LocOnly), others stay Unchecked.
+/// Loc texts: for (a) the root with its joined key, (b) the objects the root references found, with their joined key, (c) every section row
+/// with a RowId, with the joined key of the whole row (composite keys concatenate all key values), the entries table_column_key are looked up
+/// for every loc column of the table. Loc columns are discovered from the loc keys themselves (prefix "table_", the joined keys of the table as
+/// separator), not from the table definition, because most loc columns are missing in the schema. A reference to a table the schema does not know
+/// is found by the loc key prefix "table_" and suffix "_value" (LocOnly); the loc column is the part between. Reference fields of section rows
+/// never ask the table store: unknown targets are looked up in loc only, all others stay Unchecked.
 /// </summary>
 public sealed class ObjectBuilder
 {
@@ -82,18 +85,18 @@ public sealed class ObjectBuilder
         Step(id.Table);
 
         // Loc texts of the root and of the objects its references found, in field order.
-        if (rootDefinition is not null)
+        if (rootTable.Definition is not null)
         {
-            texts.Add(id.Table, rootDefinition, id.JoinedKey);
+            texts.Add(id.Table, run.LocColumns(StripSuffix(id.Table), rootTable), id.JoinedKey);
         }
 
         if (root is not null)
         {
             foreach (var field in root.Fields)
             {
-                if (field is { Resolution: ReferenceResolution.Found, Target: { } target } && _graph.Latest(target.Table) is { } targetDefinition)
+                if (field is { Resolution: ReferenceResolution.Found, Target: { } target })
                 {
-                    texts.Add(target.Table, targetDefinition, target.JoinedKey);
+                    texts.Add(target.Table, run.LocColumns(StripSuffix(target.Table), run.Fetch(target.Table)), target.JoinedKey);
                 }
             }
         }
@@ -116,11 +119,12 @@ public sealed class ObjectBuilder
                     sections.Add(section);
 
                     // The loc key of a row is built from all its key values, not from the root key alone.
+                    var columns = run.LocColumns(StripSuffix(reference.SourceTable), merged);
                     foreach (var sectionRow in section.Rows)
                     {
                         if (sectionRow.RowId is not null)
                         {
-                            texts.Add(reference.SourceTable, merged.Definition, sectionRow.RowId.JoinedKey);
+                            texts.Add(reference.SourceTable, columns, sectionRow.RowId.JoinedKey);
                         }
                     }
                 }
@@ -242,9 +246,9 @@ public sealed class ObjectBuilder
     private FieldValue SectionReference(Run run, FieldDefinition field, TableReference reference, string text)
     {
         if (text.Length > 0 && _graph.Latest(_graph.ResolveTableName(reference.Table)) is null
-            && run.Loc!.TryGet(LocKey(StripSuffix(reference.Table), reference.Column, text), out var locText))
+            && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
         {
-            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText.Text);
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText);
         }
 
         return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Unchecked, UncheckedTarget(reference, text), null);
@@ -287,12 +291,49 @@ public sealed class ObjectBuilder
             return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Found, target, name);
         }
 
-        if (run.Loc!.TryGet(LocKey(StripSuffix(reference.Table), reference.Column, text), out var locText))
+        if (_graph.Latest(targetTable) is null && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
         {
-            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText.Text);
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText);
         }
 
         return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.NotFound, null, null);
+    }
+
+    /// <summary>
+    /// The text of a table the schema does not know: the first loc key (ordinal) that starts with "table_" and ends with "_value".
+    /// The loc column is the part between and is not the column the reference names. Null when there is none.
+    /// </summary>
+    private static string? FindLocOnly(LocTable loc, string referenceTable, string value)
+    {
+        var prefix = StripSuffix(referenceTable) + "_";
+        var suffix = "_" + value;
+        foreach (var key in loc.KeysWithPrefix(prefix))
+        {
+            if (key.Length > prefix.Length + suffix.Length && key.EndsWith(suffix, StringComparison.Ordinal) && loc.TryGet(key, out var text))
+            {
+                return text.Text;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The key values of a row joined with "", the form loc keys use; null for a table without key.</summary>
+    private static string? JoinedKeyOf(MergedTable table, MergedRow row)
+    {
+        if (table.KeyFields.Count == 0 || table.Definition is null)
+        {
+            return null;
+        }
+
+        var values = new string[table.KeyFields.Count];
+        for (var i = 0; i < values.Length; i++)
+        {
+            var index = table.KeyFields[i];
+            values[i] = CellText.Format(table.Definition.Fields[index].Type, row.Cells[index]);
+        }
+
+        return string.Concat(values);
     }
 
     private static ObjectId? RowIdOf(MergedTable table, MergedRow row)
@@ -352,6 +393,7 @@ public sealed class ObjectBuilder
         private readonly LoadOrder _order;
         private readonly CancellationToken _cancellationToken;
         private readonly Dictionary<string, MergedTable> _fetched = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, IReadOnlyList<string>> _locColumns = new(StringComparer.Ordinal);
 
         public Run(ObjectBuilder owner, LoadOrder order, CancellationToken cancellationToken)
         {
@@ -368,6 +410,56 @@ public sealed class ObjectBuilder
         {
             _cancellationToken.ThrowIfCancellationRequested();
             Loc = _owner._loc.Get(_order, _cancellationToken);
+        }
+
+        /// <summary>
+        /// The loc columns that exist for a table, found in the loc keys themselves (the schema lacks most of them): for every loc key
+        /// that starts with "table_", the remainder is split at each "_" from the left, and the first split whose tail is the joined key
+        /// of a row of the table gives the column (the head). Distinct columns in order of first appearance, cached per table.
+        /// </summary>
+        public IReadOnlyList<string> LocColumns(string tableWithoutSuffix, MergedTable merged)
+        {
+            if (_locColumns.TryGetValue(tableWithoutSuffix, out var cached))
+            {
+                return cached;
+            }
+
+            var columns = new List<string>();
+            if (merged.KeyFields.Count > 0 && merged.Rows.Count > 0)
+            {
+                var prefix = tableWithoutSuffix + "_";
+                var candidates = Loc!.KeysWithPrefix(prefix);
+                if (candidates.Count > 0)
+                {
+                    var keys = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var row in merged.Rows)
+                    {
+                        keys.Add(JoinedKeyOf(merged, row)!);
+                    }
+
+                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var locKey in candidates)
+                    {
+                        var rest = locKey[prefix.Length..];
+                        for (var i = rest.IndexOf('_'); i >= 0; i = rest.IndexOf('_', i + 1))
+                        {
+                            if (i > 0 && keys.Contains(rest[(i + 1)..]))
+                            {
+                                var column = rest[..i];
+                                if (seen.Add(column))
+                                {
+                                    columns.Add(column);
+                                }
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            _locColumns[tableWithoutSuffix] = columns;
+            return columns;
         }
 
         public MergedTable Fetch(string table)
@@ -395,15 +487,15 @@ public sealed class ObjectBuilder
 
         public IReadOnlyList<LocEntry> Entries => _entries;
 
-        public void Add(string table, TableDefinition definition, string key)
+        public void Add(string table, IReadOnlyList<string> columns, string key)
         {
             var name = StripSuffix(table);
-            foreach (var field in definition.Fields)
+            foreach (var column in columns)
             {
-                var locKey = LocKey(name, field.Name, key);
+                var locKey = LocKey(name, column, key);
                 if (_loc.TryGet(locKey, out var text) && _keys.Add(locKey))
                 {
-                    _entries.Add(new LocEntry(name, field.Name, locKey, text.Text, text.Source));
+                    _entries.Add(new LocEntry(name, column, locKey, text.Text, text.Source));
                 }
             }
         }

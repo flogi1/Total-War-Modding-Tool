@@ -22,7 +22,7 @@ public class ObjectBuilderTests
         ("technologies_tables", 1, [Field("key", key: true), Field("building_level", reference: ("building_levels", "level_name"))]),
         ("effects_tables", 1, [Field("effect", key: true), Field("icon")]),
         ("building_culture_variants_tables", 1, [Field("building", key: true, reference: ("building_levels", "level_name")), Field("culture", key: true),
-            Field("name"), Field("short_description", reference: ("building_short_description_texts", "short_description"))]),
+            Field("short_description", reference: ("building_short_description_texts", "key"))]),
         ("notes_tables", 1, [Field("building", reference: ("building_levels", "create_cost"))]),
         ("pairs_tables", 1, [Field("a", key: true), Field("b", key: true)]),
         ("pair_uses_tables", 1, [Field("pa", reference: ("pairs", "a")), Field("pb", reference: ("pairs", "b"))]));
@@ -100,9 +100,9 @@ public class ObjectBuilderTests
         var tables = new[]
         {
             T("building_levels_tables", R("b1", "", 1, "gold")),
-            T("building_culture_variants_tables", R("b1", "cult1", "n", "sd1")),
+            T("building_culture_variants_tables", R("b1", "cult1", "sd1")),
         };
-        var withLoc = Single(tmp, [L("commodities_key_gold", "Gold"), L("building_short_description_texts_short_description_sd1", "Short")], tables);
+        var withLoc = Single(tmp, [L("commodities_onscreen_name_gold", "Gold"), L("building_short_description_texts_short_description_sd1", "Short")], tables);
 
         var view = NewBuilder().Build(Level("b1"), withLoc, null, None);
 
@@ -133,7 +133,7 @@ public class ObjectBuilderTests
                 L("effects_effect_eff1", "Effect Loc"),
             ],
             T("building_levels_tables", R("b1", "", 1, "")),
-            T("building_culture_variants_tables", R("b1", "cult1", "n", "sd1"), R("b1", "cult2", "n", "sd_missing"), R("b1", "cult3", "n", "")),
+            T("building_culture_variants_tables", R("b1", "cult1", "sd1"), R("b1", "cult2", "sd_missing"), R("b1", "cult3", "")),
             T("effects_tables", R("eff1", "icon")),
             T("building_effects_junction_tables", R("b1", "eff1", "p", 5f)));
 
@@ -264,7 +264,7 @@ public class ObjectBuilderTests
             ],
             T("building_levels_tables", R("b1", "chain1", 100, "")),
             T("building_chains_tables", R("chain1", "Chain One")),
-            T("building_culture_variants_tables", R("b1", "cult1", "n", "sd1")),
+            T("building_culture_variants_tables", R("b1", "cult1", "sd1")),
             T("technologies_tables", R("t1", "b1")));
 
         var view = NewBuilder().Build(Level("b1"), order, null, None);
@@ -278,6 +278,28 @@ public class ObjectBuilderTests
         Assert.Equal("B1 Name", first.Text);
         Assert.Equal(order.LocPack, first.Source);
         Assert.Equal("Chain Loc", view.Texts[1].Text);
+    }
+
+    [Fact]
+    public void Loc_columns_are_discovered_from_the_loc_keys()
+    {
+        using var tmp = new TempDir();
+        var order = Single(tmp,
+            [
+                L("technologies_onscreen_name_t1", "T"),
+                L("technologies_zzz_other", "no"),
+                L("technologies_onscreen_name_t1_extra", "no"),
+            ],
+            T("building_levels_tables", R("b1", "", 1, "")),
+            T("technologies_tables", R("t1", "b1")));
+
+        var view = NewBuilder().Build(Level("b1"), order, null, None);
+
+        var text = Assert.Single(view.Texts);
+        Assert.Equal("technologies_onscreen_name_t1", text.Key);
+        Assert.Equal("technologies", text.Table);
+        Assert.Equal("onscreen_name", text.Column);
+        Assert.Equal("T", text.Text);
     }
 
     [Fact]

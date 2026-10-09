@@ -248,6 +248,8 @@ Ladereihenfolge:
 
 - Hat sich der Typ eines Feldes zwischen Schema-Versionen geändert (gleicher Name), wird der Wert über seinen Text in den neuen Typ konvertiert (`CellText.Format`, dann `CellText.TryParse`); passt der Text nicht, gilt der Standardwert des Zieltyps. Die Zeile trägt in beiden Fällen `OlderLayout`.
 - Nennt die Meta-Zeile einer Projekt-TSV einen anderen Tabellennamen als der Ordner `pack\db\<tabelle>\`, in dem sie liegt, ist das ein `SourceProblem` `TsvInvalid`.
+- Loc-Spalten stammen aus den Loc-Schlüsseln selbst (Bereich mit Präfix `<tabelle>_`, die Schlüsselmenge der Tabelle als Trenner: der Rest nach dem Präfix wird von links an jedem `_` geteilt, der erste Schwanz, der ein `JoinedKey` einer Zeile der Tabelle ist, liefert die Spalte), nicht aus der Tabellendefinition, weil rund 130 von 138 Loc-Spalten im Schema fehlen (gemessen 2026-10-09). Die Texte einer Zeile (Wurzel, gefundene Referenzziele, Abschnittszeilen) werden mit dem `JoinedKey` der ganzen Zeile gesucht.
+- Bei Text-Tabellen ohne Schema (Ziel einer Referenz, das das Schema nicht kennt) wird der Loc-Schlüssel über Präfix `<tabelle>_` und Suffix `_<wert>` gefunden, die Spalte ist der Teil dazwischen; ohne Treffer bleibt es `NotFound` (Wurzelfelder) beziehungsweise `Unchecked` (Abschnittszeilen).
 
 ### 5.5 Objektmodell
 
@@ -258,7 +260,7 @@ Ladereihenfolge:
   Felder als `FieldValue` (Name, Wert als Text über `CellText.Format`, `Reference` oder null,
   `Resolution`: `Found`, `NotFound`, `LocOnly`, plus Loc-Text bei `LocOnly`).
 - `Texts`: Loc-Einträge zur Wurzel: für die Wurzeltabelle und die Zieltabellen ihrer Referenzen
-  alle Schlüssel `<tabelle>_<spalte>_<schlüssel>`, die im `LocStore` existieren. Kein Suchen über
+  alle Schlüssel `<tabelle>_<spalte>_<schlüssel>`, die im `LocStore` existieren (Spalten siehe „Festlegungen aus Plan 1“). Kein Suchen über
   Suffixe.
 - `Sections`: eine pro `(SourceTable, FieldName)` aus `Incoming`, deren Feld auf ein Schlüsselfeld
   der Wurzel zeigt, mit mindestens einer Zeile. Jede Zeile hat `Provenance`, Felder und bei

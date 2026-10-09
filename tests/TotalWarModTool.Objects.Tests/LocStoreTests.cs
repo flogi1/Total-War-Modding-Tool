@@ -136,6 +136,23 @@ public class LocStoreTests
     }
 
     [Fact]
+    public void KeysWithPrefix_returns_the_sorted_range()
+    {
+        using var tmp = new TempDir();
+        var locPack = TestSources.Vanilla(LocPack(tmp.File("local_en.pack"), "text/y.loc",
+            Row("b_z", "4"), Row("a_x_2", "2"), Row("ab_y", "3"), Row("a_x_1", "1")));
+        var table = new LocStore().Get(TestSources.OrderWithLoc(locPack, locPack), None);
+
+        var first = table.KeysWithPrefix("a_");
+
+        Assert.Equal(["a_x_1", "a_x_2"], first);
+        Assert.Empty(table.KeysWithPrefix("zz"));
+        var second = table.KeysWithPrefix("a_");
+        Assert.Equal(first, second);
+        Assert.NotSame(first, second);
+    }
+
+    [Fact]
     public void Cancellation_throws()
     {
         using var cts = new CancellationTokenSource();

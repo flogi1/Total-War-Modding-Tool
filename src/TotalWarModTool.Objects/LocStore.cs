@@ -8,11 +8,46 @@ public sealed record LocText(string Text, TableSource Source);
 public sealed class LocTable
 {
     private readonly Dictionary<string, LocText> _texts;
+    private readonly Lazy<string[]> _sortedKeys;
 
     internal LocTable(Dictionary<string, LocText> texts, IReadOnlyList<SourceProblem> problems)
     {
         _texts = texts;
         Problems = problems;
+        _sortedKeys = new Lazy<string[]>(() =>
+        {
+            var keys = texts.Keys.ToArray();
+            Array.Sort(keys, StringComparer.Ordinal);
+            return keys;
+        });
+    }
+
+    /// <summary>The keys that start with <paramref name="prefix"/> (ordinal), ascending, as a new list; empty when none. The keys are sorted once, on the first call.</summary>
+    public IReadOnlyList<string> KeysWithPrefix(string prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        var keys = _sortedKeys.Value;
+        int low = 0, high = keys.Length;
+        while (low < high)
+        {
+            var middle = low + (high - low) / 2;
+            if (string.CompareOrdinal(keys[middle], prefix) < 0)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        var result = new List<string>();
+        for (var i = low; i < keys.Length && keys[i].StartsWith(prefix, StringComparison.Ordinal); i++)
+        {
+            result.Add(keys[i]);
+        }
+
+        return result;
     }
 
     public int Count => _texts.Count;
