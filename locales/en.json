@@ -393,5 +393,8 @@
   "objects.moreRows": "+ {0} more rows",
   "objects.duplicate": "duplicate key",
   "objects.olderLayout": "older layout",
-  "objects.targetUnknown": "Target unknown: no row and no text for this value."
+  "objects.targetUnknown": "Target unknown: no row and no text for this value.",
+  "objects.reason.noGame": "The game folder was not found, so the game data cannot be read.",
+  "objects.reason.noSchema": "No schema is loaded, so the tables cannot be decoded.",
+  "objects.building": "Building object {0}"
 }

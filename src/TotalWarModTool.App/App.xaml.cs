@@ -191,6 +191,12 @@ public partial class App : Application
             settingsWindows.ShowOrActivate();
         }, projects, projectCommands, documents, projectFiles);
 
+        // The object view: builds the object of a table row through the runner and keeps the object tabs. The grids ask it through the opener of
+        // the shared tab list; a tab made before this line has no opener, but none exists yet (the session is restored after the window shows).
+        var objects = new ObjectsController(workspace, projects, documents, documents.Tabs, progressRunner, paths, log, texts, key => ui.Get(key, key),
+            viewModel.OpenEntryAsync, viewModel.OpenProjectFileAsync);
+        documents.Tabs.ObjectOpener = objects;
+
         SessionCoordinator? session = null;
         if (sessionStore is not null)
         {

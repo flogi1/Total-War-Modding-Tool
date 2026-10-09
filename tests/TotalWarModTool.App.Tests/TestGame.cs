@@ -182,8 +182,9 @@ internal sealed class TestGame : IDisposable
         return folder;
     }
 
-    public WorkspaceController NewController(ISteamLocationSource? steam = null, IOperationRunner? runner = null) =>
-        new(Profile, GameSettings, Settings, Paths, steam ?? new NoSteam(), runner ?? Runner, Log, Texts);
+    /// <param name="profile">The game profile; <see cref="Profile"/> when null.</param>
+    public WorkspaceController NewController(ISteamLocationSource? steam = null, IOperationRunner? runner = null, GameProfile? profile = null) =>
+        new(profile ?? Profile, GameSettings, Settings, Paths, steam ?? new NoSteam(), runner ?? Runner, Log, Texts);
 
     public void Dispose() => Root.Dispose();
 }

@@ -393,5 +393,8 @@
   "objects.moreRows": "+ {0} weitere Zeilen",
   "objects.duplicate": "doppelter Schlüssel",
   "objects.olderLayout": "älteres Layout",
-  "objects.targetUnknown": "Ziel unbekannt: keine Zeile und kein Text für diesen Wert."
+  "objects.targetUnknown": "Ziel unbekannt: keine Zeile und kein Text für diesen Wert.",
+  "objects.reason.noGame": "Der Spielordner wurde nicht gefunden, daher lassen sich die Spieldaten nicht lesen.",
+  "objects.reason.noSchema": "Es ist kein Schema geladen, daher lassen sich die Tabellen nicht dekodieren.",
+  "objects.building": "Objekt {0} wird aufgebaut"
 }

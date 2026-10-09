@@ -67,4 +67,12 @@ public sealed partial class AppTexts
     public string ObjectsOlderLayout => T("objects.olderLayout", "older layout");
 
     public string ObjectsTargetUnknown => T("objects.targetUnknown", "Target unknown: no row and no text for this value.");
+
+    // The controller of the object view.
+    public string ObjectsNoGame => T("objects.reason.noGame", "The game folder was not found, so the game data cannot be read.");
+
+    public string ObjectsNoSchema => T("objects.reason.noSchema", "No schema is loaded, so the tables cannot be decoded.");
+
+    /// <param name="key">The joined key of the object (data, escaped by the caller).</param>
+    public string ObjectsBuilding(string key) => F("objects.building", "Building object {0}", key);
 }
