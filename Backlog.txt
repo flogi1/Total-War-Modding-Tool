@@ -1,5 +1,5 @@
 Backlog Total War Modding Tool
-Stand: 2026-10-05
+Stand: 2026-10-09
 
 Alles, was nicht jetzt gebaut wird. Nummern der Teile wie in docs/specs/2026-10-02-fundament.md, Abschnitt 1.2.
 Reihenfolge seit 2026-10-03: Teil 2 (Spec docs/specs/2026-10-03-teil-2-projekte-bearbeiten-bauen.md),
@@ -19,13 +19,23 @@ Teil 3: Error-Log und Spielstart (am 2026-10-02 von Teil 7 vorgezogen)
     (Verweis im Konzept auf das EU-V-Wiki stammt aus PMT, für Total War unbelegt)
 
 Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
+  Am 2026-10-09 zerlegt. 4.1 (nur Lesen) hat eine Spec: docs/specs/2026-10-09-teil-4-1-objekt-ansicht.md.
+  Der Referenzgraph aus dem Schema ist gemessen und geeignet (Spike in der Spec, Abschnitt 3).
   - Nutzerwunsch (2026-10-05, nach der Abnahme von Plan 3): Die Textansicht aus Teil 2 zeigt nur die
     TSV-Form einer Tabelle und hilft der Lesbarkeit nicht. Gewünscht ist eine Textform, in der alles,
     was logisch zusammengehört, untereinander steht und die Verknüpfungen zwischen den Tabellen sichtbar sind
-  - Referenzgraph aus dem Schema (5825 Referenzfelder); Eignung zu messen
-  - Katalog aller Einstellmöglichkeiten (Effekte, Boni) mit Suche und Kategorien, auch aus Mods
-  - Kategorien: Gebäude, Lords, Traits und Ancillaries, Skripte, AI, Fähigkeiten, Fraktionsmechaniken, Misc
-  - Maske als zweite Ansicht auf dasselbe Objektmodell
+  - 4.2 Objekt bearbeiten: Codeblock als Eingabe, Rückschreiben in viele Tabellen als ein Undo-Schritt;
+    Maske als zweite Ansicht auf dasselbe Objektmodell; Assistenten „Neues Gebäude“, „Neuer Trait“
+    (Nutzerwunsch 2026-10-09, für den leichten Einstieg)
+  - 4.3 Katalog aller Einstellmöglichkeiten (Effekte, Boni) mit Suche und Kategorien, auch aus Mods;
+    Autovervollständigung
+  - Kategorie-Browser: eigener Bereich mit allen Objekten einer Kategorie aus Vanilla und aktiven Mods, Suche
+  - Voreingestellte Inspektoren pro Kategorie als Kategorie-Dateien im Spielprofil (4.1 liefert nur Gebäude);
+    Kategorien: Gebäude, Lords, Traits und Ancillaries, Skripte, AI, Fähigkeiten, Fraktionsmechaniken, Misc
+  - Eigene Mod-Auswahl für die Ladereihenfolge in den Einstellungen (4.1 liest used_mods.txt)
+  - Referenz-Baumansicht (transitiv, aufklappbar) als Debug-Werkzeug, falls nötig
+  - Prüfung von Referenzen und doppelten Schlüsseln beim Bearbeiten (nutzt den Referenzgraphen aus 4.1)
+  - Editierbare Textansicht der Tabellen (mit 4.2 oder Teil 5)
 
 Teil 5: Lua-Editor
   - Editor-Komponente wählen (NuGet nur nach Rückfrage)
@@ -55,8 +65,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 == Aus Teil 2 zurückgestellt ==
 
-- Prüfung von Referenzen und doppelten Schlüsseln beim Bearbeiten (mit Teil 4)
-- Editierbare Textansicht der Tabellen (mit Teil 4 oder 5)
 - TSV erkennen, die aus einem RPFM-Export stammt (alle Kommazahlen mit genau 4 Nachkommastellen), und Hinweis zeigen
 - Kompression beim Schreiben von Packs
 - Installieren: "trotzdem überschreiben" für ein fremdes Pack gleichen Namens (starke Bestätigung)
