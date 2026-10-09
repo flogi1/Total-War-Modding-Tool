@@ -292,9 +292,11 @@ ohne Teilergebnis ab.
 `ObjectText.Render(ObjectView, CategoryDefinition?, RenderOptions)` liefert `IReadOnlyList<TextLine>`;
 eine Zeile ist eine Liste von `TextSpan(Text, Kind, Target?)` mit `Kind` aus Normal, TableName,
 Key, FieldName, Value, Link, LocText, ProvenanceVanilla, ProvenanceMod, ProvenanceProject,
-Overridden, Warning, Collapsed. `Target` ist bei Link die `ObjectId`, bei Collapsed die
-Abschnittsnummer. Das Rendering ist deterministisch und hat keinen UI-Text: Abschnittstitel kommen
-als Loc-Schlüssel (`Kind = Title`, Text = Schlüssel) heraus, die App übersetzt sie.
+Overridden, Warning, Collapsed, Duplicate, OlderLayout. `Target` ist bei Link die `ObjectId`; bei
+Collapsed tragen `Section` die Abschnittsnummer und `Count` die Zahl der verborgenen Zeilen. Das
+Rendering ist deterministisch und hat keinen UI-Text: Abschnittstitel kommen als Loc-Schlüssel
+(`Kind = Title`, Text = Schlüssel) heraus, die App übersetzt sie; die Texte von Collapsed („+N“),
+Duplicate und OlderLayout sind nur technischer Ersatz, die App bildet ihren Text aus `Kind` und `Count`.
 
 Regeln:
 1. Kopf: Tabellenname, Schlüssel, Herkunft, dahinter überschriebene Herkünfte. Dann Warnungen.

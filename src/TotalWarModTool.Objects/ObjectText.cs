@@ -16,10 +16,16 @@ public enum SpanKind
     Overridden,
     Warning,
     Collapsed,
+    Duplicate,
+    OlderLayout,
 }
 
-/// <summary>Target for Link; Section (index into ObjectView.Sections) for Collapsed and Title.</summary>
-public sealed record TextSpan(string Text, SpanKind Kind, ObjectId? Target = null, int? Section = null);
+/// <summary>
+/// Target for Link; Section (index into ObjectView.Sections) for Collapsed and Title; Count (the number of hidden rows) for Collapsed.
+/// The texts of Collapsed ("+N"), Duplicate ("duplicate") and OlderLayout ("older layout") are technical fallbacks: the App renders its
+/// own text from Kind and Count.
+/// </summary>
+public sealed record TextSpan(string Text, SpanKind Kind, ObjectId? Target = null, int? Section = null, int? Count = null);
 
 public sealed record TextLine(IReadOnlyList<TextSpan> Spans, int Indent);
 
@@ -189,9 +195,10 @@ public static class ObjectText
             lines.Add(new TextLine(RowSpans(section, section.Rows[i], rule), 1));
         }
 
-        if (collapse && section.Rows.Count - shown > 0)
+        var hidden = section.Rows.Count - shown;
+        if (collapse && hidden > 0)
         {
-            lines.Add(Line(1, new TextSpan("+" + (section.Rows.Count - shown), SpanKind.Collapsed, Section: index)));
+            lines.Add(Line(1, new TextSpan("+" + hidden, SpanKind.Collapsed, Section: index, Count: hidden)));
         }
     }
 
@@ -258,13 +265,13 @@ public static class ObjectText
         if (row.Provenance.Duplicate)
         {
             spans.Add(new TextSpan(" ", SpanKind.Normal));
-            spans.Add(new TextSpan("duplicate", SpanKind.Warning));
+            spans.Add(new TextSpan("duplicate", SpanKind.Duplicate));
         }
 
         if (row.Provenance.OlderLayout)
         {
             spans.Add(new TextSpan(" ", SpanKind.Normal));
-            spans.Add(new TextSpan("older layout", SpanKind.Warning));
+            spans.Add(new TextSpan("older layout", SpanKind.OlderLayout));
         }
 
         return spans;

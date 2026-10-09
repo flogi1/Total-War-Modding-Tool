@@ -186,6 +186,7 @@ public class ObjectTextTests
         var more = collapsed.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed));
         Assert.Equal("+20", Text(more));
         Assert.Equal(0, more.Spans[0].Section);
+        Assert.Equal(20, more.Spans[0].Count);
 
         var expanded = ObjectText.Render(view, null, new RenderOptions(new HashSet<int> { 0 }));
 
@@ -273,7 +274,10 @@ public class ObjectTextTests
         var line = lines.Single(l => Text(l).StartsWith("value=", StringComparison.Ordinal));
         Assert.Equal("value=1  [mod.pack] [db.pack] duplicate older layout", Text(line));
         Assert.Contains(line.Spans, s => s.Kind == SpanKind.Overridden && s.Text == "[db.pack]");
-        Assert.Equal(2, line.Spans.Count(s => s.Kind == SpanKind.Warning));
+        // The kind carries the meaning; the text is only a fallback the App replaces.
+        Assert.Equal("duplicate", Assert.Single(line.Spans, s => s.Kind == SpanKind.Duplicate).Text);
+        Assert.Equal("older layout", Assert.Single(line.Spans, s => s.Kind == SpanKind.OlderLayout).Text);
+        Assert.DoesNotContain(line.Spans, s => s.Kind == SpanKind.Warning);
     }
 
     [Fact]
@@ -346,7 +350,10 @@ public class ObjectTextTests
         var negative = ObjectText.Render(view, null, new RenderOptions(new HashSet<int>(), CollapseThreshold: 3, CollapsedPreview: -4));
 
         Assert.Equal(0, negative.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
-        Assert.Equal("+5", Text(negative.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed))));
+        var hidden = negative.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed)).Spans[0];
+        Assert.Equal("+5", hidden.Text);
+        Assert.Equal(5, hidden.Count);
+        Assert.Equal(0, hidden.Section);
     }
 
     [Fact]
