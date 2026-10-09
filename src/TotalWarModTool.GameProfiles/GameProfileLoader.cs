@@ -192,7 +192,60 @@ public static class GameProfileLoader
             }
         }
 
-        return new GameProfile(id, displayName, steamAppId, installFolderName, dataFolder, packFormat, schemaFile, packTypes, manifest);
+        if (!TryReadLocPacks(root, out var locPacks, out detail))
+        {
+            return null;
+        }
+
+        string? defaultLocPack = null;
+        if (root.TryGetProperty("defaultLocPack", out var defaultElement) && defaultElement.ValueKind != JsonValueKind.Null)
+        {
+            defaultLocPack = defaultElement.ValueKind == JsonValueKind.String ? defaultElement.GetString() : null;
+            if (string.IsNullOrWhiteSpace(defaultLocPack) || !IsSingleSafePathSegment(defaultLocPack))
+            {
+                detail = "defaultLocPack must be a single plain file name when present.";
+                return null;
+            }
+        }
+
+        return new GameProfile(id, displayName, steamAppId, installFolderName, dataFolder, packFormat, schemaFile, packTypes, manifest, locPacks, defaultLocPack);
+    }
+
+    // Language codes are normalized to upper case; lookups ignore case.
+    private static bool TryReadLocPacks(JsonElement root, out IReadOnlyDictionary<string, string> locPacks, out string detail)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        locPacks = map;
+        detail = string.Empty;
+        if (!root.TryGetProperty("locPacks", out var element) || element.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            detail = "locPacks must be an object mapping language codes to loc pack file names.";
+            return false;
+        }
+
+        foreach (var entry in element.EnumerateObject())
+        {
+            var code = entry.Name.Trim().ToUpperInvariant();
+            var file = entry.Value.ValueKind == JsonValueKind.String ? entry.Value.GetString() : null;
+            if (code.Length == 0 || string.IsNullOrWhiteSpace(file) || !IsSingleSafePathSegment(file))
+            {
+                detail = "locPacks must map non-empty language codes to single plain file names.";
+                return false;
+            }
+
+            if (!map.TryAdd(code, file))
+            {
+                detail = "locPacks lists the language code '" + code + "' more than once.";
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool IsValidId(string id)

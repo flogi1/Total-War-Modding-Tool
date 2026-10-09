@@ -8,5 +8,21 @@
   "packFormat": "PFH5",
   "schemaFile": "schema_wh3.ron",
   "vanillaPackTypes": ["boot", "release", "patch"],
-  "vanillaManifestFile": "manifest.txt"
+  "vanillaManifestFile": "manifest.txt",
+  "locPacks": {
+    "BR": "local_br.pack",
+    "CN": "local_cn.pack",
+    "CZ": "local_cz.pack",
+    "DE": "local_ge.pack",
+    "EN": "local_en.pack",
+    "FR": "local_fr.pack",
+    "IT": "local_it.pack",
+    "KR": "local_kr.pack",
+    "PL": "local_pl.pack",
+    "RU": "local_ru.pack",
+    "SP": "local_sp.pack",
+    "TR": "local_tr.pack",
+    "ZH": "local_zh.pack"
+  },
+  "defaultLocPack": "local_en.pack"
 }
