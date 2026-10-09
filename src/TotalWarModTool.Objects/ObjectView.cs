@@ -86,8 +86,8 @@ public sealed record ObjectRow(IReadOnlyList<FieldValue> Fields, RowProvenance P
 /// <summary>FieldName is the field of SourceTable that points at the root.</summary>
 public sealed record ObjectSection(string SourceTable, string FieldName, bool IsJunction, IReadOnlyList<ObjectRow> Rows);
 
-/// <summary>Table without the _tables suffix, as the loc key spells it.</summary>
-public sealed record LocEntry(string Table, string Column, string Key, string Text, TableSource Source);
+/// <summary>Table without the _tables suffix, as the loc key spells it. Owner is the object the text belongs to: the root, a found reference target or a section row.</summary>
+public sealed record LocEntry(string Table, string Column, string Key, string Text, TableSource Source, ObjectId Owner);
 
 public enum ObjectWarningKind
 {

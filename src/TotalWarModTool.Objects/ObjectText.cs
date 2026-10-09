@@ -66,12 +66,22 @@ public static class ObjectText
 
         foreach (var entry in view.Texts)
         {
-            lines.Add(Line(1,
-                new TextSpan(entry.Column, SpanKind.FieldName),
-                new TextSpan(Gap, SpanKind.Normal),
-                new TextSpan(Quote(entry.Text), SpanKind.LocText),
-                new TextSpan(Gap, SpanKind.Normal),
-                Provenance(entry.Source)));
+            // "table.column", the text, a link to the object the text belongs to unless it is the root, the source.
+            var spans = new List<TextSpan>
+            {
+                new(entry.Table + "." + entry.Column, SpanKind.FieldName),
+                new(Gap, SpanKind.Normal),
+                new(Quote(entry.Text), SpanKind.LocText),
+            };
+            if (!entry.Owner.Equals(view.Id))
+            {
+                spans.Add(new TextSpan(Gap, SpanKind.Normal));
+                spans.Add(new TextSpan(entry.Owner.JoinedKey, SpanKind.Link, entry.Owner));
+            }
+
+            spans.Add(new TextSpan(Gap, SpanKind.Normal));
+            spans.Add(Provenance(entry.Source));
+            lines.Add(new TextLine(spans, 1));
         }
 
         foreach (var (index, rule) in OrderSections(view, category))

@@ -88,7 +88,7 @@ public sealed class ObjectBuilder
         // Loc texts of the root and of the objects its references found, in field order.
         if (rootTable.Definition is not null)
         {
-            texts.Add(id.Table, run.LocColumns(StripSuffix(id.Table), rootTable), id.JoinedKey);
+            texts.Add(id, run.LocColumns(StripSuffix(id.Table), rootTable));
         }
 
         if (root is not null)
@@ -97,7 +97,7 @@ public sealed class ObjectBuilder
             {
                 if (field is { Resolution: ReferenceResolution.Found, Target: { } target })
                 {
-                    texts.Add(target.Table, run.LocColumns(StripSuffix(target.Table), run.Fetch(target.Table)), target.JoinedKey);
+                    texts.Add(target, run.LocColumns(StripSuffix(target.Table), run.Fetch(target.Table)));
                 }
             }
         }
@@ -125,7 +125,7 @@ public sealed class ObjectBuilder
                     {
                         if (sectionRow.RowId is not null)
                         {
-                            texts.Add(reference.SourceTable, columns, sectionRow.RowId.JoinedKey);
+                            texts.Add(sectionRow.RowId, columns);
                         }
                     }
                 }
@@ -484,15 +484,16 @@ public sealed class ObjectBuilder
 
         public IReadOnlyList<LocEntry> Entries => _entries;
 
-        public void Add(string table, IReadOnlyList<string> columns, string key)
+        /// <summary>The texts of one object, looked up with its table and its joined key.</summary>
+        public void Add(ObjectId owner, IReadOnlyList<string> columns)
         {
-            var name = StripSuffix(table);
+            var name = StripSuffix(owner.Table);
             foreach (var column in columns)
             {
-                var locKey = LocKey(name, column, key);
+                var locKey = LocKey(name, column, owner.JoinedKey);
                 if (_loc.TryGet(locKey, out var text) && _keys.Add(locKey))
                 {
-                    _entries.Add(new LocEntry(name, column, locKey, text.Text, text.Source));
+                    _entries.Add(new LocEntry(name, column, locKey, text.Text, text.Source, owner));
                 }
             }
         }

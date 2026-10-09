@@ -301,6 +301,14 @@ public class ObjectBuilderTests
         Assert.Equal("B1 Name", first.Text);
         Assert.Equal(order.LocPack, first.Source);
         Assert.Equal("Chain Loc", view.Texts[1].Text);
+        Assert.Equal(
+            [
+                Level("b1"),
+                new ObjectId("building_chains_tables", ["chain1"]),
+                new ObjectId("building_culture_variants_tables", ["b1", "cult1"]),
+                new ObjectId("technologies_tables", ["t1"]),
+            ],
+            view.Texts.Select(t => t.Owner));
     }
 
     [Fact]

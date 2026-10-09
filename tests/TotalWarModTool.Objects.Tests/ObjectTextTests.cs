@@ -82,13 +82,37 @@ public class ObjectTextTests
     public void The_loc_block_lists_every_text_with_its_source()
     {
         var root = Row(From(Vanilla), Plain("key", "b1"));
-        var texts = new[] { new LocEntry("building_levels", "name", "k1", "Barracks", Mod) };
+        var texts = new[] { new LocEntry("building_levels", "name", "k1", "Barracks", Mod, Id("building_levels_tables", "b1")) };
 
         var lines = ObjectText.Render(View(root, texts: texts), null, NoExpansion);
 
-        Assert.Equal("name  \"Barracks\"  [mod.pack]", Text(lines[2]));
+        Assert.Equal("building_levels.name  \"Barracks\"  [mod.pack]", Text(lines[2]));
         Assert.Equal([SpanKind.FieldName, SpanKind.Normal, SpanKind.LocText, SpanKind.Normal, SpanKind.ProvenanceMod], Kinds(lines[2]));
         Assert.Equal(1, lines[2].Indent);
+    }
+
+    [Fact]
+    public void Loc_entries_name_their_owner()
+    {
+        var root = Row(From(Vanilla), Plain("key", "b1"));
+        var technology = Id("technologies_tables", "t1");
+        var texts = new[]
+        {
+            new LocEntry("building_levels", "onscreen_name", "building_levels_onscreen_name_b1", "Barracks", Vanilla, Id("BUILDING_LEVELS_TABLES", "b1")),
+            new LocEntry("technologies", "onscreen_name", "technologies_onscreen_name_t1", "Drill", Mod, technology),
+        };
+
+        var lines = ObjectText.Render(View(root, texts: texts), null, NoExpansion);
+
+        // The text of the root needs no link: the head already names it.
+        Assert.Equal("building_levels.onscreen_name  \"Barracks\"  [db.pack]", Text(lines[2]));
+        Assert.DoesNotContain(lines[2].Spans, s => s.Kind == SpanKind.Link);
+        // The text of a section row links the row it belongs to.
+        Assert.Equal("technologies.onscreen_name  \"Drill\"  t1  [mod.pack]", Text(lines[3]));
+        Assert.Equal([SpanKind.FieldName, SpanKind.Normal, SpanKind.LocText, SpanKind.Normal, SpanKind.Link, SpanKind.Normal, SpanKind.ProvenanceMod],
+            Kinds(lines[3]));
+        Assert.Equal(technology, lines[3].Spans[4].Target);
+        Assert.Equal(1, lines[3].Indent);
     }
 
     [Fact]

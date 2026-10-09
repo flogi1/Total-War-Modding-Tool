@@ -300,7 +300,8 @@ Regeln:
 1. Kopf: Tabellenname, Schlüssel, Herkunft, dahinter überschriebene Herkünfte. Dann Warnungen.
 2. Wurzelfelder als `name = wert`, Referenzen als Link, bei `LocOnly` der Loc-Text in
    Anführungszeichen dahinter, bei `NotFound` ohne Link mit `Kind = Warning`.
-3. Loc-Block: eine Zeile pro Text, Spaltenname und Text.
+3. Loc-Block: eine Zeile pro Text; Loc-Zeilen nennen Tabelle und Spalte (`tabelle.spalte`), Text und
+   Herkunft und verlinken das Objekt, dem der Text gehört (`LocEntry.Owner`), wenn es nicht die Wurzel ist.
 4. Abschnitte: Titel, Tabellenname, Zeilenzahl, Herkünfte. Junction-Abschnitt: pro Zeile nur das
    andere Ende als Link plus Loc-Name. Sonst pro Zeile die Nicht-Schlüssel-Felder als
    `name = wert` in einer Zeile; die Felder, die auf die Wurzel zeigen, werden weggelassen.
