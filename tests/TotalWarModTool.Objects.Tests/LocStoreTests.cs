@@ -136,6 +136,42 @@ public class LocStoreTests
     }
 
     [Fact]
+    public void SignatureOf_covers_the_loc_sources()
+    {
+        using var tmp = new TempDir();
+        var data = TestSources.Vanilla(LocPack(tmp.File("data.pack"), "text/x.loc", Row("k5", "five")));
+        var locPack = TestSources.Vanilla(LocPack(tmp.File("local_en.pack"), "text/y.loc", Row("k1", "one")));
+        var modPath = LocPack(tmp.File("mod.pack"), "text/m.loc", Row("k2", "two"));
+        var proj = Path.Combine(tmp.Path, "proj");
+        TestSources.WriteProjectLoc(proj, @"text\p.loc.tsv", [Row("k3", "three")]);
+        var order = TestSources.OrderWithLoc(locPack, data, locPack, TestSources.Mod(modPath), TestSources.Project(proj));
+        var store = new LocStore();
+
+        var before = store.SignatureOf(order, None);
+        Assert.Equal(before, store.SignatureOf(order, None));
+        var first = store.Get(order, None);
+        Assert.Equal(before, store.SignatureOf(order, None));
+        Assert.Same(first, store.Get(order, None));
+
+        // A vanilla pack other than the loc pack is not a loc source.
+        LocPack(data.Path, "text/x.loc", Row("k5", "five"), Row("k6", "six"));
+        Assert.Equal(before, store.SignatureOf(order, None));
+
+        LocPack(modPath, "text/m.loc", Row("k2", "two"), Row("k4", "four"));
+        var afterMod = store.SignatureOf(order, None);
+        Assert.NotEqual(before, afterMod);
+
+        TestSources.WriteProjectLoc(proj, @"text\p.loc.tsv", [Row("k3", "three"), Row("k7", "seven")]);
+        var afterProject = store.SignatureOf(order, None);
+        Assert.NotEqual(afterMod, afterProject);
+
+        var second = store.Get(order, None);
+        Assert.NotSame(first, second);
+        Assert.Equal(afterProject, store.SignatureOf(order, None));
+        Assert.Same(second, store.Get(order, None));
+    }
+
+    [Fact]
     public void KeysWithPrefix_returns_the_sorted_range()
     {
         using var tmp = new TempDir();

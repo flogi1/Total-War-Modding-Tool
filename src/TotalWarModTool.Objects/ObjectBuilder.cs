@@ -134,7 +134,7 @@ public sealed class ObjectBuilder
             Step(reference.SourceTable);
         }
 
-        return new ObjectView(id, root, texts.Entries, sections, CollectWarnings(order, warnings, run), order);
+        return new ObjectView(id, root, texts.Entries, sections, CollectWarnings(order, warnings, run), order, run.FetchedNames);
     }
 
     /// <summary>Display name of an object from loc (first DisplayNameColumns hit), null when none. Uses only the LocStore.</summary>
@@ -403,6 +403,9 @@ public sealed class ObjectBuilder
 
         public List<MergedTable> FetchedTables { get; } = [];
 
+        /// <summary>The table names asked for, in fetch order, each once (ignoring case).</summary>
+        public List<string> FetchedNames { get; } = [];
+
         public void LoadLoc()
         {
             _cancellationToken.ThrowIfCancellationRequested();
@@ -467,6 +470,7 @@ public sealed class ObjectBuilder
                 merged = _owner._tables.Get(table, _order, _cancellationToken);
                 _fetched[table] = merged;
                 FetchedTables.Add(merged);
+                FetchedNames.Add(table);
             }
 
             return merged;

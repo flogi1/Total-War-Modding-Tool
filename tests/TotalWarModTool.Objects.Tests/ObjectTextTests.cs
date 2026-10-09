@@ -27,7 +27,7 @@ public class ObjectTextTests
 
     private static ObjectView View(ObjectRow? root, IReadOnlyList<ObjectSection>? sections = null, IReadOnlyList<ObjectWarning>? warnings = null,
         string key = "b1", IReadOnlyList<LocEntry>? texts = null) =>
-        new(Id("building_levels_tables", key), root, texts ?? [], sections ?? [], warnings ?? [], Order);
+        new(Id("building_levels_tables", key), root, texts ?? [], sections ?? [], warnings ?? [], Order, ["building_levels_tables"]);
 
     private static ObjectSection Section(string table, string field, bool junction, params ObjectRow[] rows) => new(table, field, junction, rows);
 

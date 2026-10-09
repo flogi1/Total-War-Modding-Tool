@@ -352,7 +352,9 @@ Titel-Schlüssel stehen in `locales/en.json` und `de.json`.
   Abbruch: Tab bleibt mit „abgebrochen“ und „Aktualisieren“.
 - Veraltet: Der Tab merkt sich die Fingerprints seiner Quellen. Nach Speichern einer Projektdatei
   oder einem Katalog-Aktualisieren prüft die App die Fingerprints; bei Abweichung zeigt der Tab
-  „veraltet“, kein automatischer Neuaufbau.
+  „veraltet“, kein automatischer Neuaufbau. Dafür merkt sich der Tab beim Aufbau
+  `TableStore.SignatureOf` für jede Tabelle aus `ObjectView.Tables` und `LocStore.SignatureOf` und
+  vergleicht sie später mit neu berechneten Werten (nur Dateistatus, kein Dekodieren).
 - Session: Objekt-Tabs werden mit `ObjectId` und Verlauf gespeichert und beim Start lazy
   wiederhergestellt (Block erst beim Aktivieren).
 - Der `TableStore` lebt einmal im Composition Root und wird bei Schema-Wechsel oder

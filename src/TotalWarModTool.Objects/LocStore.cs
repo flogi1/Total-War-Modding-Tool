@@ -94,23 +94,8 @@ public sealed class LocStore
         ArgumentNullException.ThrowIfNull(order);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var sources = new List<TableSource>();
-        if (order.LocPack is not null)
-        {
-            sources.Add(order.LocPack);
-        }
-
-        sources.AddRange(order.Sources.Where(static s => s.Kind == SourceKind.Mod));
-        sources.AddRange(order.Sources.Where(static s => s.Kind == SourceKind.Project));
-
-        var listings = new List<SourceListing>(sources.Count);
-        foreach (var source in sources)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            listings.Add(_reader.ListLoc(source, cancellationToken));
-        }
-
-        var signature = string.Join('\n', listings.Select(static l => (int)l.Source.Kind + "|" + l.Source.Path + "|" + l.Token));
+        var listings = List(order, cancellationToken);
+        var signature = Signature(listings);
         lock (_gate)
         {
             if (_cached is { } cached && cached.Signature == signature)
@@ -158,4 +143,40 @@ public sealed class LocStore
 
         return table;
     }
+
+    /// <summary>
+    /// The state of the loc sources of the order (loc pack, mods, project): the string <see cref="Get"/> uses as its cache key. Equal
+    /// signatures mean <see cref="Get"/> would see the same content. Decodes no entry and does not touch the cached table; only a pack whose
+    /// file changed has its index read again. Throws only <see cref="OperationCanceledException"/>.
+    /// </summary>
+    public string SignatureOf(LoadOrder order, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Signature(List(order, cancellationToken));
+    }
+
+    private List<SourceListing> List(LoadOrder order, CancellationToken cancellationToken)
+    {
+        var sources = new List<TableSource>();
+        if (order.LocPack is not null)
+        {
+            sources.Add(order.LocPack);
+        }
+
+        sources.AddRange(order.Sources.Where(static s => s.Kind == SourceKind.Mod));
+        sources.AddRange(order.Sources.Where(static s => s.Kind == SourceKind.Project));
+
+        var listings = new List<SourceListing>(sources.Count);
+        foreach (var source in sources)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            listings.Add(_reader.ListLoc(source, cancellationToken));
+        }
+
+        return listings;
+    }
+
+    private static string Signature(List<SourceListing> listings) =>
+        string.Join('\n', listings.Select(static l => (int)l.Source.Kind + "|" + l.Source.Path + "|" + l.Token));
 }

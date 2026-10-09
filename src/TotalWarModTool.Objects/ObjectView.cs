@@ -100,6 +100,10 @@ public enum ObjectWarningKind
 /// <summary>Detail is short technical English, not a UI text.</summary>
 public sealed record ObjectWarning(ObjectWarningKind Kind, string? Name, string Detail);
 
-/// <summary>The immutable model of one object: its row, its loc texts and the rows of other tables that point at it.</summary>
+/// <summary>
+/// The immutable model of one object: its row, its loc texts and the rows of other tables that point at it. Tables lists every table the
+/// build asked the store for (the root first, then in fetch order, each once ignoring case), so the App can keep
+/// <see cref="TableStore.SignatureOf"/> for each and <see cref="LocStore.SignatureOf"/> and compare them later to tell a stale view.
+/// </summary>
 public sealed record ObjectView(ObjectId Id, ObjectRow? Root, IReadOnlyList<LocEntry> Texts, IReadOnlyList<ObjectSection> Sections,
-    IReadOnlyList<ObjectWarning> Warnings, LoadOrder Order);
+    IReadOnlyList<ObjectWarning> Warnings, LoadOrder Order, IReadOnlyList<string> Tables);

@@ -447,4 +447,39 @@ public class TableStoreTests
         Assert.Equal(0, store.CachedBytes);
         Assert.NotSame(first, store.Get("units_tables", order, None));
     }
+
+    [Fact]
+    public void SignatureOf_equals_the_cache_key_and_changes_with_the_pack()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema, ("units_tables", 2, [U("u1", "Alpha", 10)])));
+        var modPath = TestSources.WritePack(tmp.File("mod.pack"), Schema, ("units_tables", 2, [U("u2", "Beta", 20)]));
+        var otherPath = TestSources.WritePack(tmp.File("other.pack"), Schema, ("plain_tables", 1, [["x"]]));
+        var order = TestSources.Order(vanilla, TestSources.Mod(modPath), TestSources.Mod(otherPath));
+        var store = NewStore();
+
+        // Only listings: nothing is decoded into the table cache.
+        var before = store.SignatureOf("units_tables", order, None);
+        Assert.Equal(0, store.CachedTables);
+        Assert.Equal(before, store.SignatureOf("units_tables", order, None));
+
+        var first = store.Get("units_tables", order, None);
+        Assert.Equal(before, store.SignatureOf("units_tables", order, None));
+        Assert.Same(first, store.Get("units_tables", order, None));
+
+        // A pack without the table does not matter for it.
+        TestSources.WritePack(otherPath, Schema, ("plain_tables", 1, [["x"], ["y"]]));
+        Assert.Equal(before, store.SignatureOf("units_tables", order, None));
+        Assert.Same(first, store.Get("units_tables", order, None));
+
+        TestSources.WritePack(modPath, Schema, ("units_tables", 2, [U("u2", "Beta", 20), U("u3", "Gamma", 30)]));
+        var after = store.SignatureOf("units_tables", order, None);
+
+        Assert.NotEqual(before, after);
+        var second = store.Get("units_tables", order, None);
+        Assert.NotSame(first, second);
+        Assert.Equal(3, second.Rows.Count);
+        Assert.Equal(after, store.SignatureOf("units_tables", order, None));
+        Assert.Same(second, store.Get("units_tables", order, None));
+    }
 }

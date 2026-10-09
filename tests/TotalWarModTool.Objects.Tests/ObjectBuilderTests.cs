@@ -211,6 +211,12 @@ public class ObjectBuilderTests
         Assert.Null(technologies.Rows[0].OtherEnd);
         Assert.Equal(new ObjectId("technologies_tables", ["t1"]), technologies.Rows[0].RowId);
         Assert.Equal(new ObjectId("building_levels_tables", ["b1"]), Field_(technologies.Rows[0], "building_level").Target);
+        // Every table the build asked the store for, the root first, so the App can compare their signatures later.
+        Assert.Equal("building_levels_tables", view.Tables[0]);
+        Assert.Contains("building_effects_junction_tables", view.Tables);
+        Assert.Contains("technologies_tables", view.Tables);
+        Assert.Contains("effects_tables", view.Tables);
+        Assert.Equal(view.Tables.Count, view.Tables.Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 
     [Fact]

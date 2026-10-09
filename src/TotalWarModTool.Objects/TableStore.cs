@@ -100,15 +100,9 @@ public sealed class TableStore
         ArgumentNullException.ThrowIfNull(order);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var listings = new List<SourceListing>(order.Sources.Count);
-        foreach (var source in order.Sources)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            listings.Add(_reader.ListTable(source, tableName, cancellationToken));
-        }
-
+        var listings = List(tableName, order, cancellationToken);
         var identity = IdentityOf(tableName, order.Sources);
-        var signature = string.Join('\n', listings.Select(static l => l.Token));
+        var signature = Signature(listings);
         lock (_gate)
         {
             if (_byIdentity.TryGetValue(identity, out var node) && node.Value.Signature == signature)
@@ -123,6 +117,34 @@ public sealed class TableStore
         Store(identity, signature, table, transient);
         return table;
     }
+
+    /// <summary>
+    /// The state of the files that matter for the table over the order: the string <see cref="Get"/> uses as its cache key, one token per
+    /// source (a pack without entries of the table gives "-", a missing pack "missing"). Equal signatures mean <see cref="Get"/> would see the
+    /// same content. Decodes no entry and does not touch the table cache; only a pack whose file changed has its index read again.
+    /// Throws only <see cref="OperationCanceledException"/>.
+    /// </summary>
+    public string SignatureOf(string tableName, LoadOrder order, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tableName);
+        ArgumentNullException.ThrowIfNull(order);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Signature(List(tableName, order, cancellationToken));
+    }
+
+    private List<SourceListing> List(string tableName, LoadOrder order, CancellationToken cancellationToken)
+    {
+        var listings = new List<SourceListing>(order.Sources.Count);
+        foreach (var source in order.Sources)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            listings.Add(_reader.ListTable(source, tableName, cancellationToken));
+        }
+
+        return listings;
+    }
+
+    private static string Signature(List<SourceListing> listings) => string.Join('\n', listings.Select(static l => l.Token));
 
     private static string IdentityOf(string tableName, IReadOnlyList<TableSource> sources)
     {
