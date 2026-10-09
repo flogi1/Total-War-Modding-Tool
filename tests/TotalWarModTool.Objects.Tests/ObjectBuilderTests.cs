@@ -22,7 +22,7 @@ public class ObjectBuilderTests
         ("technologies_tables", 1, [Field("key", key: true), Field("building_level", reference: ("building_levels", "level_name"))]),
         ("effects_tables", 1, [Field("effect", key: true), Field("icon")]),
         ("building_culture_variants_tables", 1, [Field("building", key: true, reference: ("building_levels", "level_name")), Field("culture", key: true),
-            Field("name"), Field("short_description", reference: ("building_short_description_texts", "key"))]),
+            Field("name"), Field("short_description", reference: ("building_short_description_texts", "short_description"))]),
         ("notes_tables", 1, [Field("building", reference: ("building_levels", "create_cost"))]),
         ("pairs_tables", 1, [Field("a", key: true), Field("b", key: true)]),
         ("pair_uses_tables", 1, [Field("pa", reference: ("pairs", "a")), Field("pb", reference: ("pairs", "b"))]));
@@ -102,7 +102,7 @@ public class ObjectBuilderTests
             T("building_levels_tables", R("b1", "", 1, "gold")),
             T("building_culture_variants_tables", R("b1", "cult1", "n", "sd1")),
         };
-        var withLoc = Single(tmp, [L("commodities_key_gold", "Gold"), L("building_short_description_texts_key_sd1", "Short")], tables);
+        var withLoc = Single(tmp, [L("commodities_key_gold", "Gold"), L("building_short_description_texts_short_description_sd1", "Short")], tables);
 
         var view = NewBuilder().Build(Level("b1"), withLoc, null, None);
 
@@ -113,14 +113,47 @@ public class ObjectBuilderTests
         Assert.Equal(ReferenceResolution.None, Field_(view.Root!, "chain").Resolution);
         var section = Assert.Single(view.Sections);
         var description = Field_(Assert.Single(section.Rows), "short_description");
-        Assert.Equal(ReferenceResolution.Unchecked, description.Resolution);
-        Assert.Null(description.LocText);
+        Assert.Equal(ReferenceResolution.LocOnly, description.Resolution);
+        Assert.Equal("Short", description.LocText);
         Assert.Null(description.Target);
 
         using var tmp2 = new TempDir();
         var withoutLoc = Single(tmp2, null, tables);
         var plain = NewBuilder().Build(Level("b1"), withoutLoc, null, None);
         Assert.Equal(ReferenceResolution.NotFound, Field_(plain.Root!, "commodity").Resolution);
+    }
+
+    [Fact]
+    public void A_section_row_reference_to_a_loc_only_table_shows_the_text()
+    {
+        using var tmp = new TempDir();
+        var order = Single(tmp,
+            [
+                L("building_short_description_texts_short_description_sd1", "Short"),
+                L("effects_effect_eff1", "Effect Loc"),
+            ],
+            T("building_levels_tables", R("b1", "", 1, "")),
+            T("building_culture_variants_tables", R("b1", "cult1", "n", "sd1"), R("b1", "cult2", "n", "sd_missing"), R("b1", "cult3", "n", "")),
+            T("effects_tables", R("eff1", "icon")),
+            T("building_effects_junction_tables", R("b1", "eff1", "p", 5f)));
+
+        var view = NewBuilder().Build(Level("b1"), order, null, None);
+
+        var variants = view.Sections.Single(s => s.SourceTable == "building_culture_variants_tables");
+        var shown = Field_(variants.Rows[0], "short_description");
+        Assert.Equal(ReferenceResolution.LocOnly, shown.Resolution);
+        Assert.Equal("Short", shown.LocText);
+        Assert.Null(shown.Target);
+        var missing = Field_(variants.Rows[1], "short_description");
+        Assert.Equal(ReferenceResolution.Unchecked, missing.Resolution);
+        Assert.Null(missing.LocText);
+        Assert.Equal(ReferenceResolution.Unchecked, Field_(variants.Rows[2], "short_description").Resolution);
+        // A reference to a table the schema knows stays unchecked in a section row, even when the target and a loc text exist.
+        var effects = view.Sections.Single(s => s.SourceTable == "building_effects_junction_tables");
+        var effect = Field_(Assert.Single(effects.Rows), "effect");
+        Assert.Equal(ReferenceResolution.Unchecked, effect.Resolution);
+        Assert.Null(effect.LocText);
+        Assert.Equal(new ObjectId("effects_tables", ["eff1"]), effect.Target);
     }
 
     [Fact]
@@ -222,8 +255,10 @@ public class ObjectBuilderTests
             [
                 L("building_levels_level_name_b1", "B1 Name"),
                 L("building_chains_name_chain1", "Chain Loc"),
-                L("building_culture_variants_name_b1", "Barracks"),
-                L("technologies_key_b1", "T"),
+                L("building_culture_variants_name_b1cult1", "Barracks"),
+                L("technologies_key_t1", "T"),
+                L("building_culture_variants_name_b1", "Wrong"),
+                L("technologies_key_b1", "Wrong"),
                 L("building_culture_variants_name_b1x", "Wrong"),
                 L("building_effects_junction_effect_b1", "Wrong"),
             ],
@@ -235,7 +270,7 @@ public class ObjectBuilderTests
         var view = NewBuilder().Build(Level("b1"), order, null, None);
 
         Assert.Equal(
-            ["building_levels_level_name_b1", "building_chains_name_chain1", "building_culture_variants_name_b1", "technologies_key_b1"],
+            ["building_levels_level_name_b1", "building_chains_name_chain1", "building_culture_variants_name_b1cult1", "technologies_key_t1"],
             view.Texts.Select(t => t.Key));
         var first = view.Texts[0];
         Assert.Equal("building_levels", first.Table);

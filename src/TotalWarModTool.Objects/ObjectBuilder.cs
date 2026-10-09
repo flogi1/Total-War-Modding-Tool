@@ -7,6 +7,9 @@ namespace TotalWarModTool.Objects;
 /// <summary>
 /// Builds the <see cref="ObjectView"/> of one row: the row itself with its references resolved, its loc texts, and every row of
 /// other tables whose reference field points at it. Reads only; holds no state, so one builder can serve several threads.
+/// Loc texts are looked up as table_column_key for (a) the root with its key values joined, (b) the objects the root references found, with their joined
+/// key, (c) every section row that has a RowId, with the joined key of the whole row (composite keys concatenate all key values).
+/// Reference fields of section rows never ask the table store: a target table unknown to the schema is looked up in loc only (LocOnly), others stay Unchecked.
 /// </summary>
 public sealed class ObjectBuilder
 {
@@ -109,8 +112,17 @@ public sealed class ObjectBuilder
                 var rows = merged.FindByField(reference.FieldName, value);
                 if (rows.Count > 0)
                 {
-                    sections.Add(BuildSection(run, merged, reference, rows));
-                    texts.Add(reference.SourceTable, merged.Definition, value);
+                    var section = BuildSection(run, merged, reference, rows);
+                    sections.Add(section);
+
+                    // The loc key of a row is built from all its key values, not from the root key alone.
+                    foreach (var sectionRow in section.Rows)
+                    {
+                        if (sectionRow.RowId is not null)
+                        {
+                            texts.Add(reference.SourceTable, merged.Definition, sectionRow.RowId.JoinedKey);
+                        }
+                    }
                 }
             }
 
@@ -213,7 +225,7 @@ public sealed class ObjectBuilder
                 var text = CellText.Format(field.Type, row.Cells[i]);
                 fields.Add(field.Reference is null
                     ? new FieldValue(field.Name, field.Type, text, null, ReferenceResolution.None, null, null)
-                    : new FieldValue(field.Name, field.Type, text, field.Reference, ReferenceResolution.Unchecked, UncheckedTarget(field.Reference, text), null));
+                    : SectionReference(run, field, field.Reference, text));
             }
 
             var otherEnd = otherIndex >= 0 ? ResolveField(run, definition.Fields[otherIndex], fields[otherIndex].Text) : null;
@@ -221,6 +233,21 @@ public sealed class ObjectBuilder
         }
 
         return new ObjectSection(reference.SourceTable, reference.FieldName, isJunction, result);
+    }
+
+    /// <summary>
+    /// A reference field of a section row. The store is not asked: a target table the schema does not know is looked up in the loc texts
+    /// only (LocOnly on a hit), everything else stays Unchecked.
+    /// </summary>
+    private FieldValue SectionReference(Run run, FieldDefinition field, TableReference reference, string text)
+    {
+        if (text.Length > 0 && _graph.Latest(_graph.ResolveTableName(reference.Table)) is null
+            && run.Loc!.TryGet(LocKey(StripSuffix(reference.Table), reference.Column, text), out var locText))
+        {
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText.Text);
+        }
+
+        return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Unchecked, UncheckedTarget(reference, text), null);
     }
 
     /// <summary>The target of an unchecked reference: only when the table has exactly one key field and the reference points at that field.</summary>

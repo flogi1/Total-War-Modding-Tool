@@ -70,7 +70,7 @@ public enum ReferenceResolution
     Unchecked,
 }
 
-/// <summary>Target is set for Found and for Unchecked when the target table has exactly one key field. LocText is the loc text for LocOnly and the display name for Found when one exists.</summary>
+/// <summary>Target is set for Found, and for Unchecked when the target table has exactly one key field and the referenced column is that key field. LocOnly is a reference whose target table is unknown to the schema but whose loc text exists (also in section rows, which never ask the table store). LocText is the loc text for LocOnly and the display name for Found when one exists.</summary>
 public sealed record FieldValue(string Name, FieldType Type, string Text, TableReference? Reference, ReferenceResolution Resolution, ObjectId? Target, string? LocText);
 
 /// <summary>RowId is null for tables without key. OtherEnd is set for rows of junction sections.</summary>
