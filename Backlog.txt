@@ -40,6 +40,8 @@ Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
   - Aus Plan 1: `LocStore` hält nur eine Loc-Tabelle; zwei Objekt-Tabs mit verschiedener Ladereihenfolge (Wurzel-Pack nachträglich eingefügt) dekodieren Loc bei jedem Wechsel neu
   - Aus Plan 1: Index pro Referenzfeld im `TableStore` nur bauen, wenn Plan 2 eine Wartezeit misst (linear 66 ms warm)
   - Aus Plan 1: Pack-Index-Cache in `TableStore` und `LocStore` ohne Obergrenze und doppelt gehalten
+  - Aus Plan 1 (Nachprüfung 2026-10-09): Loc-Suche nutzt die Tabellenschreibweise des ersten Aufrufers im Cache (Loc-Schlüssel sind schreibweisenabhängig); bei abweichender Groß-/Kleinschreibung fehlen Texte ohne Hinweis
+  - Für Plan 2: Fingerprints für „veraltet“ am besten schon beim Aufbau im `ObjectBuilder` erfassen (sonst Lücke zwischen Aufbau und Signatur); Quellen mit vorübergehenden Problemen ändern die Signatur nicht; Owner-Link eines zusammengesetzten Schlüssels zeigt die verkettete Form (`b1cult1`)
 
 Teil 5: Lua-Editor
   - Editor-Komponente wählen (NuGet nur nach Rückfrage)
