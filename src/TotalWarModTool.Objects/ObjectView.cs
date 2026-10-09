@@ -5,12 +5,19 @@ namespace TotalWarModTool.Objects;
 /// <summary>Table (with suffix) and the key values in KeyFields order. Equality is ordinal on the values and ignores case on the table.</summary>
 public sealed class ObjectId : IEquatable<ObjectId>
 {
+    /// <summary>Throws ArgumentException when a key value is null, so a builder never sees one.</summary>
     public ObjectId(string table, IReadOnlyList<string> keyValues)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(keyValues);
+        var values = keyValues.ToArray();
+        if (Array.IndexOf(values, null) >= 0)
+        {
+            throw new ArgumentException("A key value is null.", nameof(keyValues));
+        }
+
         Table = table;
-        KeyValues = keyValues.ToArray();
+        KeyValues = values;
         JoinedKey = string.Concat(KeyValues);
     }
 
@@ -49,7 +56,7 @@ public sealed class ObjectId : IEquatable<ObjectId>
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        hash.Add(Table.ToLowerInvariant(), StringComparer.Ordinal);
+        hash.Add(Table, StringComparer.OrdinalIgnoreCase);
         foreach (var value in KeyValues)
         {
             hash.Add(value, StringComparer.Ordinal);

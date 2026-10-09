@@ -454,4 +454,13 @@ public class ObjectBuilderTests
         Assert.Equal("Pairs_Tables:x|y", a.ToString());
         Assert.Equal("xy", a.JoinedKey);
     }
+
+    [Fact]
+    public void ObjectId_rejects_null_key_values()
+    {
+        var error = Assert.Throws<ArgumentException>(() => new ObjectId("building_levels_tables", ["b1", null!]));
+
+        Assert.IsNotType<ArgumentNullException>(error);
+        Assert.Equal("keyValues", error.ParamName);
+    }
 }
