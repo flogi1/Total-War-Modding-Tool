@@ -11,7 +11,8 @@ namespace TotalWarModTool.Objects;
 /// with a RowId, with the joined key of the whole row (composite keys concatenate all key values), the entries table_column_key are looked up
 /// for every loc column of the table. Loc columns are discovered from the loc keys themselves (prefix "table_", the joined keys of the table as
 /// separator), not from the table definition, because most loc columns are missing in the schema. A reference to a table the schema does not know
-/// is found by the loc key prefix "table_" and suffix "_value" (LocOnly); the loc column is the part between. Reference fields of section rows
+/// is found by the exact key "table_column_value" for a display column, else by the shortest loc key with prefix "table_" and suffix "_value"
+/// (LocOnly). Reference fields of section rows
 /// never ask the table store: unknown targets are looked up in loc only, all others stay Unchecked.
 /// </summary>
 public sealed class ObjectBuilder
@@ -300,42 +301,38 @@ public sealed class ObjectBuilder
     }
 
     /// <summary>
-    /// The text of a table the schema does not know: the first loc key (ordinal) that starts with "table_" and ends with "_value".
-    /// The loc column is the part between and is not the column the reference names. Null when there is none.
+    /// The text of a table the schema does not know: first the exact keys "table_column_value" for the DisplayNameColumns in their order,
+    /// then the shortest loc key (ties: the first in ordinal order) that starts with "table_" and ends with "_value". In the second case
+    /// the loc column is the part between and is not the column the reference names. Null when there is none.
     /// </summary>
     private static string? FindLocOnly(LocTable loc, string referenceTable, string value)
     {
-        var prefix = StripSuffix(referenceTable) + "_";
-        var suffix = "_" + value;
-        foreach (var key in loc.KeysWithPrefix(prefix))
+        var table = StripSuffix(referenceTable);
+        foreach (var column in DisplayColumns)
         {
-            if (key.Length > prefix.Length + suffix.Length && key.EndsWith(suffix, StringComparison.Ordinal) && loc.TryGet(key, out var text))
+            if (loc.TryGet(LocKey(table, column, value), out var exact))
             {
-                return text.Text;
+                return exact.Text;
             }
         }
 
-        return null;
-    }
-
-    /// <summary>The key values of a row joined with "", the form loc keys use; null for a table without key.</summary>
-    private static string? JoinedKeyOf(MergedTable table, MergedRow row)
-    {
-        if (table.KeyFields.Count == 0 || table.Definition is null)
+        var prefix = table + "_";
+        var suffix = "_" + value;
+        string? best = null;
+        foreach (var key in loc.KeysWithPrefix(prefix))
         {
-            return null;
+            // The keys come in ordinal order, so a strict comparison keeps the first of equal length.
+            if (key.Length > prefix.Length + suffix.Length && (best is null || key.Length < best.Length)
+                && key.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                best = key;
+            }
         }
 
-        var values = new string[table.KeyFields.Count];
-        for (var i = 0; i < values.Length; i++)
-        {
-            var index = table.KeyFields[i];
-            values[i] = CellText.Format(table.Definition.Fields[index].Type, row.Cells[index]);
-        }
-
-        return string.Concat(values);
+        return best is not null && loc.TryGet(best, out var text) ? text.Text : null;
     }
 
+    /// <summary>The id of a row (its key values, whose JoinedKey is the form loc keys use); null for a table without key.</summary>
     private static ObjectId? RowIdOf(MergedTable table, MergedRow row)
     {
         if (table.KeyFields.Count == 0 || table.Definition is null)
@@ -434,7 +431,7 @@ public sealed class ObjectBuilder
                     var keys = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var row in merged.Rows)
                     {
-                        keys.Add(JoinedKeyOf(merged, row)!);
+                        keys.Add(RowIdOf(merged, row)!.JoinedKey);
                     }
 
                     var seen = new HashSet<string>(StringComparer.Ordinal);

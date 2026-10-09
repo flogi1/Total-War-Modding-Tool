@@ -124,6 +124,29 @@ public class ObjectBuilderTests
     }
 
     [Fact]
+    public void A_loc_only_reference_prefers_the_exact_and_shortest_key()
+    {
+        string? CommodityText(params LocRow[] locs)
+        {
+            using var tmp = new TempDir();
+            var order = Single(tmp, locs, T("building_levels_tables", R("b1", "", 1, "gold")));
+            var commodity = Field_(NewBuilder().Build(Level("b1"), order, null, None).Root!, "commodity");
+            return commodity.Resolution == ReferenceResolution.LocOnly ? commodity.LocText : null;
+        }
+
+        // The exact key of a display column wins over keys that sort before it.
+        Assert.Equal("Gold", CommodityText(
+            L("commodities_description_gold", "Description"),
+            L("commodities_onscreen_name_gold", "Gold"),
+            L("commodities_onscreen_name_big_gold", "Big Gold")));
+        // Without an exact key the shortest key wins, whatever its sort position.
+        Assert.Equal("X", CommodityText(L("commodities_x_gold", "X"), L("commodities_xx_big_gold", "XX")));
+        Assert.Equal("ZZ", CommodityText(L("commodities_a_big_gold", "A"), L("commodities_zz_gold", "ZZ")));
+        // Equal length: the first key in ordinal order.
+        Assert.Equal("B", CommodityText(L("commodities_c_gold", "C"), L("commodities_b_gold", "B")));
+    }
+
+    [Fact]
     public void A_section_row_reference_to_a_loc_only_table_shows_the_text()
     {
         using var tmp = new TempDir();
