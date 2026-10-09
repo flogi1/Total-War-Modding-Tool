@@ -170,14 +170,16 @@ public static class ObjectText
 
         lines.Add(new TextLine(head, 0));
 
-        var collapse = section.Rows.Count > options.CollapseThreshold && !options.ExpandedSections.Contains(index);
-        var shown = collapse ? Math.Min(options.CollapsedPreview, section.Rows.Count) : section.Rows.Count;
+        var threshold = Math.Max(0, options.CollapseThreshold);
+        var preview = Math.Clamp(options.CollapsedPreview, 0, threshold);
+        var collapse = section.Rows.Count > threshold && !options.ExpandedSections.Contains(index);
+        var shown = collapse ? preview : section.Rows.Count;
         for (var i = 0; i < shown; i++)
         {
             lines.Add(new TextLine(RowSpans(section, section.Rows[i], rule), 1));
         }
 
-        if (collapse)
+        if (collapse && section.Rows.Count - shown > 0)
         {
             lines.Add(Line(1, new TextSpan("+" + (section.Rows.Count - shown), SpanKind.Collapsed, Section: index)));
         }
@@ -305,7 +307,8 @@ public static class ObjectText
     /// <summary>Sections in rule order (a rule without field matches every section of its table), then the rest alphabetically. Hidden sections are dropped.</summary>
     private static List<(int Index, SectionRule? Rule)> OrderSections(ObjectView view, CategoryDefinition? category)
     {
-        var placed = new HashSet<int>();
+        // Empty sections are omitted (spec 5.6 rule 5); marking them placed keeps them out of the alphabetical rest too.
+        var placed = Enumerable.Range(0, view.Sections.Count).Where(i => view.Sections[i].Rows.Count == 0).ToHashSet();
         var result = new List<(int, SectionRule?)>();
 
         if (category is not null)

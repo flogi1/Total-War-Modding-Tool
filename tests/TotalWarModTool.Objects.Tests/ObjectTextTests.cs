@@ -289,4 +289,61 @@ public class ObjectTextTests
         Assert.True(first.Select(Text).SequenceEqual(second.Select(Text)));
         Assert.True(first.SelectMany(Kinds).SequenceEqual(second.SelectMany(Kinds)));
     }
+
+    [Fact]
+    public void A_section_without_rows_is_not_rendered()
+    {
+        var row = Row(From(Vanilla), Plain("building", "b1"), Plain("value", "1"));
+        var view = View(Row(From(Vanilla), Plain("key", "b1")),
+        [
+            Section("a_empty", "building", false),
+            Section("b_full", "building", false, row),
+        ]);
+
+        var lines = ObjectText.Render(view, null, NoExpansion);
+
+        Assert.DoesNotContain(lines, l => Text(l).StartsWith("a_empty", StringComparison.Ordinal));
+        Assert.Single(lines, l => l.Spans.Count == 0);
+        Assert.Equal("b_full  (1) [db.pack]", Text(lines.Single(l => Text(l).StartsWith("b_full", StringComparison.Ordinal))));
+        Assert.DoesNotContain(lines, l => l.Spans.Any(s => s.Section == 0));
+    }
+
+    [Fact]
+    public void A_preview_larger_than_the_threshold_is_clamped()
+    {
+        var rows = Enumerable.Range(0, 5).Select(i => Row(From(Vanilla), Plain("building", "b1"), Plain("value", i.ToString()))).ToArray();
+        var view = View(Row(From(Vanilla), Plain("key", "b1")), [Section("t", "building", false, rows)]);
+
+        var lines = ObjectText.Render(view, null, new RenderOptions(new HashSet<int>(), CollapseThreshold: 3, CollapsedPreview: 10));
+
+        Assert.Equal(3, lines.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
+        Assert.Equal("+2", Text(lines.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed))));
+
+        var negative = ObjectText.Render(view, null, new RenderOptions(new HashSet<int>(), CollapseThreshold: 3, CollapsedPreview: -4));
+
+        Assert.Equal(0, negative.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
+        Assert.Equal("+5", Text(negative.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed))));
+    }
+
+    [Fact]
+    public void The_first_matching_rule_of_a_table_wins()
+    {
+        var row = Row(From(Vanilla), Plain("from", "b1"), Plain("to", "b1"));
+        var view = View(Row(From(Vanilla), Plain("key", "b1")),
+        [
+            Section("x", "from", false, row),
+            Section("x", "to", false, row),
+        ]);
+        var category = new CategoryDefinition("building_levels_tables", "cat",
+        [
+            new SectionRule("x", null, "a", SectionMode.List, null, false),
+            new SectionRule("x", "to", "b", SectionMode.List, null, false),
+        ]);
+
+        var lines = ObjectText.Render(view, category, NoExpansion);
+
+        var titles = lines.Where(l => l.Spans.Count > 0 && l.Spans[0].Section is not null).Select(l => l.Spans[0]).ToList();
+        Assert.Equal(["a", "a"], titles.Select(t => t.Text).ToArray());
+        Assert.Equal(SpanKind.Title, titles[0].Kind);
+    }
 }

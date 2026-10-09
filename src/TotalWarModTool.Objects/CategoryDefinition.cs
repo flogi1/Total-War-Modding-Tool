@@ -8,7 +8,10 @@ public enum SectionMode
     Sentence,
 }
 
-/// <summary>FieldName null means every section of the table. Pattern holds {fieldName} placeholders for Sentence.</summary>
+/// <summary>
+/// FieldName null means every section of the table. Pattern holds {fieldName} placeholders for Sentence.
+/// For one section the first matching rule (in file order) wins: a rule with FieldName null matches every section of its table, so later rules for that table are ignored.
+/// </summary>
 public sealed record SectionRule(string Table, string? FieldName, string? TitleKey, SectionMode Mode, string? Pattern, bool Hidden);
 
 public sealed record CategoryDefinition(string RootTable, string TitleKey, IReadOnlyList<SectionRule> Sections);
@@ -22,14 +25,12 @@ public static class CategoryDefinitions
 {
     public const int SchemaVersion = 1;
 
-    /// <summary>Loads every top-level *.json of the folder in ordinal name order; a missing folder gives an empty result. Never throws.</summary>
+    /// <summary>Loads every top-level *.json of the folder in ordinal name order; a null, blank or missing folder gives an empty result. Never throws.</summary>
     public static CategoryLoadResult LoadAll(string folder)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
-
         var byRoot = new Dictionary<string, CategoryDefinition>(StringComparer.OrdinalIgnoreCase);
         var problems = new List<CategoryProblem>();
-        if (!Directory.Exists(folder))
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
         {
             return new CategoryLoadResult(byRoot, problems);
         }

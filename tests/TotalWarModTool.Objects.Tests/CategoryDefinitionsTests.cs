@@ -105,4 +105,15 @@ public class CategoryDefinitionsTests
         Assert.Empty(result.ByRootTable);
         Assert.Empty(result.Problems);
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_blank_folder_gives_an_empty_result(string folder)
+    {
+        var result = CategoryDefinitions.LoadAll(folder);
+
+        Assert.Empty(result.ByRootTable);
+        Assert.Empty(result.Problems);
+    }
 }
