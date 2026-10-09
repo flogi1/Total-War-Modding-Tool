@@ -36,6 +36,10 @@ Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
   - Referenz-Baumansicht (transitiv, aufklappbar) als Debug-Werkzeug, falls nötig
   - Prüfung von Referenzen und doppelten Schlüsseln beim Bearbeiten (nutzt den Referenzgraphen aus 4.1)
   - Editierbare Textansicht der Tabellen (mit 4.2 oder Teil 5)
+  - Aus Plan 1 (Review 2026-10-09): `TryDisplayName` findet keinen Gebäudenamen, weil der Name an `building_culture_variants` hängt (Hover beim Gebäude leer); Kategorie-Datei könnte die Namensquelle nennen
+  - Aus Plan 1: `LocStore` hält nur eine Loc-Tabelle; zwei Objekt-Tabs mit verschiedener Ladereihenfolge (Wurzel-Pack nachträglich eingefügt) dekodieren Loc bei jedem Wechsel neu
+  - Aus Plan 1: Index pro Referenzfeld im `TableStore` nur bauen, wenn Plan 2 eine Wartezeit misst (linear 66 ms warm)
+  - Aus Plan 1: Pack-Index-Cache in `TableStore` und `LocStore` ohne Obergrenze und doppelt gehalten
 
 Teil 5: Lua-Editor
   - Editor-Komponente wählen (NuGet nur nach Rückfrage)
