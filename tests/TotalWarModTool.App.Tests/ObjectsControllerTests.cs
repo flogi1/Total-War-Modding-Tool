@@ -243,6 +243,31 @@ public class ObjectsControllerTests
         Assert.Equal(2, setup.Builds("k1"));
     }
 
+    [Fact] public async Task A_build_whose_tab_moved_on_meanwhile_is_discarded()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        var moved = false;
+        setup.Runner.OnReport = (_, _) =>
+        {
+            if (!moved)
+            {
+                moved = true;
+                tab.NavigateTo(new ObjectId("x_tables", ["k2"]), newTab: false);   // while the build of k1 runs; k2 meets the busy runner
+            }
+        };
+
+        tab.RefreshCommand.Execute(null);
+
+        Assert.True(moved);
+        Assert.Equal("k2", tab.Current.JoinedKey);
+        Assert.Equal(ObjectTabState.Idle, tab.State);                                 // the outcome of k1 did not land on k2
+        Assert.Null(tab.Result);
+        Assert.Empty(tab.Lines);
+        Assert.Equal((2, 0), (setup.Builds("k1"), setup.Builds("k2")));
+    }
+
     [Fact] public async Task A_restored_tab_is_built_when_it_is_activated_and_the_runner_is_free()
     {
         using var setup = await CreateAsync();
