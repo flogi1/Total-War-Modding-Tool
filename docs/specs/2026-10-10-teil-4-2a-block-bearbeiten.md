@@ -369,6 +369,27 @@ Zeile, Kopfzeile verändert, Satzzeile passt nicht zum Muster, zweimal dasselbe 
 
 Beides ist rein und ohne Dateizugriff, test-first.
 
+#### Festlegungen aus Plan 1
+
+Was die Umsetzung von Plan 1 gegenüber den Skizzen oben festlegt oder anders macht (Stand: nach
+jeder Task im selben Commit ergänzt):
+
+- `ObjectText.Render` aus 4.1 bleibt unverändert, die App nutzt es bis Plan 3. Neu daneben:
+  `ObjectText.RenderBlock(view, category)` liefert `BlockText` (`Lines` mit `BlockLineKind`, Text-Spans
+  und Anhängsel-Spans pro Zeile, `Sections` mit Zeilenbereichen pro Abschnitt und Zeile, `Text` als
+  editierbarer Text). Der Text enthält alle Zeilen; `Collapsed`-Zeilen gibt es dort nicht.
+- Satz- und Junction-Zeilen haben eine Kopfzeile (Satz bzw. nur das andere Ende). Felder, die das
+  Muster nicht nennt (und bei Junction alle außer dem anderen Ende und dem Feld auf die Wurzel),
+  stehen mit nicht leerem Wert als Feldzeilen auf Stufe 2 darunter, ebenso Spieltexte der Zeile.
+  Sonst ginge der Wert in Tabellen ohne Schlüssel beim Round-Trip verloren (der Feldsatz bestimmt dort
+  die Identität). Die Skizze oben (`xp = 2` unter der Satzzeile) zeigt dasselbe.
+- Die Kopfzeile einer Listenzeile ohne Schlüsselfeld ist das erste Feld in Schemareihenfolge außer dem
+  Feld auf die Wurzel, auch wenn es leer ist (`a = `).
+- Spieltexte von Referenzzielen sind nur Anhängsel (hinter dem Wert), nie Zeilen. Warnungen des
+  Aufbaus sind Zeilen der Art `Annotation` ohne Text (im Text leere Zeilen).
+- Ein Abschnittskopf trägt `.feld`, wenn `ObjectView.Sections` dieselbe Tabelle mehr als einmal
+  enthält, auch mit leeren Abschnitten, nicht nur wenn der Text sie zeigt.
+
 ### 5.4 Übernehmen: Zielregeln
 
 `ProjectWritePlan.Compute(ObjectChanges, ProjectSnapshot, GameSchema, string projectName)` ordnet jede

@@ -38,7 +38,7 @@ public sealed record RenderOptions(IReadOnlySet<int> ExpandedSections, int Colla
 /// one line per other non-empty field, an empty line between two blocks. The field that points at the root (the section's FieldName) is
 /// never shown; a category rule cannot hide more yet. Sentence rows and junction rows stay one line.
 /// </summary>
-public static class ObjectText
+public static partial class ObjectText
 {
     public const int DefaultCollapseThreshold = 20;
     public const int DefaultCollapsedPreview = 5;
@@ -344,28 +344,30 @@ public static class ObjectText
 
     private static List<TextSpan> ValueSpans(FieldValue field)
     {
-        var spans = new List<TextSpan>();
-        switch (field.Resolution)
-        {
-            case ReferenceResolution.Found or ReferenceResolution.Unchecked when field.Target is not null:
-                spans.Add(new TextSpan(field.Text, SpanKind.Link, field.Target));
-                break;
-            case ReferenceResolution.NotFound:
-                spans.Add(new TextSpan(field.Text, SpanKind.Warning));
-                return spans;
-            default:
-                spans.Add(new TextSpan(field.Text, SpanKind.Value));
-                break;
-        }
-
-        if (field.LocText is not null && field.Resolution is ReferenceResolution.Found or ReferenceResolution.LocOnly)
+        var spans = new List<TextSpan> { ValueSpan(field) };
+        if (LocSpan(field) is { } loc)
         {
             spans.Add(new TextSpan(Gap, SpanKind.Normal));
-            spans.Add(new TextSpan(Quote(field.LocText), SpanKind.LocText));
+            spans.Add(loc);
         }
 
         return spans;
     }
+
+    /// <summary>The value of a field as one span: a link, a warning for a reference that was not found, otherwise a plain value.</summary>
+    private static TextSpan ValueSpan(FieldValue field) => field.Resolution switch
+    {
+        ReferenceResolution.Found or ReferenceResolution.Unchecked when field.Target is not null =>
+            new TextSpan(field.Text, SpanKind.Link, field.Target),
+        ReferenceResolution.NotFound => new TextSpan(field.Text, SpanKind.Warning),
+        _ => new TextSpan(field.Text, SpanKind.Value),
+    };
+
+    /// <summary>The quoted loc text behind a reference value, null when the field has none to show.</summary>
+    private static TextSpan? LocSpan(FieldValue field) =>
+        field.LocText is not null && field.Resolution is ReferenceResolution.Found or ReferenceResolution.LocOnly
+            ? new TextSpan(Quote(field.LocText), SpanKind.LocText)
+            : null;
 
     /// <summary>Sections in rule order (a rule without field matches every section of its table), then the rest alphabetically. Hidden sections are dropped.</summary>
     private static List<(int Index, SectionRule? Rule)> OrderSections(ObjectView view, CategoryDefinition? category)

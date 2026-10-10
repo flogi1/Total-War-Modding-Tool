@@ -95,7 +95,7 @@ Regeln (Spec 5.2, hier als Festlegungen):
   - Loc-Einträge, deren Owner weder Wurzel noch eine Zeile ist (Referenzziele), erscheinen nirgends als Zeile; ihr Text steht als Trailing hinter dem Link (`FieldValue.LocText`), wie heute.
 - `BlockText.Text` ist der Round-Trip-Text; `Sections` listet Kopfzeile und Zeilenbereiche. `Rows` eines `BlockSectionRange` endet vor der `Blank`-Zeile zwischen Blöcken.
 
-- [ ] **Step 1: Failing Tests** in `BlockTextTests.cs` (Helfer wie in `ObjectTextTests`: `Plain`, `Key`, `Reference`, `Row`, `View`, `Section`, `Junction`; dazu `Text(BlockLine)` als `string.Concat(line.Spans.Select(s => s.Text))` und `Trailing(BlockLine)` ebenso):
+- [x] **Step 1: Failing Tests** in `BlockTextTests.cs` (Helfer wie in `ObjectTextTests`: `Plain`, `Key`, `Reference`, `Row`, `View`, `Section`, `Junction`; dazu `Text(BlockLine)` als `string.Concat(line.Spans.Select(s => s.Text))` und `Trailing(BlockLine)` ebenso):
 
 ```csharp
 [Fact] public void The_head_holds_table_and_key_and_the_provenance_is_trailing()
@@ -148,15 +148,17 @@ Regeln (Spec 5.2, hier als Festlegungen):
 public void QuoteText_escapes_quotes_backslashes_and_line_breaks(string text, string expected)
 ```
 
-- [ ] **Step 2: RED** – `dotnet test tests/TotalWarModTool.Objects.Tests --filter "FullyQualifiedName~BlockTextTests"`: Build-Fehler (Typen fehlen).
+- [x] **Step 2: RED** – `dotnet test tests/TotalWarModTool.Objects.Tests --filter "FullyQualifiedName~BlockTextTests"`: Build-Fehler (Typen fehlen).
 
-- [ ] **Step 3: Implementieren** – `BlockText.cs` mit den Records (Text im Konstruktor berechnen, Indent-Leerzeichen `new string(' ', indent * 2)`), `ObjectText` wird `partial`, `RenderBlock` in `ObjectText.cs` oder einer neuen Datei `ObjectText.Block.cs`. `OrderSections`, `SentenceSpans`, `ValueSpans`, `Provenance`, `AddRowProvenance` werden geteilt: Werte-Spans ohne Loc-Text bauen (neue private Hilfsfunktion `ValueSpan(FieldValue)` liefert genau einen Span, `LocSpan(FieldValue)` den Trailing-Span oder null); `Render` behält sein Verhalten.
+- [x] **Step 3: Implementieren** – `BlockText.cs` mit den Records (Text im Konstruktor berechnen, Indent-Leerzeichen `new string(' ', indent * 2)`), `ObjectText` wird `partial`, `RenderBlock` in `ObjectText.cs` oder einer neuen Datei `ObjectText.Block.cs`. `OrderSections`, `SentenceSpans`, `ValueSpans`, `Provenance`, `AddRowProvenance` werden geteilt: Werte-Spans ohne Loc-Text bauen (neue private Hilfsfunktion `ValueSpan(FieldValue)` liefert genau einen Span, `LocSpan(FieldValue)` den Trailing-Span oder null); `Render` behält sein Verhalten.
 
-- [ ] **Step 4: GREEN** – Filter wie oben; danach `dotnet test tests/TotalWarModTool.Objects.Tests` ganz (die alten `ObjectTextTests` bleiben grün) und `dotnet build TotalWarModTool.slnx` ohne Warnung.
+- [x] **Step 4: GREEN** – Filter wie oben; danach `dotnet test tests/TotalWarModTool.Objects.Tests` ganz (die alten `ObjectTextTests` bleiben grün) und `dotnet build TotalWarModTool.slnx` ohne Warnung.
 
-- [ ] **Step 5: Spec** – In `docs/specs/2026-10-10-teil-4-2a-block-bearbeiten.md` unter 5.3 den Unterabschnitt `#### Festlegungen aus Plan 1` anlegen mit: `Render` bleibt für die App bis Plan 3, `RenderBlock` liefert `BlockText` (Zeilenarten, Bereiche, `Text`); Satzzeilen zeigen keine Feldzeilen; Head einer keyless Zeile ist das erste Feld in Schemareihenfolge; Texte von Referenzzielen sind nur Anhängsel; Warnungen sind Anhängsel-Zeilen ohne Text.
+- [x] **Step 5: Spec** – In `docs/specs/2026-10-10-teil-4-2a-block-bearbeiten.md` unter 5.3 den Unterabschnitt `#### Festlegungen aus Plan 1` anlegen mit: `Render` bleibt für die App bis Plan 3, `RenderBlock` liefert `BlockText` (Zeilenarten, Bereiche, `Text`); Satzzeilen zeigen keine Feldzeilen; Head einer keyless Zeile ist das erste Feld in Schemareihenfolge; Texte von Referenzzielen sind nur Anhängsel; Warnungen sind Anhängsel-Zeilen ohne Text.
 
-- [ ] **Step 6: Commit** – `git add src/TotalWarModTool.Objects/BlockText.cs src/TotalWarModTool.Objects/ObjectText.cs src/TotalWarModTool.Objects/ObjectText.Block.cs tests/TotalWarModTool.Objects.Tests/BlockTextTests.cs docs/specs/2026-10-10-teil-4-2a-block-bearbeiten.md` (nur die Dateien, die es gibt), `git commit -m "feat: render the editable block text with trailing annotations"`.
+- [x] **Step 6: Commit** – `git add src/TotalWarModTool.Objects/BlockText.cs src/TotalWarModTool.Objects/ObjectText.cs src/TotalWarModTool.Objects/ObjectText.Block.cs tests/TotalWarModTool.Objects.Tests/BlockTextTests.cs docs/specs/2026-10-10-teil-4-2a-block-bearbeiten.md` (nur die Dateien, die es gibt), `git commit -m "feat: render the editable block text with trailing annotations"`.
+
+> **Status Task 1: erledigt (2026-10-10).** Objects-Tests 136 grün, 5 übersprungen; Build ohne Warnung. Abweichung vom Plan (Ruling): Satz- und Junction-Zeilen zeigen nicht benannte, nicht leere Felder als Feldzeilen auf Stufe 2, damit der Round-Trip für Tabellen ohne Schlüssel hält (siehe Spec „Festlegungen aus Plan 1“).
 
 ---
 
