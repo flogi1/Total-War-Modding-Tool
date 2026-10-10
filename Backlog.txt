@@ -27,6 +27,9 @@ Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
   - 4.2 Objekt bearbeiten: Codeblock als Eingabe, Rückschreiben in viele Tabellen als ein Undo-Schritt;
     Maske als zweite Ansicht auf dasselbe Objektmodell; Assistenten „Neues Gebäude“, „Neuer Trait“
     (Nutzerwunsch 2026-10-09, für den leichten Einstieg)
+  - Suche im Arbeitsbereich (Nutzerwunsch 2026-10-10, nach der Abnahme von 4.1): eine Suche über die Tabellen und
+    Loc-Texte der Ladereihenfolge, zum Beispiel nach Schlüsseln oder Anzeigenamen, mit Sprung zur Zeile
+    oder zum Objekt; mit 4.2 vorsehen
   - 4.3 Katalog aller Einstellmöglichkeiten (Effekte, Boni) mit Suche und Kategorien, auch aus Mods;
     Autovervollständigung
   - Kategorie-Browser: eigener Bereich mit allen Objekten einer Kategorie aus Vanilla und aktiven Mods, Suche
