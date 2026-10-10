@@ -882,7 +882,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
      den Runner, Rückfragen, Ergebniszeile, Sperren, Undo-Verhalten, Raster-Kopplung, Guards beim
      Schließen, Texte, manuelle Checkliste.
    - **Plan 3b: Darstellung im Editor.** Färbung, Anhängsel, Falten, Fehleranzeige (Unterstreichung mit
-     entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`. **Umgesetzt**, Abnahme und voller Testlauf mit dem Nutzer offen.
+     entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`. **Umgesetzt und abgenommen** (manuelle Checkliste und voller Testlauf mit dem Nutzer grün, 2026-10-10).
 4. **Plan 4: App Kopieren und Assistenten.** „Kopieren als“, „Neues Gebäude“, „Neuer Trait“, Texte,
    manuelle Checkliste mit Spielstart.
 
@@ -896,6 +896,8 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a (2026-10-10, zehn Dateikopien großer Tabellen, Speicher beobachtet): **bestätigt**, unter 200 MB (Angabe des Nutzers, ohne genaue Zahl). Plan 2 hält `Previous` und `Next` im Schritt; ein Auslagern in den Papierkorb ist nicht nötig. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
+| 7 | Eine Kette aus „Neue Kette“ bringt die 16 `cai_construction_system_synergies`-Zeilen und die `cai_construction_system_building_values`-Zeile der Vorlage-Kette mit (Spike vor Plan 4). Ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette. Das Spiel startet damit ohne Fehler, und die AI baut nicht offensichtlich falsch. | Abnahme Plan 4 mit Spielstart. Widerlegt: Kategorie-Datei für Ketten mit versteckten `cai_*`-Abschnitten (Backlog). |
+| 8 | Kopierte Junction-Zeilen, die ein Vanilla-Objekt an die Kopie binden (`technology_required_building_levels_junctions`: die Technologien `wh_main_tech_emp_barracks_4` bis `_6` nennen danach auch die Kopie), ändern das Verhalten der Vanilla-Objekte nicht (das Spiel liest mehrere geforderte Stufen als „eine davon“). | Abnahme Plan 4 mit Spielstart: die Technologien bleiben wie vorher erforschbar. Widerlegt: Regel für solche Junctions (nicht kopieren oder Hinweis), Entscheidung mit dem Nutzer. |
 
 ### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)
 
@@ -922,6 +924,31 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   unkritisch), 8 enthalten einen Tab. Folgen: siehe die Festlegungen aus Plan 1 unter 5.3
   (`ControlCharacter` nur für die Dialekt-Folge, Differenz ignoriert Leerzeichen am Ende, gleichnamige
   Spalte und Feld, Abschnittskopf ohne Feld).
+
+### Ergebnis des Spikes vor Plan 4 (2026-10-10, WH3 Vanilla und die aktiven Mods, schreibt nichts)
+
+Wegwerf-Test über `ObjectCopy.Rename`, `ObjectDiff.Compute` gegen eine leere Baseline und `MergedTable.FindByKey` (Kollision
+mit der Ladereihenfolge). Der Test ist wieder entfernt.
+
+- **Kette `wh_main_EMPIRE_barracks`** (für „Neue Kette“): kopiert werden `building_chain_availability_sets` (2, Junction),
+  `building_chain_set_items` (1), `building_set_to_building_junctions` (1), `cai_construction_system_building_values` (1) und
+  `cai_construction_system_synergies` (16; für Ketten gibt es keine Kategorie-Datei, also nicht versteckt), dazu 3 Spieltexte
+  (`chain_tooltip`, `encyclopedia_name`, `encyclopedia_description`). Die 3 Stufen in `building_levels` sind ein Hinweis
+  `ForeignKeyRows`; das ist erwartet (die Stufen der Vorlage-Kette) und darf dem Nutzer nicht als Problem erscheinen.
+- **Stufe `wh_main_emp_barracks_3`**: kopiert werden Kultur-Variante (1), Effekte (3), `building_set_to_building_junctions` (1),
+  `building_upgrades_junction.to` (1, `upgrades from wh_main_emp_barracks_2`), `cai_construction_system_unblocking_buildings` (1)
+  und `technology_required_building_levels_junctions` (3). Hinweise: `building_units_allowed` (7) und `technologies` (3). Die
+  Upgrade-Zeile der Vorlage wandert mit; beide Kettenmodi des Assistenten müssen sie entfernen, sonst stünde die neue Stufe
+  zusätzlich hinter `wh_main_emp_barracks_2`.
+- **Trait `wh2_dlc09_trait_settra_title`**: 3 Stufen als Unterobjekte, 10 Effekte, 9 Spieltexte.
+- **Schlüsselkollision:** Keine kopierte Zeile der drei Kopien hat einen Schlüssel, den es in der Ladereihenfolge schon gibt.
+- **`building_units_allowed.key`** ist `I32` (nicht das Feld auf die Wurzel). 6867 Zeilen, Werte 59 138 bis 2 147 195 279,
+  3499 davon über 1 000 000 000. Eine Kopie mit gleichem `key` würde im Spiel die Zeile der Vorlage überschreiben (die Einheit
+  wanderte von der Vorlage zur Kopie). Folge: kopierte Zeilen bekommen einen neuen Zahlschlüssel (Entscheidung in Abschnitt 11).
+- **Ketten und Stufen:** 2130 Ketten, jede beginnt bei `level` 0. 53 Ketten haben mehrere Stufen auf der höchsten `level`,
+  144 Stufen haben mehr als ein `upgrades to` (Verzweigung). Die „höchste Stufe“ ist also nicht immer eindeutig.
+- **Kultur-Varianten:** 5858 Zeilen, 133 Stufen haben mehrere Varianten; `culture` gesetzt bei 2908, `subculture` bei 427,
+  `faction` bei 858. 33 Subkulturen. Vorlagen für `wh_main_sc_emp_empire` (Variante mit der Subkultur oder ihrer Kultur): 107.
 
 ### Ergebnis des Spikes zu Annahme 6 (2026-10-10, AvalonEdit)
 
@@ -959,3 +986,14 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Änderungen sperrt.
 - Löschen fremder Zeilen per Dateikopie mit einmaliger Rückfrage pro Datei.
 - AvalonEdit als neues NuGet-Paket.
+
+### Entscheidungen vor Plan 4 (2026-10-10)
+
+- Eigene Schlüsselzeilen, die zum Objekt gehören (`building_units_allowed`): optionales Feld `"copy": "owned"` pro Abschnitt
+  in der Kategorie-Datei, gesetzt für `building_units_allowed`. Die Kopierregel bleibt allgemein; `technologies` bleibt ein
+  Hinweis.
+- Ein kopierter Zahlschlüssel (`I32`, `I64`), der nicht das Feld auf die Wurzel ist, bekommt einen Zufallswert zwischen
+  1 000 000 000 und 2 147 483 647, geprüft gegen die Ladereihenfolge.
+- Namenszusatz der Assistenten: ` (copy)` (englisch wie der Vorlagentext, Daten statt UI-Text).
+- Tabellen- und Feldnamen der Assistenten stehen in einer Datei des Spielprofils (`profiles/warhammer_3/wizards.json`). Ohne
+  diese Datei sind die Menüpunkte gesperrt.
