@@ -138,6 +138,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Automatisches Erkennen geänderter Packs per FileSystemWatcher
 - Index- oder Schema-Cache auf Platte (gemessen nicht nötig; neu bewerten, wenn Teil 4 alle Tabellen braucht)
 - Kompakte Speicherform für dekodierte Tabellen (naiv 373 MB für alle Vanilla-Tabellen)
+- `FileFingerprint` (Pfad, Größe, mtime) unterscheidet zwei gleich lange Schreibvorgänge im selben Zeitstempel-Tick nicht (gemessen 2026-10-10: Tests flackerten, weil Anlegen und Speichern in denselben Tick fielen). App-seitig: Inhalts-Hash in den Fingerprint oder beim eigenen Schreiben den Zeitstempel erzwingen; bis dahin verschieben die betroffenen Tests die Schreibzeit.
 - LZ4: Checksummen des Frames prüfen (bisher nur Größenprüfung)
 - Feldtyp OptionalI32 und weitere unbestätigte Typen (nicht messbar, bisher Status nicht unterstützt)
 - Tests ergänzen: Profil-Loader (leeres oder nicht-textuelles `vanillaManifestFile`, nicht-textuelle Einträge in `vanillaPackTypes`, nicht auflistbarer Ordner, Bibliotheks-Duplikate ohne Groß-/Kleinschreibung).
