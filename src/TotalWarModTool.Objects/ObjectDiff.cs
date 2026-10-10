@@ -145,7 +145,7 @@ public static class ObjectDiff
 
                 if (keyIndexes.Contains(i))
                 {
-                    if (!string.Equals(text, baselineTexts[i], StringComparison.Ordinal))
+                    if (!SameValue(baselineTexts[i], text))
                     {
                         Add(lines[i] ?? 1, DiagnosticKind.RootKeyChanged, "the key field '" + definition.Fields[i].Name + "' cannot be changed");
                     }
@@ -153,7 +153,7 @@ public static class ObjectDiff
                     continue;
                 }
 
-                if (string.Equals(text, baselineTexts[i], StringComparison.Ordinal))
+                if (SameValue(baselineTexts[i], text))
                 {
                     continue;
                 }
@@ -227,7 +227,7 @@ public static class ObjectDiff
             var groups = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (var i = 0; i < baselineRows.Count; i++)
             {
-                var key = string.Join(KeySeparator, identity.Select(k => baselineCells[i][k]));
+                var key = string.Join(KeySeparator, identity.Select(k => baselineCells[i][k].TrimEnd()));
                 if (!groups.TryGetValue(key, out var group))
                 {
                     group = [];
@@ -249,7 +249,7 @@ public static class ObjectDiff
                     continue;
                 }
 
-                var key = string.Join(KeySeparator, identity.Select(k => texts[k]!));
+                var key = string.Join(KeySeparator, identity.Select(k => texts[k]!.TrimEnd()));
                 seen[key] = seen.GetValueOrDefault(key) + 1;
                 var ordinal = seen[key] - 1;
                 groups.TryGetValue(key, out var group);
@@ -297,7 +297,7 @@ public static class ObjectDiff
                 var index = -1;
                 for (var i = 0; i < baselineCells.Count && index < 0; i++)
                 {
-                    if (!matched[i] && baselineCells[i].SequenceEqual(cells, StringComparer.Ordinal))
+                    if (!matched[i] && baselineCells[i].Zip(cells, SameValue).All(same => same))
                     {
                         index = i;
                     }
@@ -324,7 +324,7 @@ public static class ObjectDiff
             var changed = new List<string>();
             for (var i = 0; i < result.Length; i++)
             {
-                if (i == pointing || texts[i] is not { } text || string.Equals(text, baselineCells[i], StringComparison.Ordinal))
+                if (i == pointing || texts[i] is not { } text || SameValue(baselineCells[i], text))
                 {
                     continue;
                 }
@@ -474,6 +474,13 @@ public static class ObjectDiff
 
             return true;
         }
+
+        /// <summary>
+        /// The block trims the end of every value, so a stored value that differs from the parsed one only by whitespace at its end (536 real
+        /// values end with a space) is unchanged. An edit of such a value is still seen.
+        /// </summary>
+        private static bool SameValue(string baseline, string parsed) =>
+            string.Equals(baseline, parsed, StringComparison.Ordinal) || string.Equals(baseline.TrimEnd(), parsed, StringComparison.Ordinal);
 
         private static string DefaultText(FieldType type) => type == FieldType.Unsupported ? string.Empty : CellText.Format(type, CellText.DefaultValue(type));
 

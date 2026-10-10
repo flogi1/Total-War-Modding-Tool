@@ -122,7 +122,6 @@ internal static class BlockFixture
             Section("effects_tables", "building", false, EffectRow("e1")),
             Section("units_tables", "building", true, UnitRow("u1")),
             Section("upgrades_tables", "from", true, UpgradeRow("b1", "t1")),
-            Section("upgrades_tables", "to", true),
         ],
         [
             new LocEntry("building_levels", "onscreen_name", "building_levels_onscreen_name_b1", "Barracks", Mod, Id(Root, "b1")),
@@ -150,7 +149,6 @@ internal static class BlockFixture
                 Section("variants_tables", "building", false, variant),
                 Section("notes_tables", "building", false, note),
                 Section("units_tables", "building", true, UnitRow("u1")),
-                Section("upgrades_tables", "from", true),
                 Section("upgrades_tables", "to", true, UpgradeRow("t1", "b1", "to")),
                 Section("effects_tables", "building", false, EffectRow("e1")),
             ],

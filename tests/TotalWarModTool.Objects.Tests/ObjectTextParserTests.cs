@@ -15,6 +15,8 @@ public class ObjectTextParserTests
     /// <summary>A root with all fields, then the given lines.</summary>
     private static string WithRoot(params string[] lines) => Lines([.. HeadAndRoot(), .. lines]);
 
+    private static (string Name, string Text)[] Fields(ParsedRow row) => row.Fields.Select(f => (f.Name, f.Text)).ToArray();
+
     [Fact]
     public void The_rendered_text_parses_without_diagnostics()
     {
@@ -155,12 +157,66 @@ public class ObjectTextParserTests
     }
 
     [Fact]
-    public void A_value_with_a_tab_is_an_error()
+    public void A_value_with_the_dialect_escape_of_a_tab_is_an_error()
     {
-        var parsed = Parse(Lines("building_levels b1", "  note = a\\tb"));
+        // Two backslashes and a t: how the TSV dialect writes a tab. A value cannot hold a tab, so this is refused.
+        var parsed = Parse(Lines("building_levels b1", "  note = a\\\\tb"));
 
         Assert.Equal(2, Single(parsed, DiagnosticKind.ControlCharacter).Line);
-        Assert.Equal("a\\tb", Assert.Single(parsed.Root).Text);
+        Assert.Equal("a\\\\tb", Assert.Single(parsed.Root).Text);
+    }
+
+    [Theory]
+    [InlineData("ui\\new\\text")]
+    [InlineData("line\\nbreak")]
+    [InlineData("tab\\t")]
+    public void A_single_backslash_before_t_or_n_is_an_ordinary_value(string value)
+    {
+        // 4691 real values hold such a sequence (real-data run of Task 6).
+        var parsed = Parse(Lines("building_levels b1", "  note = " + value));
+
+        Assert.DoesNotContain(parsed.Diagnostics, d => d.Kind != DiagnosticKind.RootFieldMissing);
+        Assert.Equal(value, Assert.Single(parsed.Root).Text);
+    }
+
+    [Fact]
+    public void A_loc_line_may_share_its_name_with_a_field()
+    {
+        var parsed = Parse(Lines("building_levels b1", "  note = ", "  note = \"Hello\""));
+
+        Assert.DoesNotContain(parsed.Diagnostics, d => d.Kind != DiagnosticKind.RootFieldMissing);
+        Assert.Equal(("note", ""), (Assert.Single(parsed.Root).Name, Assert.Single(parsed.Root).Text));
+        var text = Assert.Single(parsed.Texts);
+        Assert.Equal(("note", "Hello", 3), (text.Column, text.Text, text.Line));
+    }
+
+    [Fact]
+    public void A_field_value_that_starts_with_a_quote_stays_a_field_value()
+    {
+        var parsed = Parse(Lines("building_levels b1", "  note = \"quoted\" dialogue"));
+
+        Assert.DoesNotContain(parsed.Diagnostics, d => d.Kind != DiagnosticKind.RootFieldMissing);
+        Assert.Equal("\"quoted\" dialogue", Assert.Single(parsed.Root).Text);
+        Assert.Empty(parsed.Texts);
+    }
+
+    [Fact]
+    public void A_second_unquoted_line_for_a_field_is_still_a_repeat()
+    {
+        var parsed = Parse(Lines("building_levels b1", "  note = a", "  note = b"));
+
+        Assert.Equal(["FieldRepeated@3"], Errors(parsed));
+    }
+
+    [Fact]
+    public void A_row_loc_line_may_share_its_name_with_a_field_of_the_row()
+    {
+        var parsed = Parse(WithRoot("", "effects", "  effect = e1", "    scope = ", "    scope = \"Text\""));
+
+        var row = Assert.Single(Assert.Single(parsed.Sections).Rows);
+        Assert.Equal([("effect", "e1"), ("scope", "")], Fields(row));
+        Assert.Equal("Text", Assert.Single(row.Texts).Text);
+        Assert.Empty(parsed.Diagnostics);
     }
 
     [Fact]
@@ -178,12 +234,35 @@ public class ObjectTextParserTests
     [Fact]
     public void A_section_of_a_table_with_two_references_needs_the_field()
     {
-        var parsed = Parse(WithRoot("", "upgrades", "  t1"));
+        // The baseline has no section of the table, so nothing says which reference is meant.
+        var parsed = Parse(WithRoot("", "upgrades", "  t1"), View(RootRow()));
 
         var diagnostic = Single(parsed, DiagnosticKind.UnknownSection);
         Assert.Equal(7, diagnostic.Line);
         Assert.Contains("field required", diagnostic.Detail, StringComparison.Ordinal);
         Assert.Empty(parsed.Sections);
+    }
+
+    [Fact]
+    public void A_section_without_a_field_takes_the_one_section_the_baseline_has()
+    {
+        // The builder only makes sections that have rows, so the head of a table with two references often has no field.
+        var parsed = Parse(WithRoot("", "upgrades", "  t2"));
+
+        var section = Assert.Single(parsed.Sections);
+        Assert.Equal(("upgrades_tables", "from"), (section.SourceTable, section.FieldName));
+        Assert.Equal([("to", "t2")], Fields(Assert.Single(section.Rows)));
+        Assert.Empty(parsed.Diagnostics);
+    }
+
+    [Fact]
+    public void A_section_without_a_field_stays_ambiguous_when_the_baseline_has_both()
+    {
+        var both = View(RootRow(), [Section("upgrades_tables", "from", true, UpgradeRow("b1", "t1")), Section("upgrades_tables", "to", true, UpgradeRow("t0", "b1", "to"))]);
+
+        var parsed = Parse(WithRoot("", "upgrades", "  t1"), both);
+
+        Assert.Contains("field required", Single(parsed, DiagnosticKind.UnknownSection).Detail, StringComparison.Ordinal);
     }
 
     [Fact]

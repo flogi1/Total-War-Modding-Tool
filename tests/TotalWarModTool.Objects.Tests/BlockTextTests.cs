@@ -340,6 +340,50 @@ public class BlockTextTests
     }
 
     [Fact]
+    public void A_row_shows_its_empty_field_when_a_text_of_the_row_has_the_same_name()
+    {
+        var e1 = Id("effects_tables", "e1");
+        var row = new ObjectRow([Plain("building", "b1"), Key("effect", "e1"), Plain("scope", ""), Plain("value", "")], From(Vanilla), e1, null);
+        var texts = new[] { new LocEntry("effects", "scope", "effects_scope_e1", "Scope text", Vanilla, e1) };
+        var view = View(Row(From(Vanilla), Plain("key", "b1")), [Section("effects_tables", "building", false, row)], texts: texts);
+
+        var block = ObjectText.RenderBlock(view, null);
+
+        var rows = block.Lines.SkipWhile(l => l.Kind != BlockLineKind.SectionHead).Skip(1).Select(Text).ToArray();
+        // The empty value field stays out, the empty field that shares its name with the text is shown before the text.
+        Assert.Equal(["effect = e1", "scope = ", "scope = \"Scope text\""], rows);
+    }
+
+    [Fact]
+    public void A_text_that_shares_its_name_with_a_root_field_round_trips()
+    {
+        var view = BlockFixture.View(BlockFixture.RootRow(), texts: [new LocEntry("building_levels", "note", "building_levels_note_b1", "A note", Vanilla, Id(BlockFixture.Root, "b1"))]);
+
+        var block = ObjectText.RenderBlock(view, BlockFixture.Category);
+        var parsed = ObjectTextParser.Parse(block.Text, view, BlockFixture.Category, BlockFixture.Graph);
+        var changes = ObjectDiff.Compute(view, parsed, BlockFixture.Category, BlockFixture.Graph, null);
+
+        Assert.Empty(parsed.Diagnostics);
+        Assert.Equal(("note", "A note"), (Assert.Single(parsed.Texts).Column, Assert.Single(parsed.Texts).Text));
+        Assert.True(changes.IsEmpty);
+    }
+
+    [Fact]
+    public void A_row_text_that_shares_its_name_with_a_field_round_trips()
+    {
+        var e1 = Id("effects_tables", "e1");
+        var row = new ObjectRow([BlockFixture.Val("building", "b1"), BlockFixture.Val("effect", "e1", key: true), BlockFixture.Val("scope", ""), BlockFixture.Val("value", "", FieldType.F32)], From(Vanilla), e1, null);
+        var view = BlockFixture.View(BlockFixture.RootRow(), [Section("effects_tables", "building", false, row)],
+            [new LocEntry("effects", "scope", "effects_scope_e1", "Scope text", Vanilla, e1)]);
+
+        var parsed = ObjectTextParser.Parse(ObjectText.RenderBlock(view, BlockFixture.Category).Text, view, BlockFixture.Category, BlockFixture.Graph);
+        var changes = ObjectDiff.Compute(view, parsed, BlockFixture.Category, BlockFixture.Graph, null);
+
+        Assert.Empty(parsed.Diagnostics);
+        Assert.True(changes.IsEmpty);
+    }
+
+    [Fact]
     public void Render_then_parse_then_diff_is_empty_for_every_kind_of_row()
     {
         var view = BlockFixture.EveryKind();

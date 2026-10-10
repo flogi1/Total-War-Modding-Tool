@@ -10,8 +10,10 @@ namespace TotalWarModTool.Objects;
 public static class ObjectTextParser
 {
     private const string TablesSuffix = "_tables";
-    private const string TabEscape = "\\t";
-    private const string LineFeedEscape = "\\n";
+    // The escapes of the TSV dialect (two backslashes and a t or an n): a tab or line break in a value. A single backslash before t or n is
+    // an ordinary character; 4691 values of the game hold one.
+    private const string TabEscape = "\\\\t";
+    private const string LineFeedEscape = "\\\\n";
 
     /// <summary>Never throws on text; collects every problem. baseline.Id names the root the head must match. Lines are split at \n (a \r before it is dropped).</summary>
     public static ParsedObject Parse(string text, ObjectView baseline, CategoryDefinition? category, ReferenceGraph graph)
@@ -241,6 +243,21 @@ public static class ObjectTextParser
                     && rootKeys.Contains(r.TargetColumn, StringComparer.OrdinalIgnoreCase)
                     && (fieldName is null || string.Equals(r.FieldName, fieldName, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
+            // The built object only has sections with rows, so the head of a table with several references carries no field when only one of
+            // them has rows: that one is meant.
+            if (references.Count > 1 && fieldName is null)
+            {
+                var held = _baseline.Sections.Where(s => s.Rows.Count > 0 && string.Equals(s.SourceTable, table, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (held.Count == 1)
+                {
+                    var narrowed = references.Where(r => string.Equals(r.FieldName, held[0].FieldName, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (narrowed.Count == 1)
+                    {
+                        references = narrowed;
+                    }
+                }
+            }
+
             if (references.Count == 0)
             {
                 Add(line, DiagnosticKind.UnknownSection, "no table '" + token + "' points at this object");
@@ -498,7 +515,10 @@ public static class ObjectTextParser
                 return;
             }
 
-            if (definition is not null && FindField(definition, name) is { } field)
+            // A quoted value on a name the block already has as a field is the game text of that column (a loc column may share the name of a
+            // field); the first occurrence stays the field, so a field value that itself starts with a quote still works.
+            if (definition is not null && FindField(definition, name) is { } field
+                && !(block.FieldNames.Contains(field.Name) && value.TrimStart().StartsWith('"')))
             {
                 AddField(definition, block, field.Name, value, line, pointingField);
                 return;
@@ -566,7 +586,7 @@ public static class ObjectTextParser
 
             if (value.Contains(TabEscape, StringComparison.Ordinal) || value.Contains(LineFeedEscape, StringComparison.Ordinal))
             {
-                Add(line, DiagnosticKind.ControlCharacter, "a value cannot hold a tab or a line break, written as \\t or \\n");
+                Add(line, DiagnosticKind.ControlCharacter, "a value cannot hold a tab or a line break, written as two backslashes and t or n");
             }
 
             block.Fields.Add(new ParsedField(field.Name, value, line));

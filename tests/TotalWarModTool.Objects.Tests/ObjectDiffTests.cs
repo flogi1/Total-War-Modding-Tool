@@ -63,6 +63,36 @@ public class ObjectDiffTests
     }
 
     [Fact]
+    public void A_value_that_ends_with_a_space_is_unchanged_until_it_is_edited()
+    {
+        // 536 real values end with a space; the block trims them, so the space alone is no change.
+        var view = View(RootRow(note: "abc "));
+
+        var unchanged = Diff(view, Rendered(view));
+        var edited = Diff(view, Rendered(view).Replace("note = abc ", "note = abd", StringComparison.Ordinal));
+
+        Assert.True(unchanged.IsEmpty);
+        Assert.Empty(unchanged.Diagnostics);
+        var row = Assert.Single(edited.Rows);
+        Assert.Equal(["note"], row.ChangedFields);
+        Assert.Equal("abd", row.Cells[3]);
+    }
+
+    [Fact]
+    public void Keys_and_keyless_rows_with_a_trailing_space_still_match()
+    {
+        var keyed = new ObjectRow([Val("building", "b1", refTable: Root, refColumn: "level_name"), Val("effect", "e1 ", key: true), Val("scope", "x "),
+            Val("value", "1", FieldType.F32)], From(Vanilla), Id("effects_tables", "e1 "), null);
+        var keyless = new ObjectRow([Val("building", "b1", refTable: Root, refColumn: "level_name"), Val("a", "x "), Val("b", "y ")], From(Vanilla), null, null);
+        var view = View(RootRow(), [Section("effects_tables", "building", false, keyed), Section("notes_tables", "building", false, keyless)]);
+
+        var changes = Diff(view, Rendered(view));
+
+        Assert.True(changes.IsEmpty);
+        Assert.Empty(changes.Diagnostics);
+    }
+
+    [Fact]
     public void A_changed_root_key_is_an_error()
     {
         var view = Full();

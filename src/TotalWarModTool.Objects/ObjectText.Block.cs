@@ -182,23 +182,21 @@ public static partial class ObjectText
         AddRowProvenance(trailing, row);
         lines.Add(new BlockLine(BlockLineKind.RowHead, head, trailing, RowIndent, sectionIndex, rowIndex));
 
+        var rowTexts = row.RowId is { } rowId ? view.Texts.Where(entry => entry.Owner.Equals(rowId)).ToList() : [];
         foreach (var field in row.Fields)
         {
-            if (field.Text.Length > 0 && !excluded.Any(name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
+            // An empty field stays out unless a text of the row has its name: the field line tells the parser that the quoted line below it
+            // is the game text, not the value.
+            var shared = rowTexts.Any(entry => string.Equals(entry.Column, field.Name, StringComparison.OrdinalIgnoreCase));
+            if ((field.Text.Length > 0 || shared) && !excluded.Any(name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
             {
                 lines.Add(new BlockLine(BlockLineKind.RowField, AssignmentSpans(field), LocTrailing(field), RowFieldIndent, sectionIndex, rowIndex));
             }
         }
 
-        if (row.RowId is { } rowId)
+        foreach (var entry in rowTexts)
         {
-            foreach (var entry in view.Texts)
-            {
-                if (entry.Owner.Equals(rowId))
-                {
-                    lines.Add(new BlockLine(BlockLineKind.RowText, TextEntrySpans(entry), [Provenance(entry.Source)], RowFieldIndent, sectionIndex, rowIndex));
-                }
-            }
+            lines.Add(new BlockLine(BlockLineKind.RowText, TextEntrySpans(entry), [Provenance(entry.Source)], RowFieldIndent, sectionIndex, rowIndex));
         }
 
         return (lines, isList);
