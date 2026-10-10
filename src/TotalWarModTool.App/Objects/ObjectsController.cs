@@ -98,6 +98,12 @@ public sealed partial class ObjectsController : IRowObjectOpener
     /// <summary>Set by the composition root: the question before a tab with unapplied text moves on or closes (ObjectApplyController.LeaveAsync). Copied to every tab made after it was set.</summary>
     internal Func<ObjectTabViewModel, Task<bool>>? LeaveHandler { get; set; }
 
+    /// <summary>Set by the composition root like ApplyHandler (ObjectApplyController.CopyAsync), copied to every new tab through RunGuardedAsync.</summary>
+    internal Func<ObjectTabViewModel, Task>? CopyHandler { get; set; }
+
+    /// <summary>The random source of new integer keys; Random.Shared unless a test sets a seeded one.</summary>
+    internal Random KeyRandom { get; set; } = Random.Shared;
+
     /// <summary>The answer of <see cref="DisabledReason"/> may have changed: the workspace changed, or an own operation ended.</summary>
     public event EventHandler? Changed;
 
@@ -246,8 +252,26 @@ public sealed partial class ObjectsController : IRowObjectOpener
         }
     }
 
-    // Why no tab can apply now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.
-    private string? ApplyEnvironmentReason() =>
+    /// <summary>The category file of a root table; null when there is none.</summary>
+    internal CategoryDefinition? CategoryOf(string table) => _categories.GetValueOrDefault(table);
+
+    /// <summary>The load order without a root pack, as a closure that reads the files when it runs (inside the runner); null without a game.</summary>
+    internal Func<LoadOrder>? CaptureOrder() =>
+        CurrentContext() is { } context
+            ? () => LoadOrderResolver.Resolve(new LoadOrderRequest(context.Profile, context.InstallPath, context.Catalog, context.ProjectFolder,
+                context.ProjectName, null))
+            : null;
+
+    /// <summary>A new allocator for one copy: random integer keys that no row of the table in the load order has in the field.</summary>
+    internal NewIntegerKey IntegerKeys(ObjectStores stores, LoadOrder order, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(stores);
+        ArgumentNullException.ThrowIfNull(order);
+        return RandomIntegerKeys.Create(KeyRandom, (table, field, value) => stores.Tables.Get(table, order, ct).FindByField(field, value).Count > 0);
+    }
+
+    /// <summary>Why no tab can apply or copy now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.</summary>
+    internal string? ApplyEnvironmentReason() =>
         _projects?.Active is not { IsUsable: true } ? _texts.ObjectsApplyNoProject : IsBusy ? _texts.ProjectBusy : null;
 
     // The answers of ApplyEnvironmentReason may have changed for every open object tab.

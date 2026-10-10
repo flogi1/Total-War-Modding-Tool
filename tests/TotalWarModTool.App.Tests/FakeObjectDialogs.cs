@@ -12,6 +12,9 @@ internal sealed class FakeObjectDialogs : IObjectDialogs
     /// <summary>The answer of every <see cref="AskCopies"/> call. False (cancel) by default.</summary>
     public bool CopiesAnswer { get; set; }
 
+    /// <summary>Gives the key for <see cref="AskNewKey"/> from its validation; null cancels. Cancels by default.</summary>
+    public Func<Func<string, string?>, string?> NewKeyAnswer { get; set; } = _ => null;
+
     /// <summary>Runs inside a question before the answer is returned: lets a test change the world while the dialog is open.</summary>
     public Action? WhileAsking { get; set; }
 
@@ -24,6 +27,9 @@ internal sealed class FakeObjectDialogs : IObjectDialogs
 
     /// <summary>The lines of every <see cref="AskCopies"/> call.</summary>
     public List<IReadOnlyList<string>> CopyAsks { get; } = [];
+
+    /// <summary>The object name and the suggestion of every <see cref="AskNewKey"/> call.</summary>
+    public List<(string ObjectName, string Suggestion)> NewKeyAsks { get; } = [];
 
     public void ShowMessage(string title, string message) => Messages.Add((title, message));
 
@@ -46,5 +52,12 @@ internal sealed class FakeObjectDialogs : IObjectDialogs
         CopyAsks.Add(lines);
         WhileAsking?.Invoke();
         return CopiesAnswer;
+    }
+
+    public string? AskNewKey(string objectName, string suggestion, Func<string, string?> validate)
+    {
+        NewKeyAsks.Add((objectName, suggestion));
+        WhileAsking?.Invoke();
+        return NewKeyAnswer(validate);
     }
 }

@@ -387,7 +387,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Schlüsselform von `FileCopyQuestion.DeletedKeys` (Plan 2) ist jetzt in der Kopie-Frage sichtbar; in der Abnahme prüfen, ob sie lesbar ist
 - Die zweite Berechnung des Plans (mit den Antworten) läuft auf dem UI-Thread; bei der Kopie einer sehr großen Tabelle kann das kurz einfrieren. Dann in einen eigenen Runner-Lauf oder in Lauf B verlegen
 - Ein fehlgeschlagener Rollback (`RollbackFailed`) ist in der App nur über den Meldungstext getestet, weil `ProjectWriter` keinen Haken zum Erzwingen bietet; ein Test mit einer Datei, die nach dem Schreiben gesperrt wird, wäre möglich, wenn `ProjectWriter` einen Test-Haken bekommt
-- `ObjectsController.CategoryOf` und `ResolveOrder` aus dem Plan wurden nicht angelegt (das Übernehmen nutzt Kategorie und Ladereihenfolge des Aufbaus); Plan 4 prüft, ob „Kopieren als“ sie braucht
 
 == Wartet auf ein öffentliches Remote ==
 

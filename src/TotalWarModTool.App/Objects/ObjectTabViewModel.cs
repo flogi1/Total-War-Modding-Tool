@@ -26,12 +26,14 @@ public sealed class ObjectTabViewModel : TabViewModel
     private readonly RelayCommand _refreshCommand;
     private readonly RelayCommand _jumpToRowCommand;
     private readonly RelayCommand _applyCommand;
+    private readonly RelayCommand _copyCommand;
     private Action<ObjectTabViewModel>? _jumpHandler;
     private int _position;
     private ObjectTabState _state = ObjectTabState.Idle;
     private ObjectBuildResult? _result;
     private string? _resultLine;
     private Func<ObjectTabViewModel, Task>? _applyHandler;
+    private Func<ObjectTabViewModel, Task>? _copyHandler;
     private string _text = string.Empty;
     private string _baselineText = string.Empty;
     private BlockText? _block;
@@ -63,6 +65,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         _refreshCommand = new RelayCommand(Refresh, () => !IsBuilding);
         _jumpToRowCommand = new RelayCommand(() => JumpHandler?.Invoke(this), CanJump);
         _applyCommand = new RelayCommand(Apply, () => _applyHandler is not null && ApplyDisabledReason is null);
+        _copyCommand = new RelayCommand(Copy, () => _copyHandler is not null && CopyDisabledReason is null);
         PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(IsStale))
@@ -209,24 +212,9 @@ public sealed class ObjectTabViewModel : TabViewModel
     {
         get
         {
-            if (ApplyEnvironmentReason?.Invoke() is { } environment)
+            if (WriteDisabledReason() is { } reason)
             {
-                return environment;
-            }
-
-            if (_result is { } result && result.Order.Warnings.Any(warning => warning.Problem == LoadOrderProblem.RootPackAdded))
-            {
-                return Texts.ObjectsApplyRootPackNotInOrder;
-            }
-
-            if (_state != ObjectTabState.Ready || _result is null)
-            {
-                return Texts.ObjectsApplyNotReady;
-            }
-
-            if (IsStale)
-            {
-                return Texts.ObjectsApplyStale;
+                return reason;
             }
 
             if (ErrorCount > 0)
@@ -236,6 +224,67 @@ public sealed class ObjectTabViewModel : TabViewModel
 
             return _hasUnappliedText && !IsDiffEmpty ? null : Texts.ObjectsApplyNoChanges;
         }
+    }
+
+    /// <summary>Writes a copy of the object under a new key (ObjectApplyController through CopyHandler). Enabled when CopyDisabledReason is null.</summary>
+    public ICommand CopyCommand => _copyCommand;
+
+    /// <summary>
+    /// Why <see cref="CopyCommand"/> is disabled, the first that applies: the environment (as for Apply), the root pack is not in the load order,
+    /// the tab is not Ready, the tab is stale, the object has no root row, the object has not exactly one key value. Unapplied text is no reason:
+    /// the handler asks first. Null when it can run.
+    /// </summary>
+    public string? CopyDisabledReason
+    {
+        get
+        {
+            if (WriteDisabledReason() is { } reason)
+            {
+                return reason;
+            }
+
+            if (_result?.View.Root is null)
+            {
+                return Texts.ObjectsCopyAsNoRoot;
+            }
+
+            return Current.KeyValues.Count == 1 ? null : Texts.ObjectsCopyAsCompositeKey;
+        }
+    }
+
+    /// <summary>The tool tip of the copy button: the reason it is disabled, else its name.</summary>
+    public string CopyToolTip => CopyDisabledReason ?? Texts.ObjectsCopyAs;
+
+    /// <summary>Set by the controller: runs "Copy as". Without it the command is disabled.</summary>
+    internal Func<ObjectTabViewModel, Task>? CopyHandler
+    {
+        get => _copyHandler;
+        set
+        {
+            _copyHandler = value;
+            _copyCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    // The reasons that Apply and "Copy as" share, in this order: the environment, the root pack not in the load order, not Ready, stale.
+    private string? WriteDisabledReason()
+    {
+        if (ApplyEnvironmentReason?.Invoke() is { } environment)
+        {
+            return environment;
+        }
+
+        if (_result is { } result && result.Order.Warnings.Any(warning => warning.Problem == LoadOrderProblem.RootPackAdded))
+        {
+            return Texts.ObjectsApplyRootPackNotInOrder;
+        }
+
+        if (_state != ObjectTabState.Ready || _result is null)
+        {
+            return Texts.ObjectsApplyNotReady;
+        }
+
+        return IsStale ? Texts.ObjectsApplyStale : null;
     }
 
     /// <summary>Set by the controller: parses the current text against the result and diffs it without reference checks; null without stores.</summary>
@@ -409,8 +458,11 @@ public sealed class ObjectTabViewModel : TabViewModel
         RefreshNotice();
     }
 
-    /// <summary>The controller reports the result of an apply: the result line is set (counts, created files, warnings) and shown until the tab moves to another object.</summary>
-    public void SetApplyResult(WriteSummary summary, IReadOnlyList<string> createdFiles, int warnings)
+    /// <summary>
+    /// The controller reports the result of an apply or a copy: the result line is set (counts, created files, warnings, the notes of a copy) and
+    /// shown until the tab moves to another object. notes: the copy notes to name ("not copied: 3 rows in technologies"); HiddenSection is never named.
+    /// </summary>
+    public void SetApplyResult(WriteSummary summary, IReadOnlyList<string> createdFiles, int warnings, IReadOnlyList<CopyNote>? notes = null)
     {
         ArgumentNullException.ThrowIfNull(summary);
         ArgumentNullException.ThrowIfNull(createdFiles);
@@ -431,15 +483,35 @@ public sealed class ObjectTabViewModel : TabViewModel
             line += ", " + Texts.ObjectsApplyResultWarnings(warnings);
         }
 
+        foreach (var note in notes ?? [])
+        {
+            var table = MessageText.EscapeControlCharacters(note.Table);
+            switch (note.Kind)
+            {
+                case CopyNoteKind.ForeignKeyRows:
+                    line += ", " + Texts.ObjectsCopyAsNoteForeign(note.Count, table);
+                    break;
+                case CopyNoteKind.DepthExceeded:
+                    line += ", " + Texts.ObjectsCopyAsNoteDepth(note.Count, table);
+                    break;
+                case CopyNoteKind.NoChain:
+                    line += ", " + Texts.ObjectsCopyAsNoteNoChain;
+                    break;
+            }
+        }
+
         SetProperty(ref _resultLine, line, nameof(ResultLine));
     }
 
-    /// <summary>The controller says that the apply environment changed (project, runner): the reason and the command ask again.</summary>
+    /// <summary>The controller says that the apply environment changed (project, runner): the reasons and the commands of Apply and "Copy as" ask again.</summary>
     public void RefreshApplyState()
     {
         OnPropertyChanged(nameof(ApplyDisabledReason));
         OnPropertyChanged(nameof(ApplyToolTip));
         _applyCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(CopyDisabledReason));
+        OnPropertyChanged(nameof(CopyToolTip));
+        _copyCommand.RaiseCanExecuteChanged();
     }
 
     protected override void RefreshTexts() => RefreshDerived();
@@ -485,6 +557,14 @@ public sealed class ObjectTabViewModel : TabViewModel
     private async void Apply()
     {
         if (_applyHandler is { } handler)
+        {
+            await handler(this);
+        }
+    }
+
+    private async void Copy()
+    {
+        if (_copyHandler is { } handler)
         {
             await handler(this);
         }

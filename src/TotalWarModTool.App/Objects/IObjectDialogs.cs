@@ -1,6 +1,6 @@
 namespace TotalWarModTool.App;
 
-/// <summary>Everything the apply of an object asks or tells the user. Display strings are escaped by the caller. The fake in the tests records the calls.</summary>
+/// <summary>Everything the apply and the copy of an object ask or tell the user. Display strings are escaped by the caller. The fake in the tests records the calls.</summary>
 public interface IObjectDialogs
 {
     /// <summary>Tells the user that something could not be done. Shown as a warning.</summary>
@@ -14,4 +14,7 @@ public interface IObjectDialogs
 
     /// <summary>The copies an apply makes, one line each (file, row count, deleted keys); true for "Copy and delete", false for cancel.</summary>
     bool AskCopies(IReadOnlyList<string> lines);
+
+    /// <summary>The new key for a copy of objectName; the box starts with suggestion, validate gives the reason a key is refused or null. Null: cancel.</summary>
+    string? AskNewKey(string objectName, string suggestion, Func<string, string?> validate);
 }

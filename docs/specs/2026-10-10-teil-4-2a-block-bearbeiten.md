@@ -736,6 +736,23 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   alle mit Namen; die Kaserne `wh_main_emp_barracks_3` als Stufe hinter sich selbst (Upgrade-Zeile 1,
   `level` höchste Stufe + 1) und mit neuer Kette (`..._chain`, 2 Objekte, 39 Zeilen) ergibt keinen belegten
   Schlüssel und keinen Hinweis auf die Stufentabelle.
+- **„Kopieren als“ nur bei genau einem Schlüsselwert:** Objekte mit zusammengesetztem Schlüssel lassen sich nicht
+  kopieren (Sperrgrund `objects.copyAs.reason.compositeKey`), ebenso ein Objekt ohne Wurzelzeile
+  (`objects.copyAs.reason.noRoot`). Davor stehen dieselben Sperrgründe wie beim Übernehmen (Umgebung, Pack nicht in der
+  Ladereihenfolge, nicht gebaut, veraltet); ungeübernommener Text ist kein Sperrgrund: „Kopieren als“ fragt zuerst
+  „Übernehmen, Verwerfen, Abbrechen“.
+- **Keine Referenzprüfung bei Kopien:** `ObjectCopy.Changes` läuft mit `referenceExists: null`, weil Ziele innerhalb
+  der Kopie (etwa die kopierte Kette) beim Prüfen noch nicht existieren.
+- **Schlüsselprüfung zweistufig:** Der Dialog prüft nur den Wurzelschlüssel (nicht leer, kein Leerraum, nicht in der
+  Ladereihenfolge der Tabelle; die Meldung nennt die Quelle der ersten vorhandenen Zeile). Die abgeleiteten Schlüssel
+  (Unterobjekte, Zufallsschlüssel) prüft Lauf A „Kopie wird vorbereitet“ über `ObjectCopy.TakenKeys` gegen die
+  Ladereihenfolge des Aufbaus; ein belegter Schlüssel bricht mit einer Meldung ab (`<Tabelle>: <Schlüssel>` je Zeile),
+  nichts wird geschrieben.
+- **Schreibweg:** Kopie und Übernehmen teilen den Schreibweg nach Lauf A (Rückfragen, zweiter Plan, Raster-Sperre,
+  Lauf B, ein Schritt in der History). Danach öffnet der Tab die Kopie (Verlauf wächst), die Ergebniszeile nennt die
+  Hinweise der Kopie außer `HiddenSection`, und Undo wählt den Tab und baut ihn neu wie beim Übernehmen.
+- **Kontextmenü des Editors:** AvalonEdit hatte keines. Es gibt jetzt eines mit Ausschneiden, Kopieren, Einfügen und
+  „Kopieren als“ (Texte `objects.editor.cut`, `objects.editor.copy`, `objects.editor.paste`).
 
 ### 5.9 App
 

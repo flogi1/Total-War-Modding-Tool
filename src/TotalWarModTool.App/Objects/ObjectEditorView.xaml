@@ -5,7 +5,8 @@
     <!--
         DataContext is the ObjectTabViewModel. The editor shows its Text; the code-behind only wires the text in both directions, the read-only
         head line and the keys. The colours are resource references to the tokens of the theme. Ctrl+Enter applies; Ctrl+Z and Ctrl+Y are not
-        handled here (the window binds them to the global history).
+        handled here (the window binds them to the global history). The context menu offers cut, copy and paste of the editor and "copy as" of the
+        tab (it takes the DataContext of the editor when it opens).
     -->
     <avalon:TextEditor x:Name="TextBox" FontFamily="Consolas" ShowLineNumbers="False" WordWrap="False"
                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
@@ -13,5 +14,15 @@
         <avalon:TextEditor.InputBindings>
             <KeyBinding Key="Return" Modifiers="Ctrl" Command="{Binding ApplyCommand}" />
         </avalon:TextEditor.InputBindings>
+        <avalon:TextEditor.ContextMenu>
+            <ContextMenu>
+                <MenuItem Command="ApplicationCommands.Cut" Header="{Binding Texts.ObjectsEditorCut}" />
+                <MenuItem Command="ApplicationCommands.Copy" Header="{Binding Texts.ObjectsEditorCopy}" />
+                <MenuItem Command="ApplicationCommands.Paste" Header="{Binding Texts.ObjectsEditorPaste}" />
+                <Separator />
+                <MenuItem Command="{Binding CopyCommand}" Header="{Binding Texts.ObjectsCopyAs}" ToolTip="{Binding CopyToolTip}"
+                          ToolTipService.ShowOnDisabled="True" />
+            </ContextMenu>
+        </avalon:TextEditor.ContextMenu>
     </avalon:TextEditor>
 </UserControl>
