@@ -54,6 +54,14 @@ public static class ProjectWritePlan
 
         public string? SourceEntry { get; init; }
 
+        /// <summary>The pack a Copy comes from and the row count of its source file (for the question).</summary>
+        public TableSource? CopySource { get; init; }
+
+        public int SourceRowCount { get; init; }
+
+        /// <summary>The keys of the rows removed from a Copy, in the order of the changes.</summary>
+        public List<string> DeletedKeys { get; } = [];
+
         public bool Changed { get; set; }
 
         /// <summary>The rows as text in the layout of the latest definition, parallel to Rows; null where not computed yet.</summary>
@@ -108,6 +116,8 @@ public static class ProjectWritePlan
                 ApplyTable(group.Key, group.ToList());
             }
 
+            AskForCopies();
+
             var files = new List<PlannedFile>();
             if (_errors.Count == 0 && _targetQuestions.Count == 0 && _copyQuestions.Count == 0)
             {
@@ -135,6 +145,20 @@ public static class ProjectWritePlan
                 files.Count(static f => f.Kind == PlannedFileKind.Created),
                 files.Count(static f => f.Kind == PlannedFileKind.Copy));
             return new WritePlan(files, _targetQuestions, _copyQuestions, _errors, summary);
+        }
+
+        /// <summary>One question per copied file, asked once for all copies (the App answers with CopiesConfirmed).</summary>
+        private void AskForCopies()
+        {
+            if (_answers.CopiesConfirmed)
+            {
+                return;
+            }
+
+            foreach (var work in _work.Values.Where(static w => w.Kind == PlannedFileKind.Copy && w.Changed).OrderBy(static w => w.RelativeFile, StringComparer.Ordinal))
+            {
+                _copyQuestions.Add(new FileCopyQuestion(work.CopySource!, work.SourceEntry!, work.RelativeFile, work.SourceRowCount, work.DeletedKeys));
+            }
         }
 
         private List<PlannedFile> Render()
@@ -205,7 +229,8 @@ public static class ProjectWritePlan
 
                         break;
                     default:
-                        throw new NotSupportedException("Deleting rows is planned in Task 4.");
+                        DeleteRow(change, current, keyFields);
+                        break;
                 }
             }
         }
@@ -446,6 +471,130 @@ public static class ProjectWritePlan
             return set;
         }
 
+        /// <summary>
+        /// Removes the row from its own file and from every file of every layer it overrides: a project file by key, a Vanilla or Mod
+        /// file through a copy of that file in the project.
+        /// </summary>
+        private void DeleteRow(RowChange change, TableDefinition current, IReadOnlyList<int> keyFields)
+        {
+            var provenance = change.Provenance ?? throw new ArgumentException("A Delete change needs a Provenance.", nameof(change));
+            var previous = change.PreviousCells ?? throw new ArgumentException("A Delete change needs PreviousCells.", nameof(change));
+            var layers = new List<OverriddenLayer>(provenance.OverriddenLayers.Count + 1) { new(provenance.Source, provenance.EntryPath) };
+            layers.AddRange(provenance.OverriddenLayers);
+
+            for (var i = 0; i < layers.Count; i++)
+            {
+                var layer = layers[i];
+                if (layer.Source.Kind == SourceKind.Project)
+                {
+                    if (FindProjectFile(layer.EntryPath) is not { } file)
+                    {
+                        Fail(WriteErrorKind.RowNotInFile, change.Line, null, "the project file of the row is not in the snapshot: " + layer.EntryPath);
+                        continue;
+                    }
+
+                    var work = GetWork(file);
+                    if (!CanMap(work, current, change.Line))
+                    {
+                        continue;
+                    }
+
+                    var index = Locate(work, change, current, keyFields, cellsMatter: i == 0);
+                    if (index < 0)
+                    {
+                        Fail(WriteErrorKind.RowNotInFile, change.Line, work.RelativeFile, "the row is not in the file");
+                        continue;
+                    }
+
+                    RemoveAt(work, index);
+                }
+                else if (CopyWork(layer, change.Line) is { } copy && CanMap(copy, current, change.Line))
+                {
+                    if (!RemoveFromCopy(copy, current, keyFields, previous))
+                    {
+                        Fail(WriteErrorKind.RowNotInFile, change.Line, copy.RelativeFile, "the row is not in the file");
+                    }
+                    else if (copy.Kind == PlannedFileKind.Copy)
+                    {
+                        copy.DeletedKeys.Add(keyFields.Count == 0 ? previous[0] : string.Join('|', keyFields.Select(k => previous[k])));
+                    }
+                }
+            }
+        }
+
+        private static void RemoveAt(FileWork work, int index)
+        {
+            work.Rows.RemoveAt(index);
+            work.Texts.RemoveAt(index);
+            work.KeySet = null;
+            work.Changed = true;
+        }
+
+        /// <summary>With key fields every row with the key goes (the game applies the key to all of them); without, the first row that equals the previous cells.</summary>
+        private static bool RemoveFromCopy(FileWork work, TableDefinition current, IReadOnlyList<int> keyFields, IReadOnlyList<string> previous)
+        {
+            var removed = false;
+            for (var i = work.Rows.Count - 1; i >= 0; i--)
+            {
+                var texts = TextsOf(work, i, current)!;
+                var matches = keyFields.Count > 0
+                    ? keyFields.All(k => string.Equals(texts[k], previous[k], StringComparison.Ordinal))
+                    : texts.AsSpan().SequenceEqual(previous.ToArray());
+                if (matches)
+                {
+                    RemoveAt(work, i);
+                    removed = true;
+                    if (keyFields.Count == 0)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return removed;
+        }
+
+        /// <summary>The file a deleted row of a Vanilla or Mod layer is removed from: the project file of the same name, else a copy of the pack entry.</summary>
+        private FileWork? CopyWork(OverriddenLayer layer, int line)
+        {
+            var entry = _snapshot.PackEntries.FirstOrDefault(e => string.Equals(e.Source.Path, layer.Source.Path, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(e.EntryPath, layer.EntryPath, StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+            {
+                Fail(WriteErrorKind.SnapshotProblem, line, layer.EntryPath, "pack entry not in snapshot");
+                return null;
+            }
+
+            if (_work.TryGetValue(entry.RelativeFile, out var existing))
+            {
+                return existing;
+            }
+
+            if (_snapshot.Tables.FirstOrDefault(f => string.Equals(f.RelativeFile, entry.RelativeFile, StringComparison.OrdinalIgnoreCase)) is { } there)
+            {
+                return GetWork(there);
+            }
+
+            var work = new FileWork
+            {
+                RelativeFile = entry.RelativeFile,
+                Kind = PlannedFileKind.Copy,
+                Previous = null,
+                PreviousText = null,
+                TableName = entry.Table.TableName,
+                Version = entry.Table.Version,
+                PackPath = entry.Table.PackPath,
+                Definition = entry.Table.Definition,
+                Rows = [.. entry.Table.Rows],
+                SourceEntry = entry.EntryPath,
+                CopySource = entry.Source,
+                SourceRowCount = entry.Table.Rows.Count,
+            };
+            work.Texts.AddRange(Enumerable.Repeat<string[]?>(null, work.Rows.Count));
+            _work[entry.RelativeFile] = work;
+            return work;
+        }
+
         private void SetProjectRow(FileWork work, RowChange change, TableDefinition current, IReadOnlyList<int> keyFields, IReadOnlySet<int> colour)
         {
             if (!ParseCells(change, current, work.RelativeFile, out var values) || !ColourChannelsValid(change, current, colour, values, work.RelativeFile))
@@ -453,7 +602,12 @@ public static class ProjectWritePlan
                 return;
             }
 
-            var index = Locate(work, change, current, keyFields);
+            if (!CanMap(work, current, change.Line))
+            {
+                return;
+            }
+
+            var index = Locate(work, change, current, keyFields, cellsMatter: true);
             if (index < 0)
             {
                 Fail(WriteErrorKind.RowNotInFile, change.Line, work.RelativeFile, "the row is not in the file");
@@ -497,22 +651,22 @@ public static class ProjectWritePlan
         /// The index of the row of the change in the file, or -1. With key fields the rows with the key of PreviousCells are the candidates and the
         /// first one that equals PreviousCells wins (else the first candidate); without key fields the first row that equals PreviousCells.
         /// </summary>
-        private int Locate(FileWork work, RowChange change, TableDefinition current, IReadOnlyList<int> keyFields)
+        private static int Locate(FileWork work, RowChange change, TableDefinition current, IReadOnlyList<int> keyFields, bool cellsMatter)
         {
             var previous = change.PreviousCells ?? throw new ArgumentException("A Set or Delete change needs PreviousCells.", nameof(change));
             var firstCandidate = -1;
             for (var i = 0; i < work.Rows.Count; i++)
             {
-                var texts = TextsOf(work, i, current);
-                if (texts is null)
-                {
-                    return -1;
-                }
-
+                var texts = TextsOf(work, i, current)!;
                 var sameKey = keyFields.Count > 0 && keyFields.All(k => string.Equals(texts[k], previous[k], StringComparison.Ordinal));
                 if (keyFields.Count > 0 && !sameKey)
                 {
                     continue;
+                }
+
+                if (keyFields.Count > 0 && !cellsMatter)
+                {
+                    return i;
                 }
 
                 if (texts.AsSpan().SequenceEqual(previous.ToArray()))
@@ -527,6 +681,24 @@ public static class ProjectWritePlan
             }
 
             return firstCandidate;
+        }
+
+        /// <summary>True when the rows of the file can be read in the layout of the latest definition; otherwise the error is recorded.</summary>
+        private bool CanMap(FileWork work, TableDefinition current, int line)
+        {
+            if (!work.ToCurrentKnown)
+            {
+                work.ToCurrent = RowLayout.MapFields(current, work.Definition);
+                work.ToCurrentKnown = true;
+            }
+
+            if (work.ToCurrent is null)
+            {
+                Fail(WriteErrorKind.TableNotWritable, line, work.RelativeFile, "the table has a field of an unsupported type");
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>The row as text in the layout of the latest definition; null when the layouts cannot be mapped.</summary>

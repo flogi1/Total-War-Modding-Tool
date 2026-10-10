@@ -570,6 +570,8 @@ den Papierkorb statt in den Speicher (Backlog, Annahme 5).
 
 - **Schreibplan, Tabellen.** Der Name der neuen Datei ist der getrimmte Projektname oder `twmt` (kein weiteres Bereinigen). Eine Zeile wird in der Datei über ihre Schlüsselwerte und `PreviousCells` gefunden (bei mehreren Treffern die erste mit allen gleichen Zellen). Die Farbkanalprüfung (`CellText.IsColourChannelValue`) läuft vor dem Schreiben; geprüft werden alle Felder eines `Insert` und die geänderten Felder eines `Set`. Eine Datei ohne Änderung wird nicht geschrieben. `Files` bleibt leer, solange eine Frage oder ein Fehler offen ist.
 
+- **Löschen und Dateikopie.** Eine Projektdatei ohne Zeilen bleibt bestehen (Kopfzeilen; kein Löschen von Dateien in Plan 2). Überschriebene Projektschichten werden über den Schlüssel bedient (ohne Zellenvergleich). In einer Kopie werden alle Zeilen mit dem Schlüssel entfernt. Kopie- und Zieldatei-Fragen werden gemeinsam gesammelt. `DeletedKeys` sind die Schlüsselwerte mit `|` verbunden (ohne Schlüsselfelder die erste Zelle); das weicht von `ObjectId.JoinedKey` ab, das ohne Trennzeichen verbindet, und ist für die Anzeige gedacht.
+
 ### 5.7 Editor
 
 Der Objekt-Tab nutzt AvalonEdit:
