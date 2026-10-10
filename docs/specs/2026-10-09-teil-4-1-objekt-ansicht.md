@@ -277,7 +277,7 @@ Ladereihenfolge:
 - `ObjectId`: Tabellenname plus Schlüsselwerte in Schemareihenfolge (Composite erlaubt).
 - `Root`: `Provenance` (Quelle, Art Vanilla / Mod / Project, `Overridden`-Liste, `OlderLayout`),
   Felder als `FieldValue` (Name, Wert als Text über `CellText.Format`, `Reference` oder null,
-  `Resolution`: `Found`, `NotFound`, `LocOnly`, plus Loc-Text bei `LocOnly`).
+  `Resolution`: `Found`, `NotFound`, `LocOnly`, plus Loc-Text bei `LocOnly`, `IsKey` für Schlüsselfelder).
 - `Texts`: Loc-Einträge zur Wurzel: für die Wurzeltabelle und die Zieltabellen ihrer Referenzen
   alle Schlüssel `<tabelle>_<spalte>_<schlüssel>`, die im `LocStore` existieren. Wie die Spalten
   gefunden werden (aus den Loc-Schlüsseln, begrenzte Präfix-Bereiche) und dass auch die Texte der
@@ -310,8 +310,17 @@ Regeln:
 3. Loc-Block: eine Zeile pro Text; Loc-Zeilen nennen Tabelle und Spalte (`tabelle.spalte`), Text und
    Herkunft und verlinken das Objekt, dem der Text gehört (`LocEntry.Owner`), wenn es nicht die Wurzel ist.
 4. Abschnitte: Titel, Tabellenname, Zeilenzahl, Herkünfte. Junction-Abschnitt: pro Zeile nur das
-   andere Ende als Link plus Loc-Name. Sonst pro Zeile die Nicht-Schlüssel-Felder als
-   `name = wert` in einer Zeile; die Felder, die auf die Wurzel zeigen, werden weggelassen.
+   andere Ende als Link plus Loc-Name, in einer Zeile. Ebenso eine Zeile im Modus `sentence` (Regel 7).
+   Sonst ist jede Zeile ein Block: die erste Textzeile (Einrückung 1) hält die Schlüsselfelder als
+   `name = wert`, dahinter Herkunft, überschriebene Herkünfte, `duplicate` und `older layout`;
+   darunter ein Feld pro Textzeile (Einrückung 2) als `name = wert` mit Links, Loc-Texten und
+   Warnungen wie in Regel 2. Hat die Tabelle keine Schlüsselfelder (oder nur das Feld, das auf die
+   Wurzel zeigt), steht das erste nicht leere übrige Feld in der ersten Textzeile. Das Feld, das auf
+   die Wurzel zeigt (`FieldName` des Abschnitts), fehlt; Felder mit leerem Wert fehlen in den Blöcken
+   (Schlüsselfelder der ersten Textzeile ausgenommen). Zwischen zwei Blöcken steht eine Leerzeile,
+   vor der `Collapsed`-Zeile nicht. Ob ein Feld ein Schlüsselfeld ist, trägt `FieldValue.IsKey` aus
+   dem Schema. `CollapseThreshold` und `CollapsedPreview` (Regel 5) zählen Zeilen des Abschnitts,
+   nicht Textzeilen.
 5. Leere Abschnitte fehlen. Ein Abschnitt mit mehr als `CollapseThreshold` Zeilen (Konstante,
    Start 20) zeigt die ersten `CollapsedPreview` Zeilen (Konstante, Start 5) und eine
    `Collapsed`-Zeile „… N weitere“. `RenderOptions.ExpandedSections` klappt einzelne Abschnitte auf.
@@ -380,6 +389,8 @@ Titel-Schlüssel stehen in `locales/en.json` und `de.json`.
 - Der Kontextmenü-Eintrag erscheint nur in Tabellen-Rastern, nicht bei Loc-Dateien. Gründe für die Sperre, in dieser Reihenfolge: keine Schlüsselspalte, keine Zeile markiert, kein Spielordner, kein Schema, eine Operation läuft.
 - Kategorie-Datei Gebäude: 9 Regeln (Namen, Effekte, Einheiten `allows {unit}`, Ausbau zu und von, `requires technology {technology_key}`, `requires building {required}`, Rückbau, `cai_construction_system_synergies_tables` versteckt). Die Titel-Schlüssel sind zusätzlich Properties in `AppTexts`, damit der Locale-Test sie als benutzt sieht; ein neuer Titel-Schlüssel braucht daher eine Property.
 - Lange Zeilen im Block brechen um, es gibt keinen horizontalen Scrollbalken. `Alt+Links` und `Alt+Rechts` wirken, solange der Fokus im Tab-Inhalt liegt.
+- Zeilenumbrüche in Loc-Texten (`\r\n`, `\n`, `\r`) erscheinen im Loc-Block und hinter Feldwerten als ein Leerzeichen; ein Spieltext bricht also nie eine Zeile. Der Hover-Name (`ObjectBuilder.DisplayName`) bleibt roh, die App maskiert Steuerzeichen selbst.
+- Zusammengesetzte Schlüssel erscheinen mit ` | ` getrennt (`ObjectId.DisplayKey`, `ObjectRef.DisplayKey`): im Kopf, im Owner-Link der Loc-Zeilen, im Tab-Titel und Tooltip und im Titel des Fortschrittsfensters. Loc-Lookups behalten die verkettete Form (`JoinedKey`); `EntryPath` des Tabs (`ObjectId.ToString()`) bleibt unverändert.
 
 ## 6. Verworfene Alternativen
 
