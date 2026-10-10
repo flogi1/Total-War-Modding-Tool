@@ -749,6 +749,14 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   sich mit `AfterInsertion` (nicht `BeforeInsertion`): Fügt der Nutzer am Anfang einer Zeile eine neue Zeile
   ein, rückt die alte Zeile mit ihrem Anker nach unten und bleibt intakt. Eine neu getippte Zeile ohne Anker
   ist nie intakt, auch wenn ihr Text dem einer gelöschten Zeile gleicht.
+- **Prüfung beim Tippen (`ObjectTabViewModel.Check`):** Parse und Differenz ohne Referenzprüfung (`referenceExists:
+  null`; die Referenzprüfung bleibt im Lauf A des Übernehmens), synchron auf dem UI-Thread, 300 ms nach der
+  letzten Eingabe (`ObjectEditorView.CheckDelay`). Ein Ergebnis gilt nur für den Text, für den es berechnet wurde:
+  ändert sich der Text, sind `Diagnostics`, `ErrorCount` und `IsDiffEmpty` wieder leer beziehungsweise falsch; ein
+  neues Ergebnis (`ApplyResult`) und ein Objektwechsel leeren sie ebenfalls. `ApplyAsync` ruft `Check()` zuerst und
+  lehnt einen Zustand mit Fehlern oder leerer Differenz ohne Dialog ab (Log-Eintrag mit dem Grund).
+- **Sperrgründe von „Übernehmen“** (Ergänzung zu Plan 3a): nach „Tab veraltet“ und vor „Text gleich der Baseline“
+  kommen „N Fehler im Text“ und, bei leerer Differenz (nur Leerzeichen am Zeilenende), „Nichts geändert“.
 - **Theme-Wechsel zur Laufzeit:** Der Editor färbt über `TryFindResource` beim Zeichnen; ein Wechsel wirkt beim
   nächsten Redraw (Scrollen, Tippen, neuer Block), siehe Backlog.
 - **Anhängsel im Editor:** gedämpft (`ObjectTrailing`); Herkunft, überschriebene Quellen, Duplikat- und
@@ -775,7 +783,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 
 | Fall | Verhalten |
 |---|---|
-| Parse-Fehler im Text | Zeile unterstrichen, Tooltip mit Grund, Übernehmen gesperrt mit Tooltip „N Fehler“ |
+| Parse-Fehler im Text | Zeile unterstrichen, Tooltip mit Grund, Übernehmen gesperrt mit Tooltip „N Fehler“ (seit Plan 3b; Plan 3a zeigte die Fehler erst beim Übernehmen als Dialog) |
 | Typfehler (Text in Zahlenfeld, Farbe ungültig) | wie Parse-Fehler, Meldung nennt den erwarteten Typ wie im Raster |
 | Referenzziel unbekannt | Warnung (gelb), Übernehmen erlaubt, Ergebniszeile zählt Warnungen |
 | Schlüssel im Text doppelt | Fehler an der zweiten Zeile; Ausnahme: der Aufbau hatte den Schlüssel schon doppelt (`Duplicate`), dann Identität nach Reihenfolge (5.3) |

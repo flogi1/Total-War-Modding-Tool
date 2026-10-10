@@ -512,4 +512,92 @@ public class ObjectTabViewModelTests
         tab.Text = tab.BaselineText + "\n  x = 1";
         Assert.Equal(Texts.ObjectsApply + " (" + Texts.ObjectsApplyGesture + ")", tab.ApplyToolTip);
     }
+
+    private static BlockDiagnostic Error(int line, DiagnosticKind kind) => new(line, DiagnosticSeverity.Error, kind, "detail");
+
+    private static ObjectTabViewModel CheckingTab(Func<ObjectChanges?> check)
+    {
+        var tab = ReadyTab();
+        tab.ApplyHandler = _ => Task.CompletedTask;
+        tab.CheckHandler = _ => check();
+        return tab;
+    }
+
+    [Fact] public void Errors_of_the_check_disable_apply_and_name_their_count()
+    {
+        var tab = CheckingTab(() => new ObjectChanges([], [], [Error(2, DiagnosticKind.UnknownField), Error(3, DiagnosticKind.InvalidValue)]));
+        var raised = new List<string?>();
+        tab.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        Assert.Null(tab.ApplyDisabledReason);
+
+        tab.Check();
+
+        Assert.Equal(2, tab.ErrorCount);
+        Assert.Equal(2, tab.Diagnostics.Count);
+        Assert.Equal(Texts.ObjectsApplyErrors(2), tab.ApplyDisabledReason);
+        Assert.False(tab.ApplyCommand.CanExecute(null));
+        Assert.Contains(nameof(ObjectTabViewModel.Diagnostics), raised);
+        Assert.Contains(nameof(ObjectTabViewModel.ErrorCount), raised);
+    }
+
+    [Fact] public void A_whitespace_only_change_disables_apply_as_no_change()
+    {
+        var tab = CheckingTab(() => new ObjectChanges([], [], []));
+        tab.Text = tab.BaselineText + " ";
+        Assert.True(tab.HasUnappliedText);
+        Assert.Null(tab.ApplyDisabledReason);
+
+        tab.Check();
+
+        Assert.True(tab.IsDiffEmpty);
+        Assert.Equal(Texts.ObjectsApplyNoChanges, tab.ApplyDisabledReason);
+        Assert.False(tab.ApplyCommand.CanExecute(null));
+    }
+
+    [Fact] public void A_check_result_belongs_to_the_text_it_was_computed_for()
+    {
+        var tab = CheckingTab(() => new ObjectChanges([], [], [Error(2, DiagnosticKind.UnknownField)]));
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.Check();
+        Assert.Equal(1, tab.ErrorCount);
+
+        tab.Text += "2";
+
+        Assert.Empty(tab.Diagnostics);
+        Assert.Equal(0, tab.ErrorCount);
+        Assert.False(tab.IsDiffEmpty);
+        Assert.Null(tab.ApplyDisabledReason);
+    }
+
+    [Fact] public void A_new_result_clears_the_diagnostics()
+    {
+        var tab = CheckingTab(() => new ObjectChanges([], [], [Error(2, DiagnosticKind.UnknownField)]));
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.Check();
+
+        tab.ApplyResult(Result());
+
+        Assert.Empty(tab.Diagnostics);
+        Assert.False(tab.IsDiffEmpty);
+    }
+
+    [Fact] public void Check_without_a_handler_or_a_result_does_nothing()
+    {
+        var calls = 0;
+        var noResult = Tab();
+        noResult.CheckHandler = _ =>
+        {
+            calls++;
+            return new ObjectChanges([], [], []);
+        };
+        noResult.Check();
+        var noHandler = ReadyTab();
+        noHandler.Check();
+
+        Assert.Equal(0, calls);
+        Assert.Empty(noResult.Diagnostics);
+        Assert.Empty(noHandler.Diagnostics);
+        Assert.False(noHandler.IsDiffEmpty);
+    }
 }

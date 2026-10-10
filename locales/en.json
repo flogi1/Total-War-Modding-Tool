@@ -414,6 +414,7 @@
   "objects.apply.reason.notReady": "The object is not built.",
   "objects.apply.reason.stale": "The object is outdated. Refresh it first.",
   "objects.apply.reason.noChanges": "Nothing changed.",
+  "objects.apply.reason.errors": "{0} errors in the text.",
   "objects.apply.checking": "Checking the changes",
   "objects.apply.writing": "Applying the changes",
   "objects.apply.result.changed": "{0} rows in {1} files changed",

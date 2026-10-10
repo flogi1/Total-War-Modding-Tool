@@ -126,6 +126,7 @@ public sealed partial class ObjectsController
             OpenHandler = (_, target, _) => AddAndBuild(NewTab([target], 0)),
             JumpHandler = tab => RunDetached(() => JumpAsync(tab), "Jumping to the row of an object"),
             ApplyEnvironmentReason = ApplyEnvironmentReason,
+            CheckHandler = Check,
         };
 
         // The composition root sets the two handlers right after it made the apply controller, before any tab is restored.

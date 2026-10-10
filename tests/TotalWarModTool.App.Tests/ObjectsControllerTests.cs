@@ -529,4 +529,25 @@ public class ObjectsControllerTests
         Assert.Contains(setup.Texts.ObjectsNoticeCategoryUnreadable, tab.Notice);
         Assert.Equal(ObjectTabState.Ready, tab.State);
     }
+
+    [Fact] public async Task A_tab_checks_its_text_against_the_stores()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        Assert.Contains("  value = 1", tab.Text);
+
+        tab.Text = tab.Text.Replace("  value = 1", "  value = abc", StringComparison.Ordinal);
+        tab.Check();
+
+        Assert.Equal(1, tab.ErrorCount);
+        Assert.Equal(DiagnosticKind.InvalidValue, tab.Diagnostics[0].Kind);
+        Assert.True(tab.Diagnostics[0].Line > 1);
+
+        tab.Text = tab.BaselineText;
+        tab.Check();
+
+        Assert.Equal(0, tab.ErrorCount);
+        Assert.True(tab.IsDiffEmpty);
+    }
 }

@@ -111,6 +111,8 @@ public sealed partial class AppTexts
 
     public string ObjectsApplyNoChanges => T("objects.apply.reason.noChanges", "Nothing changed.");
 
+    public string ObjectsApplyErrors(int count) => F("objects.apply.reason.errors", "{0} errors in the text.", count);
+
     public string ObjectsApplyChecking => T("objects.apply.checking", "Checking the changes");
 
     public string ObjectsApplyWriting => T("objects.apply.writing", "Applying the changes");

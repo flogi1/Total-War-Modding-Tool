@@ -35,6 +35,7 @@ public sealed class ObjectTabViewModel : TabViewModel
     private string _text = string.Empty;
     private string _baselineText = string.Empty;
     private BlockText? _block;
+    private (string Text, ObjectChanges Changes)? _checked;
     private int _headLineLength;
     private bool _hasUnappliedText;
     private string _status = string.Empty;
@@ -97,6 +98,10 @@ public sealed class ObjectTabViewModel : TabViewModel
             if (SetProperty(ref _text, value ?? string.Empty))
             {
                 UpdateUnapplied();
+                if (_checked is not null)
+                {
+                    RaiseCheckChanged();
+                }
             }
         }
     }
@@ -167,8 +172,45 @@ public sealed class ObjectTabViewModel : TabViewModel
                 return Texts.ObjectsApplyStale;
             }
 
-            return _hasUnappliedText ? null : Texts.ObjectsApplyNoChanges;
+            if (ErrorCount > 0)
+            {
+                return Texts.ObjectsApplyErrors(ErrorCount);
+            }
+
+            return _hasUnappliedText && !IsDiffEmpty ? null : Texts.ObjectsApplyNoChanges;
         }
+    }
+
+    /// <summary>Set by the controller: parses the current text against the result and diffs it without reference checks; null without stores.</summary>
+    internal Func<ObjectTabViewModel, ObjectChanges?>? CheckHandler { get; set; }
+
+    /// <summary>
+    /// The diagnostics of the last check of the current text; empty when the text changed since, after a new result, or without a check. A check
+    /// result belongs to the text it was computed for.
+    /// </summary>
+    public IReadOnlyList<BlockDiagnostic> Diagnostics => CurrentCheck?.Diagnostics ?? [];
+
+    /// <summary>Errors among <see cref="Diagnostics"/>.</summary>
+    public int ErrorCount => Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error);
+
+    /// <summary>True when the last check of the current text found no error and no change to write.</summary>
+    public bool IsDiffEmpty => CurrentCheck is { } changes && !changes.HasErrors && changes.IsEmpty;
+
+    private ObjectChanges? CurrentCheck => _checked is { } current && string.Equals(current.Text, _text, StringComparison.Ordinal) ? current.Changes : null;
+
+    /// <summary>
+    /// Runs the check for the current text now (the view calls it after the debounce, the apply before it starts). No-op without a result or a
+    /// handler.
+    /// </summary>
+    public void Check()
+    {
+        if (_result is null || CheckHandler is not { } handler)
+        {
+            return;
+        }
+
+        _checked = handler(this) is { } changes ? (_text, changes) : null;
+        RaiseCheckChanged();
     }
 
     /// <summary>The tool tip of the apply button: the reason it is disabled, else its name with the key.</summary>
@@ -451,6 +493,12 @@ public sealed class ObjectTabViewModel : TabViewModel
     private void SetBlock(BlockText? block)
     {
         _block = block;
+        if (_checked is not null)
+        {
+            _checked = null;
+            RaiseCheckChanged();
+        }
+
         OnPropertyChanged(nameof(Block));
         var baseline = block?.Text ?? string.Empty;
         if (SetProperty(ref _baselineText, baseline, nameof(BaselineText)))
@@ -461,6 +509,14 @@ public sealed class ObjectTabViewModel : TabViewModel
         var lineEnd = baseline.IndexOf('\n');
         SetProperty(ref _headLineLength, lineEnd < 0 ? baseline.Length : lineEnd, nameof(HeadLineLength));
         Text = baseline;
+    }
+
+    private void RaiseCheckChanged()
+    {
+        OnPropertyChanged(nameof(Diagnostics));
+        OnPropertyChanged(nameof(ErrorCount));
+        OnPropertyChanged(nameof(IsDiffEmpty));
+        RefreshApplyState();
     }
 
     private void UpdateUnapplied()

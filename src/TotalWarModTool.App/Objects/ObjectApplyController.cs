@@ -320,6 +320,8 @@ public sealed class ObjectApplyController
 
     private async Task ApplyCoreAsync(ObjectTabViewModel tab)
     {
+        // The check of the text comes first: what it already knows (errors, an empty diff) is refused here, with no dialog.
+        tab.Check();
         if (tab.ApplyDisabledReason is { } reason)
         {
             _log.Info("An apply of an object was refused: " + DisplayText.Safe(reason));

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
@@ -15,6 +16,10 @@ namespace TotalWarModTool.App;
 /// </summary>
 public sealed partial class ObjectEditorView : UserControl
 {
+    /// <summary>How long the text must rest before the check runs.</summary>
+    internal static readonly TimeSpan CheckDelay = TimeSpan.FromMilliseconds(300);
+
+    private readonly DispatcherTimer _checkTimer;
     private readonly TextSegmentCollection<TextSegment> _readOnlySegments;
     private ObjectTabViewModel? _tab;
     private BlockLineMap? _map;
@@ -44,6 +49,13 @@ public sealed partial class ObjectEditorView : UserControl
         Editor.TextArea.TextView.LineTransformers.Add(new BlockColorizer(() => _map, key => Editor.TryFindResource(key) as Brush));
         Editor.TextArea.TextView.ElementGenerators.Add(new TrailingGenerator(() => _map, () => _tab, key => Editor.TryFindResource(key) as Brush));
 
+        _checkTimer = new DispatcherTimer { Interval = CheckDelay };
+        _checkTimer.Tick += (_, _) =>
+        {
+            _checkTimer.Stop();
+            _tab?.Check();
+        };
+
         Editor.TextChanged += OnEditorTextChanged;
         DataContextChanged += OnDataContextChanged;
 
@@ -56,6 +68,7 @@ public sealed partial class ObjectEditorView : UserControl
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        _checkTimer.Stop();
         if (_tab is not null)
         {
             _tab.PropertyChanged -= OnTabPropertyChanged;
@@ -92,6 +105,8 @@ public sealed partial class ObjectEditorView : UserControl
         if (!_settingText && _tab is not null)
         {
             _tab.Text = Editor.Text;
+            _checkTimer.Stop();
+            _checkTimer.Start();
         }
     }
 
@@ -110,6 +125,7 @@ public sealed partial class ObjectEditorView : UserControl
                 _settingText = false;
             }
 
+            _checkTimer.Stop();
             RebuildMap();
         }
 

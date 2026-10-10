@@ -12,6 +12,14 @@
 
 **Branch:** `feature/teil-4-2a-app-editor` (von `master`, Stand `51bf24f` oder neuer). Baseline vor der ersten Änderung: `dotnet build TotalWarModTool.slnx` ohne Warnung; `dotnet test tests/TotalWarModTool.Objects.Tests` grün; Zahl der App-Tests aus dem letzten vollen Lauf des Nutzers in den Status von Task 1 eintragen.
 
+**Status (Umsetzung inline, Branch `feature/teil-4-2a-app-editor`):**
+
+- Task 1 erledigt (`Objects`: 239 grün, 12 übersprungen; Echtdaten-Zeittest `The_empire_block_diffs_fast` wartet auf den Lauf mit `TWMT_WH3_DIR`; Zahl der App-Tests der Baseline: nicht gemessen, volle Suite nur mit dem Nutzer).
+- Task 2 erledigt (SpanBrushes, LineSyntax, Tokens; 19 Tests der Filter grün).
+- Task 3 erledigt (BlockLineMap, BlockColorizer; Abweichung: Anker mit `AfterInsertion`, siehe Spec 5.9 „Festlegungen aus Plan 3b“).
+- Task 4 erledigt (TrailingText, TrailingGenerator; Abweichungen: `VisualLength` 1 statt 0, Generator nimmt `Func<ObjectTabViewModel?>`).
+- Task 5 erledigt (Check beim Tippen, Sperrgründe „N Fehler“ und „Nichts geändert“; die drei Apply-Tests mit Dialog für Parse-, Typ- und Leerzeichenfehler sind auf die Ablehnung durch die Prüfung umgestellt).
+
 **Testregel** (mit dem Nutzer vereinbart): Subagenten starten nie `dotnet test TotalWarModTool.slnx` und nie das ganze App-Testprojekt. Library-Tests sind frei. Einzelne Testklassen der App über `--filter "FullyQualifiedName~<Klasse>"`, immer nur ein Lauf zur Zeit. Es arbeitet immer nur ein bauender Subagent; Reviewer bauen und testen nicht. Den vollen Lauf macht der Controller einmal am Ende, nach dem Okay des Nutzers.
 
 ## Global Constraints

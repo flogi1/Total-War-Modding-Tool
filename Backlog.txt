@@ -364,7 +364,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 == Aus Teil 4.2a Plan 3a (App) zurückgestellt ==
 
 - Die Frage nach der Zieldatei mit mehr als etwa 6 Kandidaten braucht eine Liste statt Knöpfen
-- Reine Leerzeichen-Änderungen: Plan 3a meldet „Nichts zu schreiben“ erst nach dem Klick; Plan 3b könnte den Knopf sperren, solange die Differenz leer ist
 - Text-Undo im Editor (zwei Stapel, Spec 6); bis dahin gilt Strg+Z nur für die globale History
 - Die Schlüsselform von `FileCopyQuestion.DeletedKeys` (Plan 2) ist jetzt in der Kopie-Frage sichtbar; in der Abnahme prüfen, ob sie lesbar ist
 - Die zweite Berechnung des Plans (mit den Antworten) läuft auf dem UI-Thread; bei der Kopie einer sehr großen Tabelle kann das kurz einfrieren. Dann in einen eigenen Runner-Lauf oder in Lauf B verlegen

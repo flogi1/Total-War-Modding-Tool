@@ -158,23 +158,35 @@ public class ObjectApplyControllerTests
         Assert.False(tab.HasUnappliedText);
     }
 
-    [Fact] public async Task Parse_errors_show_a_message_and_write_nothing()
+    // The check before the run finds what the text cannot be written with: the apply refuses at once, with no dialog and no run.
+    private static void AssertRefusedByTheCheck(Setup setup, ObjectTabViewModel tab)
+    {
+        Assert.Empty(setup.Dialogs.Messages);
+        Assert.False(setup.History.CanUndo);
+        Assert.True(tab.HasUnappliedText);
+        Assert.Null(tab.ResultLine);
+        Assert.DoesNotContain(setup.Texts.ObjectsApplyChecking, setup.Runner.Titles);
+        Assert.DoesNotContain(setup.Texts.ObjectsApplyWriting, setup.Runner.Titles);
+    }
+
+    [Fact] public async Task Apply_checks_first_and_refuses_without_a_dialog_when_the_check_has_errors()
     {
         using var setup = await CreateAsync(AFile(["k2", "Project label"]));
         var tab = await ShowK1Async(setup);
         var before = File.ReadAllText(setup.ProjectFile(ProjectFileA));
         Edit(tab, LabelLine, LabelLine + "\n  garbage");
+        Assert.Equal(0, tab.ErrorCount);
 
         await ApplyAsync(tab);
 
-        var (title, message) = Assert.Single(setup.Dialogs.Messages);
-        Assert.Equal(setup.Texts.ObjectsApplyErrorsTitle, title);
-        Assert.Contains(setup.Texts.ObjectsApplyErrorLine(4, setup.Texts.DiagnosticText(DiagnosticKind.UnknownLineForm)), message);
+        Assert.True(tab.ErrorCount > 0);
+        Assert.Contains(tab.Diagnostics, d => d.Kind == DiagnosticKind.UnknownLineForm && d.Line == 4);
+        Assert.Contains(setup.Game.Log.Infos, entry => entry.Contains(setup.Texts.ObjectsApplyErrors(tab.ErrorCount), StringComparison.Ordinal));
         Assert.Equal(before, File.ReadAllText(setup.ProjectFile(ProjectFileA)));
-        AssertNothingWritten(setup, tab);
+        AssertRefusedByTheCheck(setup, tab);
     }
 
-    [Fact] public async Task A_type_error_of_the_diff_shows_the_line_and_the_kind()
+    [Fact] public async Task A_type_error_is_refused_by_the_check_with_its_line_and_kind()
     {
         using var setup = await CreateAsync(AFile(["k2", "Project label"]));
         var tab = await ShowK1Async(setup);
@@ -182,13 +194,12 @@ public class ObjectApplyControllerTests
 
         await ApplyAsync(tab);
 
-        var (title, message) = Assert.Single(setup.Dialogs.Messages);
-        Assert.Equal(setup.Texts.ObjectsApplyErrorsTitle, title);
-        Assert.Contains(setup.Texts.ObjectsApplyErrorLine(6, setup.Texts.DiagnosticText(DiagnosticKind.InvalidValue)), message);
-        AssertNothingWritten(setup, tab);
+        var error = Assert.Single(tab.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Equal((6, DiagnosticKind.InvalidValue), (error.Line, error.Kind));
+        AssertRefusedByTheCheck(setup, tab);
     }
 
-    [Fact] public async Task A_text_that_differs_only_in_trailing_whitespace_says_nothing_to_write()
+    [Fact] public async Task A_text_that_differs_only_in_trailing_whitespace_is_refused_as_nothing_changed()
     {
         using var setup = await CreateAsync(AFile(["k2", "Project label"]));
         var tab = await ShowK1Async(setup);
@@ -197,10 +208,10 @@ public class ObjectApplyControllerTests
 
         await ApplyAsync(tab);
 
-        var (title, message) = Assert.Single(setup.Dialogs.Messages);
-        Assert.Equal((setup.Texts.ObjectsApply, setup.Texts.ObjectsApplyResultNothing), (title, message));
+        Assert.True(tab.IsDiffEmpty);
+        Assert.Equal(setup.Texts.ObjectsApplyNoChanges, tab.ApplyDisabledReason);
         Assert.Equal(before, File.ReadAllText(setup.ProjectFile(ProjectFileA)));
-        AssertNothingWritten(setup, tab);
+        AssertRefusedByTheCheck(setup, tab);
     }
 
     [Fact] public async Task Several_project_files_ask_which_one_and_cancelling_the_target_question_writes_nothing()

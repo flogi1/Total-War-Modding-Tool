@@ -216,6 +216,23 @@ public sealed partial class ObjectsController : IRowObjectOpener
     internal ObjectStores? EnsureStores() =>
         MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath) : null;
 
+    /// <summary>
+    /// The check while typing: parses the text of the tab against its result and diffs it, without reference checks (the apply checks those).
+    /// Pure and quick enough for the UI thread; null without stores or a result.
+    /// </summary>
+    private ObjectChanges? Check(ObjectTabViewModel tab)
+    {
+        if (tab.Result is not { } result || EnsureStores() is not { } stores)
+        {
+            return null;
+        }
+
+        var parsed = ObjectTextParser.Parse(tab.Text, result.View, result.Category, stores.Graph);
+        return parsed.HasErrors
+            ? new ObjectChanges([], [], parsed.Diagnostics)
+            : ObjectDiff.Compute(result.View, parsed, result.Category, stores.Graph, null);
+    }
+
     // Why no tab can apply now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.
     private string? ApplyEnvironmentReason() =>
         _projects?.Active is not { IsUsable: true } ? _texts.ObjectsApplyNoProject : IsBusy ? _texts.ProjectBusy : null;

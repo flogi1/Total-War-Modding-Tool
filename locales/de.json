@@ -414,6 +414,7 @@
   "objects.apply.reason.notReady": "Das Objekt ist nicht gebaut.",
   "objects.apply.reason.stale": "Das Objekt ist veraltet. Aktualisiere es zuerst.",
   "objects.apply.reason.noChanges": "Nichts geändert.",
+  "objects.apply.reason.errors": "{0} Fehler im Text.",
   "objects.apply.checking": "Änderungen werden geprüft",
   "objects.apply.writing": "Änderungen werden übernommen",
   "objects.apply.result.changed": "{0} Zeilen in {1} Dateien geändert",

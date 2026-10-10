@@ -327,4 +327,49 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    [Fact] public void Typing_schedules_a_check_after_the_delay() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var checks = 0;
+        tab.CheckHandler = _ =>
+        {
+            checks++;
+            return new ObjectChanges([], [], []);
+        };
+        var (view, window) = Create(tab);
+        try
+        {
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "\n  x = 1");
+            Assert.Equal(0, checks);
+
+            PumpFor(window, ObjectEditorView.CheckDelay / 2);
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "2");
+            PumpFor(window, ObjectEditorView.CheckDelay / 2);
+            Assert.Equal(0, checks);
+
+            PumpFor(window, ObjectEditorView.CheckDelay + TimeSpan.FromMilliseconds(300));
+            Assert.Equal(1, checks);
+            Assert.True(tab.IsDiffEmpty);
+
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "3");
+            PumpFor(window, ObjectEditorView.CheckDelay + TimeSpan.FromMilliseconds(300));
+            Assert.Equal(2, checks);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    // Lets the dispatcher run for the given time, so that timers fire.
+    private static void PumpFor(Window window, TimeSpan time)
+    {
+        var end = DateTime.UtcNow + time;
+        while (DateTime.UtcNow < end)
+        {
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Thread.Sleep(10);
+        }
+    }
 }
