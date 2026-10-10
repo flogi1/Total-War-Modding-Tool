@@ -689,6 +689,24 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 - Logging: jedes Übernehmen mit Objekt, Dateien und Zeilenzahlen; jeder abgelehnte Schritt mit
   Grund. Keine Werte.
 
+#### Festlegungen aus Plan 3a
+
+- **Sperrgründe von „Übernehmen“** in dieser Reihenfolge (der Tooltip nennt den ersten): Umgebung
+  (kein aktives, brauchbares Projekt; eine andere Operation läuft), Pack der Zeile nicht in der
+  Ladereihenfolge (`RootPackAdded`), Tab nicht gebaut, Tab veraltet, Text gleich der Baseline.
+  Umgebungsgründe stehen vor den Tab-Gründen.
+- **Fehler des Textes** werden in 3a beim Übernehmen als Dialog gezeigt (Zeilennummer und Art, höchstens
+  10 Zeilen), nicht als Unterstreichung; die Unterstreichung kommt mit 3b.
+- **Ergebniszeile:** „N Zeilen in M Dateien geändert“, bei Spieltexten „, K Texte“, bei neuen Dateien
+  und Kopien „, C Dateien angelegt: <Namen>“, bei Hinweisen „, W Warnungen“. Sie bleibt, bis der Tab zu
+  einem anderen Objekt wechselt.
+- **Entfernt:** `ObjectBlockView` und `ObjectLines` (die Anzeige aus 4.1) gibt es nicht mehr; der Tab zeigt
+  den Blocktext in einem AvalonEdit-Editor. `ObjectText.Render` bleibt in der Library bis 3b (Backlog).
+  Plan 3a zeigt den Block ohne Färbung, Anhängsel und Falten.
+- **Ungeübernommener Text** markiert den Tab wie ungespeicherte Änderungen (`IsModified`). Zurück, Vor,
+  Aktualisieren und ein Link im selben Tab fragen vorher „Übernehmen, Verwerfen, Abbrechen“; ein Link
+  in einem neuen Tab fragt nicht. Ein neues Ergebnis ersetzt den Text.
+
 ## 6. Verworfene Alternativen
 
 | Entscheidung | Grund | Verworfen |

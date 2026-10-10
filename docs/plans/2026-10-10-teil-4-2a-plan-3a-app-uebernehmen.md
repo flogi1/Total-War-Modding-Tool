@@ -194,6 +194,8 @@ public sealed class TableStore
 
 ### Task 3: Tab-Zustand für das Übernehmen (`ApplyCommand`, Sperrgrund, Ergebniszeile, Texte) und die View umstellen
 
+**Status:** erledigt; `ObjectTabViewModelTests`, `AppTextsTests`, `ObjectsControllerTests`, `TabsViewTests`, `ControlTemplatesTests`, `ObjectEditorViewTests` 109/109 grün, Build ohne Warnung. Zusatz: `ApplyToolTip` am Tab (Grund oder „Übernehmen“) für den Knopf-Tooltip.
+
 Der Tab bekommt den Command, den Grund, warum er gesperrt ist, die Ergebniszeile und die Texte; das `DataTemplate` zeigt Knopf, Ergebniszeile und den Editor statt des `FlowDocument`. `ObjectBlockView` und `ObjectLines` gehen. Spec 5.9 (Objekt-Tab), 7.
 
 **Files:**

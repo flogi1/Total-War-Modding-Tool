@@ -572,7 +572,7 @@ public class TabsViewTests
             var buttons = Descendants<Button>(setup.View).Where(button => button.ToolTip is string tip && tips.Contains(tip)).ToList();
             Assert.Equal(tips, buttons.Select(button => (string)button.ToolTip));
             Assert.Equal([tab.BackCommand, tab.ForwardCommand, tab.RefreshCommand, tab.JumpToRowCommand], buttons.Select(button => button.Command));
-            Assert.Same(tab, Descendants<ObjectBlockView>(setup.View).Single().DataContext);
+            Assert.Same(tab, Descendants<ObjectEditorView>(setup.View).Single().DataContext);
 
             // The notice of the idle tab shows under the header; Alt+Left and Alt+Right move through the history.
             Assert.Equal(Visibility.Visible, Descendants<TextBlock>(setup.View).Single(text => text.Text == Texts.ObjectsStateIdle).Visibility);

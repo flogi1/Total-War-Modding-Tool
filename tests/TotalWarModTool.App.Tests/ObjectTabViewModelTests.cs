@@ -1,3 +1,4 @@
+using TotalWarModTool.Editing;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Objects;
 using TotalWarModTool.Schema;
@@ -51,8 +52,6 @@ public class ObjectTabViewModelTests
         return tab;
     }
 
-    private static bool HasCollapsed(ObjectTabViewModel tab) => tab.Lines.Any(line => line.Spans.Any(span => span.Kind == SpanKind.Collapsed));
-
     private static string Joined(params string[] lines) => string.Join(Environment.NewLine, lines);
 
     [Fact] public void A_composite_key_title_separates_the_values_and_the_entry_path_stays()
@@ -73,7 +72,7 @@ public class ObjectTabViewModelTests
         Assert.Equal(@"building_levels: a\u000Ab", tab.ToolTip);
         Assert.Equal(("object:" + Table, Table + ":a\nb"), (tab.PackPath, tab.EntryPath));
         Assert.Equal((Ref("a\nb"), 2, 0), (tab.Current, tab.History.Count, tab.Position));
-        Assert.Empty(tab.Lines);
+        Assert.Equal(string.Empty, tab.Text);
         Assert.Equal(string.Empty, tab.Status);
         Assert.Null(tab.WarningsText);
         Assert.Null(tab.Result);
@@ -92,30 +91,10 @@ public class ObjectTabViewModelTests
         Assert.Equal(ObjectTabState.Ready, tab.State);
         Assert.Equal("Vanilla + 2 mods + project, 1 warnings", tab.Status);
         Assert.Equal("TableNotInSchema: x_tables: not in the schema", tab.WarningsText);
-        Assert.NotEmpty(tab.Lines);
+        Assert.NotEmpty(tab.Text);
         Assert.Null(tab.Notice);
         Assert.NotNull(tab.Result);
-        Assert.All(new[] { "State", "Lines", "Status", "WarningsText", "Notice", "Result" }, name => Assert.Contains(name, changed));
-    }
-
-    [Fact] public void Expanding_a_section_renders_again_without_a_build()
-    {
-        var tab = Tab();
-        var builds = 0;
-        tab.BuildHandler = _ => builds++;
-        tab.ApplyResult(Result());
-        Assert.True(HasCollapsed(tab));
-        tab.ExpandSection(1);
-        Assert.False(HasCollapsed(tab));
-        Assert.Contains(1, tab.ExpandedSections);
-        tab.CollapseSection(1);
-        Assert.True(HasCollapsed(tab));
-        Assert.Empty(tab.ExpandedSections);
-        tab.ExpandSection(1);
-        tab.ApplyResult(Result());                                       // a new result starts collapsed again
-        Assert.Empty(tab.ExpandedSections);
-        Assert.True(HasCollapsed(tab));
-        Assert.Equal(0, builds);
+        Assert.All(new[] { "State", "Text", "Status", "WarningsText", "Notice", "Result" }, name => Assert.Contains(name, changed));
     }
 
     [Fact] public void NavigateTo_cuts_the_forward_part_appends_and_builds()
@@ -170,9 +149,9 @@ public class ObjectTabViewModelTests
     {
         var tab = Tab(position: 1, history: [Ref("a"), Ref("b")]);
         tab.ApplyResult(Result(View("b")));
-        Assert.NotEmpty(tab.Lines);
+        Assert.NotEmpty(tab.Text);
         tab.BackCommand.Execute(null);
-        Assert.Equal((ObjectTabState.Idle, 0, string.Empty), (tab.State, tab.Lines.Count, tab.Status));
+        Assert.Equal((ObjectTabState.Idle, 0, string.Empty), (tab.State, tab.Text.Length, tab.Status));
         Assert.Null(tab.Result);
         Assert.Equal(Texts.ObjectsStateIdle, tab.Notice);
     }
@@ -226,15 +205,15 @@ public class ObjectTabViewModelTests
         Assert.Equal("a", tab.Title);
     }
 
-    [Fact] public void A_cancelled_build_keeps_the_old_lines_and_says_so()
+    [Fact] public void A_cancelled_build_keeps_the_old_text_and_says_so()
     {
         var tab = ReadyTab();
-        var lines = tab.Lines;
+        var text = tab.Text;
         tab.BeginBuild();
-        Assert.Same(lines, tab.Lines);
+        Assert.Equal(text, tab.Text);
         tab.ApplyCancelled();
         Assert.Equal(ObjectTabState.Cancelled, tab.State);
-        Assert.Same(lines, tab.Lines);
+        Assert.Equal(text, tab.Text);
         Assert.Contains(Texts.ObjectsStateCancelled, tab.Notice);
         Assert.True(tab.RefreshCommand.CanExecute(null));
     }
@@ -310,19 +289,6 @@ public class ObjectTabViewModelTests
         Assert.Null(tab.WarningsText);
     }
 
-    [Fact] public void DisplayNameOf_reads_the_loc_table_of_the_result()
-    {
-        var tab = Tab();
-        var fire = new ObjectId("effects_tables", ["e1"]);
-        Assert.Null(tab.DisplayNameOf(fire));
-        tab.ApplyResult(Result());
-        Assert.Equal("Fire", tab.DisplayNameOf(fire));
-        Assert.Equal("Fire", tab.DisplayNameOf(new ObjectId("EFFECTS_tables", ["e1"])));
-        Assert.Null(tab.DisplayNameOf(new ObjectId("effects_tables", ["e2"])));
-        tab.BeginBuild();
-        Assert.Null(tab.DisplayNameOf(fire));
-    }
-
     [Fact] public void JumpToRow_needs_a_ready_root_and_a_handler()
     {
         var tab = Tab();
@@ -343,18 +309,15 @@ public class ObjectTabViewModelTests
         var tab = Tab(texts);
         tab.SetUnsavedSource(true);
         tab.ApplyResult(Result());
-        Assert.Contains(tab.Lines, line => line.Spans.Any(span => span.Text == "+ 20 more rows"));
         var changed = new List<string?>();
         tab.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
         ui.Load("de");
 
-        Assert.Contains(nameof(ObjectTabViewModel.Lines), changed);
         Assert.Contains(nameof(ObjectTabViewModel.Notice), changed);
         Assert.Contains(nameof(ObjectTabViewModel.Status), changed);
         Assert.Equal(texts.ObjectsNoticeUnsavedSource, tab.Notice);
         Assert.Equal("Vanilla + 2 Mods + Projekt, 1 Warnungen", tab.Status);
-        Assert.Contains(tab.Lines, line => line.Spans.Any(span => span.Text == "+ 20 weitere Zeilen"));
     }
 
     [Fact] public void The_stale_text_of_an_object_tab_names_its_sources()
@@ -425,5 +388,119 @@ public class ObjectTabViewModelTests
         Assert.Null(tab.Block);
         Assert.Equal(0, tab.HeadLineLength);
         Assert.False(tab.HasUnappliedText);
+    }
+
+    [Fact] public void Apply_is_disabled_without_a_handler_and_names_the_first_reason()
+    {
+        var tab = Tab();
+        Assert.Equal(Texts.ObjectsApplyNotReady, tab.ApplyDisabledReason);
+        Assert.False(tab.ApplyCommand.CanExecute(null));
+        tab.ApplyResult(Result());
+        Assert.Equal(Texts.ObjectsApplyNoChanges, tab.ApplyDisabledReason);
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        Assert.Null(tab.ApplyDisabledReason);
+        Assert.False(tab.ApplyCommand.CanExecute(null));                    // no handler
+    }
+
+    [Fact] public void The_environment_reason_comes_first_then_root_pack_then_state_then_stale()
+    {
+        var tab = Tab();
+        tab.ApplyHandler = _ => Task.CompletedTask;
+        tab.ApplyResult(Result());
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.ApplyEnvironmentReason = () => "busy";
+        Assert.Equal("busy", tab.ApplyDisabledReason);
+        Assert.False(tab.ApplyCommand.CanExecute(null));
+        tab.ApplyEnvironmentReason = () => null;
+        Assert.Null(tab.ApplyDisabledReason);
+        Assert.True(tab.ApplyCommand.CanExecute(null));
+
+        var rooted = Tab();
+        rooted.ApplyHandler = _ => Task.CompletedTask;
+        rooted.ApplyResult(Result(View(order: Order(new LoadOrderWarning(LoadOrderProblem.RootPackAdded, "r.pack", "added")))));
+        rooted.Text = rooted.BaselineText + "\n  x = 1";
+        Assert.Equal(Texts.ObjectsApplyRootPackNotInOrder, rooted.ApplyDisabledReason);
+
+        tab.MarkStale();
+        Assert.Equal(Texts.ObjectsApplyStale, tab.ApplyDisabledReason);
+        tab.ClearStale();
+        Assert.Null(tab.ApplyDisabledReason);
+
+        tab.BeginBuild();
+        Assert.Equal(Texts.ObjectsApplyNotReady, tab.ApplyDisabledReason);
+    }
+
+    [Fact] public void Apply_runs_the_handler_once_with_the_tab()
+    {
+        var tab = ReadyTab();
+        var calls = new List<ObjectTabViewModel>();
+        tab.ApplyHandler = t =>
+        {
+            calls.Add(t);
+            return Task.CompletedTask;
+        };
+
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.ApplyCommand.Execute(null);
+
+        Assert.Same(tab, Assert.Single(calls));
+    }
+
+    [Fact] public void The_result_line_lists_rows_files_texts_created_files_and_warnings()
+    {
+        var tab = ReadyTab();
+        Assert.Null(tab.ResultLine);
+        tab.SetApplyResult(new WriteSummary(1, 2, 0, 1, 0, 2, 1, 0), [@"db\x_tables\flo.tsv"], 1);
+        Assert.Equal(@"3 rows in 2 files changed, 1 texts, 1 files created: db\x_tables\flo.tsv, 1 warnings", tab.ResultLine);
+        tab.NavigateTo(Id("b"), false);
+        Assert.Null(tab.ResultLine);
+    }
+
+    [Fact] public void Back_with_unapplied_text_asks_and_discard_resets_the_text()
+    {
+        var asks = 0;
+        var answer = false;
+        Func<ObjectTabViewModel, Task<bool>> leave = t =>
+        {
+            asks++;
+            if (answer)
+            {
+                t.DiscardText();
+            }
+
+            return Task.FromResult(answer);
+        };
+
+        var tab = Tab(position: 1, history: [Ref("a"), Ref("b")]);
+        tab.ApplyResult(Result(View("b")));
+        tab.LeaveHandler = leave;
+        tab.BackCommand.Execute(null);
+        Assert.Equal((0, 0), (asks, tab.Position));                         // no change, no question
+
+        var changed = Tab(position: 1, history: [Ref("a"), Ref("b")]);
+        changed.ApplyResult(Result(View("b")));
+        changed.LeaveHandler = leave;
+        changed.Text = changed.BaselineText + "\n  x = 1";
+        changed.BackCommand.Execute(null);
+        Assert.Equal((1, 1), (asks, changed.Position));
+        Assert.True(changed.HasUnappliedText);
+
+        answer = true;
+        changed.BackCommand.Execute(null);
+        Assert.Equal((2, 0), (asks, changed.Position));
+        Assert.False(changed.HasUnappliedText);
+    }
+
+    [Fact] public void A_new_result_replaces_the_text_and_clears_the_unapplied_mark()
+    {
+        var tab = ReadyTab();
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        Assert.True(tab.HasUnappliedText);
+        var result = Result(View("a"));
+        tab.ApplyResult(result);
+        Assert.Equal(ObjectText.RenderBlock(result.View, result.Category).Text, tab.Text);
+        Assert.Equal(tab.BaselineText, tab.Text);
+        Assert.False(tab.HasUnappliedText);
+        Assert.False(tab.IsModified);
     }
 }

@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TotalWarModTool.Editing;
 using TotalWarModTool.Objects;
 
 namespace TotalWarModTool.App;
@@ -9,9 +10,9 @@ public enum ObjectTabState { Idle, Building, Ready, Cancelled, Failed }
 public enum JumpOutcome { None, SourceGone, RowNotFound }
 
 /// <summary>
-/// The tab of one object: the history of the objects it showed, the state of the build, and the lines of the last result. The tab does not build
+/// The tab of one object: the history of the objects it showed, the state of the build, and the text of the last result. The tab does not build
 /// anything itself; the controller sets the handlers and reports the outcome of a build through <see cref="BeginBuild"/>,
-/// <see cref="ApplyResult"/>, <see cref="ApplyCancelled"/> and <see cref="ApplyFailed"/>. Lines, status and warnings belong to the last result and
+/// <see cref="ApplyResult"/>, <see cref="ApplyCancelled"/> and <see cref="ApplyFailed"/>. Text, status and warnings belong to the last result and
 /// stay (also while a build runs, after it was cancelled or failed) until the tab moves to another object or a new result comes.
 /// </summary>
 public sealed class ObjectTabViewModel : TabViewModel
@@ -20,17 +21,17 @@ public sealed class ObjectTabViewModel : TabViewModel
 
     private readonly List<ObjectRef> _history;
     private readonly Func<string, string> _translate;
-    private readonly HashSet<int> _expanded = [];
-    private readonly Dictionary<ObjectId, string?> _displayNames = [];
     private readonly RelayCommand _backCommand;
     private readonly RelayCommand _forwardCommand;
     private readonly RelayCommand _refreshCommand;
     private readonly RelayCommand _jumpToRowCommand;
+    private readonly RelayCommand _applyCommand;
     private Action<ObjectTabViewModel>? _jumpHandler;
     private int _position;
     private ObjectTabState _state = ObjectTabState.Idle;
     private ObjectBuildResult? _result;
-    private IReadOnlyList<ObjectLine> _lines = [];
+    private string? _resultLine;
+    private Func<ObjectTabViewModel, Task>? _applyHandler;
     private string _text = string.Empty;
     private string _baselineText = string.Empty;
     private BlockText? _block;
@@ -56,8 +57,16 @@ public sealed class ObjectTabViewModel : TabViewModel
         _translate = translate;
         _backCommand = new RelayCommand(Back, () => _position > 0 && !IsBuilding);
         _forwardCommand = new RelayCommand(Forward, () => _position < _history.Count - 1 && !IsBuilding);
-        _refreshCommand = new RelayCommand(() => BuildHandler?.Invoke(this), () => !IsBuilding);
+        _refreshCommand = new RelayCommand(Refresh, () => !IsBuilding);
         _jumpToRowCommand = new RelayCommand(() => JumpHandler?.Invoke(this), CanJump);
+        _applyCommand = new RelayCommand(Apply, () => _applyHandler is not null && ApplyDisabledReason is null);
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(IsStale))
+            {
+                RefreshApplyState();
+            }
+        };
         _notice = NoticeText();
         ShowCurrent();
     }
@@ -72,9 +81,6 @@ public sealed class ObjectTabViewModel : TabViewModel
 
     /// <summary>The last successful build of <see cref="Current"/>; null before the first one and after the tab moved to another object.</summary>
     public ObjectBuildResult? Result => _result;
-
-    /// <summary>The lines of <see cref="Result"/>; empty while there is none.</summary>
-    public IReadOnlyList<ObjectLine> Lines => _lines;
 
     /// <summary>"Vanilla + 2 mods + project", plus ", 2 of 3 mods loaded" when a mod pack is missing, plus ", 3 warnings" when there are warnings; empty without a result.</summary>
     public string Status => _status;
@@ -127,8 +133,63 @@ public sealed class ObjectTabViewModel : TabViewModel
     /// <summary>Ready, the object has a row, and the controller can jump.</summary>
     public ICommand JumpToRowCommand => _jumpToRowCommand;
 
-    /// <summary>The sections that are shown in full. Emptied with every new result.</summary>
-    public IReadOnlySet<int> ExpandedSections => _expanded;
+    /// <summary>Writes the text into the project (ObjectApplyController through ApplyHandler). Enabled when ApplyDisabledReason is null.</summary>
+    public ICommand ApplyCommand => _applyCommand;
+
+    /// <summary>
+    /// Why <see cref="ApplyCommand"/> is disabled, the first that applies: the environment (no active project, another operation runs), the root
+    /// pack is not in the load order, the tab is not Ready, the tab is stale, the text equals the baseline. Null when it can run.
+    /// </summary>
+    public string? ApplyDisabledReason
+    {
+        get
+        {
+            if (ApplyEnvironmentReason?.Invoke() is { } environment)
+            {
+                return environment;
+            }
+
+            if (_result is { } result && result.Order.Warnings.Any(warning => warning.Problem == LoadOrderProblem.RootPackAdded))
+            {
+                return Texts.ObjectsApplyRootPackNotInOrder;
+            }
+
+            if (_state != ObjectTabState.Ready || _result is null)
+            {
+                return Texts.ObjectsApplyNotReady;
+            }
+
+            if (IsStale)
+            {
+                return Texts.ObjectsApplyStale;
+            }
+
+            return _hasUnappliedText ? null : Texts.ObjectsApplyNoChanges;
+        }
+    }
+
+    /// <summary>The tool tip of the apply button: the reason it is disabled, else its name.</summary>
+    public string ApplyToolTip => ApplyDisabledReason ?? Texts.ObjectsApply;
+
+    /// <summary>The result line of the last apply ("3 rows in 2 files changed, 1 file created: db\x_tables\flo.tsv"); null until an apply, cleared by a move to another object.</summary>
+    public string? ResultLine => _resultLine;
+
+    /// <summary>Set by the controller: whether a project is active and usable, and whether an operation runs. Asked by <see cref="ApplyDisabledReason"/>.</summary>
+    internal Func<string?>? ApplyEnvironmentReason { get; set; }
+
+    /// <summary>Set by the controller: runs the apply. Without it the command is disabled.</summary>
+    internal Func<ObjectTabViewModel, Task>? ApplyHandler
+    {
+        get => _applyHandler;
+        set
+        {
+            _applyHandler = value;
+            _applyCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>Set by the controller: asked before Back, Forward, Refresh and a link navigation while there is unapplied text; true lets the tab move on (the text was applied or discarded).</summary>
+    internal Func<ObjectTabViewModel, Task<bool>>? LeaveHandler { get; set; }
 
     /// <summary>Set by the controller: builds the current object and reports through <c>BeginBuild</c> and the <c>Apply</c> methods. Without it the tab stays as it is.</summary>
     internal Action<ObjectTabViewModel>? BuildHandler { get; set; }
@@ -154,24 +215,6 @@ public sealed class ObjectTabViewModel : TabViewModel
     /// <summary>Sets <see cref="Text"/> back to <see cref="BaselineText"/>.</summary>
     public void DiscardText() => Text = _baselineText;
 
-    /// <summary>Renders again with the section expanded; never builds.</summary>
-    public void ExpandSection(int section)
-    {
-        if (_expanded.Add(section))
-        {
-            RenderLines();
-        }
-    }
-
-    /// <summary>Renders again with the section collapsed again; never builds.</summary>
-    public void CollapseSection(int section)
-    {
-        if (_expanded.Remove(section))
-        {
-            RenderLines();
-        }
-    }
-
     /// <summary>
     /// A link: the target replaces the forward part of the history (or opens a new tab) and is built. The target keeps the
     /// <see cref="ObjectRef.RootPackPath"/> of <see cref="Current"/>.
@@ -186,32 +229,13 @@ public sealed class ObjectTabViewModel : TabViewModel
             return;
         }
 
-        _history.RemoveRange(_position + 1, _history.Count - _position - 1);
-        _history.Add(entry);
-        if (_history.Count > MaxHistory)
+        if (_hasUnappliedText && LeaveHandler is not null)
         {
-            _history.RemoveRange(0, _history.Count - MaxHistory);
+            NavigateAfterLeave(entry);
+            return;
         }
 
-        MoveTo(_history.Count - 1);
-    }
-
-    /// <summary>Display name of a link target from the loc table of the last build; null when none or not Ready.</summary>
-    public string? DisplayNameOf(ObjectId target)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        if (_state != ObjectTabState.Ready || _result is null)
-        {
-            return null;
-        }
-
-        if (!_displayNames.TryGetValue(target, out var name))
-        {
-            name = ObjectBuilder.DisplayName(_result.Loc, target) is { } text ? MessageText.EscapeControlCharacters(text) : null;
-            _displayNames[target] = name;
-        }
-
-        return name;
+        Navigate(entry);
     }
 
     /// <summary>The build started. The lines stay until the result comes.</summary>
@@ -231,12 +255,9 @@ public sealed class ObjectTabViewModel : TabViewModel
         _result = result;
         _failedReason = null;
         _jumpOutcome = JumpOutcome.None;
-        _expanded.Clear();
-        _displayNames.Clear();
         OnPropertyChanged(nameof(Result));
         _state = ObjectTabState.Ready;
         OnPropertyChanged(nameof(State));
-        RenderLines();
         SetBlock(ObjectText.RenderBlock(result.View, result.Category));
         SetProperty(ref _warningsText, WarningsOf(result), nameof(WarningsText));
         ClearStale();
@@ -274,11 +295,40 @@ public sealed class ObjectTabViewModel : TabViewModel
         RefreshNotice();
     }
 
-    protected override void RefreshTexts()
+    /// <summary>The controller reports the result of an apply: the result line is set (counts, created files, warnings) and shown until the tab moves to another object.</summary>
+    public void SetApplyResult(WriteSummary summary, IReadOnlyList<string> createdFiles, int warnings)
     {
-        RenderLines();
-        RefreshDerived();
+        ArgumentNullException.ThrowIfNull(summary);
+        ArgumentNullException.ThrowIfNull(createdFiles);
+        var line = Texts.ObjectsApplyResultChanged(summary.RowsSet + summary.RowsInserted + summary.RowsDeleted, summary.FilesChanged);
+        if (summary.TextsSet + summary.TextsInserted > 0)
+        {
+            line += ", " + Texts.ObjectsApplyResultTexts(summary.TextsSet + summary.TextsInserted);
+        }
+
+        if (summary.FilesCreated + summary.Copies > 0)
+        {
+            line += ", " + Texts.ObjectsApplyResultCreated(summary.FilesCreated + summary.Copies,
+                string.Join(", ", createdFiles.Select(MessageText.EscapeControlCharacters)));
+        }
+
+        if (warnings > 0)
+        {
+            line += ", " + Texts.ObjectsApplyResultWarnings(warnings);
+        }
+
+        SetProperty(ref _resultLine, line, nameof(ResultLine));
     }
+
+    /// <summary>The controller says that the apply environment changed (project, runner): the reason and the command ask again.</summary>
+    public void RefreshApplyState()
+    {
+        OnPropertyChanged(nameof(ApplyDisabledReason));
+        OnPropertyChanged(nameof(ApplyToolTip));
+        _applyCommand.RaiseCanExecuteChanged();
+    }
+
+    protected override void RefreshTexts() => RefreshDerived();
 
     private static TabSource SourceOf(AppTexts texts, IReadOnlyList<ObjectRef> history, int position)
     {
@@ -292,20 +342,60 @@ public sealed class ObjectTabViewModel : TabViewModel
         return TabSource.ForObject(history[position].Table, texts.ObjectsTabSourceName);
     }
 
-    private void Back()
+    // The commands ask the LeaveHandler first when there is unapplied text; async void because a command cannot be awaited, and without a question
+    // everything below runs synchronously.
+    private async void Back()
     {
-        if (_position > 0 && !IsBuilding)
+        if (_position > 0 && !IsBuilding && await CanLeaveAsync() && _position > 0 && !IsBuilding)
         {
             MoveTo(_position - 1);
         }
     }
 
-    private void Forward()
+    private async void Forward()
     {
-        if (_position < _history.Count - 1 && !IsBuilding)
+        if (_position < _history.Count - 1 && !IsBuilding && await CanLeaveAsync() && _position < _history.Count - 1 && !IsBuilding)
         {
             MoveTo(_position + 1);
         }
+    }
+
+    private async void Refresh()
+    {
+        if (!IsBuilding && await CanLeaveAsync() && !IsBuilding)
+        {
+            BuildHandler?.Invoke(this);
+        }
+    }
+
+    private async void Apply()
+    {
+        if (_applyHandler is { } handler)
+        {
+            await handler(this);
+        }
+    }
+
+    private async void NavigateAfterLeave(ObjectRef entry)
+    {
+        if (await CanLeaveAsync())
+        {
+            Navigate(entry);
+        }
+    }
+
+    private async Task<bool> CanLeaveAsync() => !_hasUnappliedText || LeaveHandler is null || await LeaveHandler(this);
+
+    private void Navigate(ObjectRef entry)
+    {
+        _history.RemoveRange(_position + 1, _history.Count - _position - 1);
+        _history.Add(entry);
+        if (_history.Count > MaxHistory)
+        {
+            _history.RemoveRange(0, _history.Count - MaxHistory);
+        }
+
+        MoveTo(_history.Count - 1);
     }
 
     /// <summary>
@@ -320,10 +410,8 @@ public sealed class ObjectTabViewModel : TabViewModel
         _jumpOutcome = JumpOutcome.None;
         _unsavedSource = false;
         _categoryUnreadable = false;
-        _expanded.Clear();
-        _displayNames.Clear();
+        _resultLine = null;
         _state = ObjectTabState.Idle;
-        _lines = [];
         _status = string.Empty;
         _warningsText = null;
         SetBlock(null);
@@ -332,7 +420,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         OnPropertyChanged(nameof(History));
         OnPropertyChanged(nameof(Result));
         OnPropertyChanged(nameof(State));
-        OnPropertyChanged(nameof(Lines));
+        OnPropertyChanged(nameof(ResultLine));
         OnPropertyChanged(nameof(Status));
         OnPropertyChanged(nameof(WarningsText));
         ClearStale();
@@ -378,18 +466,8 @@ public sealed class ObjectTabViewModel : TabViewModel
         {
             OnPropertyChanged(nameof(IsModified));
         }
-    }
 
-    private void RenderLines()
-    {
-        if (_result is null)
-        {
-            return;
-        }
-
-        var lines = ObjectText.Render(_result.View, _result.Category, new RenderOptions(_expanded));
-        _lines = ObjectLines.Build(lines, Texts, _translate);
-        OnPropertyChanged(nameof(Lines));
+        RefreshApplyState();
     }
 
     private void RefreshDerived()
@@ -407,6 +485,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         _forwardCommand.RaiseCanExecuteChanged();
         _refreshCommand.RaiseCanExecuteChanged();
         _jumpToRowCommand.RaiseCanExecuteChanged();
+        RefreshApplyState();
     }
 
     private bool CanJump() => _state == ObjectTabState.Ready && _result?.View.Root is not null && _jumpHandler is not null;

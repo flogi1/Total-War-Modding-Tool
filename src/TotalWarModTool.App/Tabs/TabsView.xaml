@@ -209,9 +209,9 @@
         </DataTemplate>
 
         <!--
-            An object: the buttons of the history, refresh and the jump to the row, then the status (its tool tip lists the warnings); under it
-            the notice and, while the tab is outdated, what changed with a refresh button; then the block. Alt+Left and Alt+Right move through
-            the history while the focus is in the tab.
+            An object: the buttons of the history, refresh, the jump to the row and apply, then the status (its tool tip lists the warnings); under
+            it the result line of the last apply, the notice and, while the tab is outdated, what changed with a refresh button; then the editor
+            with the block text. Alt+Left and Alt+Right move through the history while the focus is in the tab.
         -->
         <DataTemplate DataType="{x:Type local:ObjectTabViewModel}">
             <DockPanel>
@@ -232,8 +232,12 @@
                     <Button Command="{Binding JumpToRowCommand}" Padding="8,2" Margin="4,0,0,0"
                             Content="{Binding DataContext.Texts.ObjectsJumpToRow, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
                             ToolTip="{Binding DataContext.Texts.ObjectsJumpToRow, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                    <Button Command="{Binding ApplyCommand}" Padding="8,2" Margin="4,0,0,0" ToolTipService.ShowOnDisabled="True"
+                            Content="{Binding DataContext.Texts.ObjectsApply, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                            ToolTip="{Binding ApplyToolTip}" />
                     <TextBlock Text="{Binding Status}" ToolTip="{Binding WarningsText}" Margin="12,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
+                <TextBlock x:Name="ResultLine" DockPanel.Dock="Top" Text="{Binding ResultLine}" Style="{StaticResource GridMessageLine}" />
                 <TextBlock x:Name="NoticeLine" DockPanel.Dock="Top" Text="{Binding Notice}" Style="{StaticResource GridMessageLine}" />
                 <DockPanel x:Name="StaleBar" DockPanel.Dock="Top" Margin="6,2,6,4" LastChildFill="True"
                            Visibility="{Binding IsStale, Converter={StaticResource BoolToVisibility}}">
@@ -241,7 +245,7 @@
                             Content="{Binding DataContext.Texts.ObjectsRefresh, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
                     <TextBlock Text="{Binding StaleText}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource Theme.Warning}" />
                 </DockPanel>
-                <local:ObjectBlockView Lines="{Binding Lines, Mode=OneWay}" />
+                <local:ObjectEditorView />
             </DockPanel>
         </DataTemplate>
 

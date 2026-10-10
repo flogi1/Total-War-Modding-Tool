@@ -405,5 +405,19 @@
   "objects.section.upgradesFrom": "Upgrades from",
   "objects.section.requirements": "Requirements",
   "objects.section.requiredBuildings": "Required buildings",
-  "objects.section.downgrades": "Downgrades"
+  "objects.section.downgrades": "Downgrades",
+  "objects.apply": "Apply",
+  "objects.applyGesture": "Ctrl+Enter",
+  "objects.apply.reason.noProject": "No active project to write into.",
+  "objects.apply.reason.rootPack": "The pack of this object is not in the load order.",
+  "objects.apply.reason.notReady": "The object is not built.",
+  "objects.apply.reason.stale": "The object is outdated. Refresh it first.",
+  "objects.apply.reason.noChanges": "Nothing changed.",
+  "objects.apply.checking": "Checking the changes",
+  "objects.apply.writing": "Applying the changes",
+  "objects.apply.result.changed": "{0} rows in {1} files changed",
+  "objects.apply.result.texts": "{0} texts",
+  "objects.apply.result.created": "{0} files created: {1}",
+  "objects.apply.result.warnings": "{0} warnings",
+  "objects.apply.result.nothing": "Nothing to write: the text has no change."
 }

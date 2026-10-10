@@ -74,7 +74,12 @@ public sealed partial class ObjectsController : IRowObjectOpener
         workspace.PackChanged += (_, _) => StartStaleCheck();
         if (projects is not null)
         {
-            projects.Changed += (_, _) => StartStaleCheck();
+            projects.Changed += (_, _) =>
+            {
+                RefreshApplyStates();
+                StartStaleCheck();
+            };
+            projects.OperationStateChanged += (_, _) => RefreshApplyStates();
         }
 
         // A save changes the set of modified tabs, and a saved project table may be a source of an object.
@@ -139,6 +144,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
         finally
         {
             Changed?.Invoke(this, EventArgs.Empty);
+            RefreshApplyStates();
         }
 
         // The tab moved on to another object meanwhile: this outcome belongs to none of its entries any more.
@@ -200,6 +206,19 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     private bool IsBusy => _runner.IsRunning || !_workspace.CanStartOperation;
 
+    // Why no tab can apply now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.
+    private string? ApplyEnvironmentReason() =>
+        _projects?.Active is not { IsUsable: true } ? _texts.ObjectsApplyNoProject : IsBusy ? _texts.ProjectBusy : null;
+
+    // The answers of ApplyEnvironmentReason may have changed for every open object tab.
+    private void RefreshApplyStates()
+    {
+        foreach (var tab in ObjectTabs)
+        {
+            tab.RefreshApplyState();
+        }
+    }
+
     // What a load order is made of, taken on the UI thread; null without a game.
     private BuildContext? CurrentContext()
     {
@@ -232,6 +251,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
         var catalogChanged = !ReferenceEquals(_seenCatalog, _workspace.Catalog);
         _seenCatalog = _workspace.Catalog;
         Changed?.Invoke(this, EventArgs.Empty);
+        RefreshApplyStates();
         if (catalogChanged)
         {
             StartStaleCheck();

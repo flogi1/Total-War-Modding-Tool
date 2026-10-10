@@ -405,5 +405,19 @@
   "objects.section.upgradesFrom": "Ausbau von",
   "objects.section.requirements": "Voraussetzungen",
   "objects.section.requiredBuildings": "Benötigte Gebäude",
-  "objects.section.downgrades": "Rückbau"
+  "objects.section.downgrades": "Rückbau",
+  "objects.apply": "Übernehmen",
+  "objects.applyGesture": "Strg+Eingabe",
+  "objects.apply.reason.noProject": "Kein aktives Projekt, in das geschrieben werden kann.",
+  "objects.apply.reason.rootPack": "Das Pack dieses Objekts ist nicht in der Ladereihenfolge.",
+  "objects.apply.reason.notReady": "Das Objekt ist nicht gebaut.",
+  "objects.apply.reason.stale": "Das Objekt ist veraltet. Aktualisiere es zuerst.",
+  "objects.apply.reason.noChanges": "Nichts geändert.",
+  "objects.apply.checking": "Änderungen werden geprüft",
+  "objects.apply.writing": "Änderungen werden übernommen",
+  "objects.apply.result.changed": "{0} Zeilen in {1} Dateien geändert",
+  "objects.apply.result.texts": "{0} Texte",
+  "objects.apply.result.created": "{0} Dateien angelegt: {1}",
+  "objects.apply.result.warnings": "{0} Warnungen",
+  "objects.apply.result.nothing": "Nichts zu schreiben: Der Text hat keine Änderung."
 }

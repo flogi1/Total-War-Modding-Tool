@@ -80,8 +80,8 @@ public class ObjectsControllerTests
         Assert.Same(tab, Assert.Single(setup.Controller.ObjectTabs));
         var section = Assert.Single(tab.Result!.View.Sections);
         Assert.Equal(("y_tables", 2), (section.SourceTable, section.Rows.Count));
-        Assert.Contains(tab.Lines, line => line.Spans.Any(span => span.Kind == SpanKind.TableName && span.Section == 0)
-            && line.Spans.Any(span => span.Text == "(2)"));
+        Assert.Contains("y", tab.Text);
+        Assert.Equal(2, Assert.Single(tab.Block!.Sections).Rows.Count);
         Assert.Equal("Vanilla + 0 mods", tab.Status);
     }
 
@@ -220,7 +220,7 @@ public class ObjectsControllerTests
 
         Assert.Equal(ObjectTabState.Cancelled, tab.State);
         Assert.Contains(setup.Texts.ObjectsStateCancelled, tab.Notice);
-        Assert.Empty(tab.Lines);
+        Assert.Equal(string.Empty, tab.Text);
         Assert.True(tab.RefreshCommand.CanExecute(null));
 
         tab.RefreshCommand.Execute(null);
@@ -250,7 +250,7 @@ public class ObjectsControllerTests
         Assert.Equal("k2", tab.Current.JoinedKey);
         Assert.Equal(ObjectTabState.Idle, tab.State);                                 // the outcome of k1 did not land on k2
         Assert.Null(tab.Result);
-        Assert.Empty(tab.Lines);
+        Assert.Equal(string.Empty, tab.Text);
         Assert.Equal((2, 0), (setup.Builds("k1"), setup.Builds("k2")));
     }
 
@@ -528,15 +528,5 @@ public class ObjectsControllerTests
         Assert.Contains("x_tables.json", Assert.Single(setup.Game.Log.Warnings));
         Assert.Contains(setup.Texts.ObjectsNoticeCategoryUnreadable, tab.Notice);
         Assert.Equal(ObjectTabState.Ready, tab.State);
-    }
-
-    [Fact] public async Task DisplayNameOf_comes_from_the_loc_pack_of_the_game()
-    {
-        using var setup = await CreateAsync(game => ObjectsTestSchema.WriteLocPack(game, new LocRow("x_name_k1", "One", false)));
-        var table = await OpenTableAsync(setup, setup.VanillaPath);
-
-        var tab = Show(setup, table, "k1");
-
-        Assert.Equal("One", tab.DisplayNameOf(new ObjectId("x_tables", ["k1"])));
     }
 }

@@ -124,6 +124,7 @@ public sealed partial class ObjectsController
             BuildHandler = tab => RunDetached(() => BuildAsync(tab), BuildWhat),
             OpenHandler = (_, target, _) => AddAndBuild(NewTab([target], 0)),
             JumpHandler = tab => RunDetached(() => JumpAsync(tab), "Jumping to the row of an object"),
+            ApplyEnvironmentReason = ApplyEnvironmentReason,
         };
 
     private void AddAndBuild(ObjectTabViewModel tab)

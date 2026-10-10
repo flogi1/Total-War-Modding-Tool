@@ -95,4 +95,38 @@ public sealed partial class AppTexts
     public string ObjectsSectionRequiredBuildings => T("objects.section.requiredBuildings", "Required buildings");
 
     public string ObjectsSectionDowngrades => T("objects.section.downgrades", "Downgrades");
+
+    // Applying the text of an object tab.
+    public string ObjectsApply => T("objects.apply", "Apply");
+
+    public string ObjectsApplyGesture => T("objects.applyGesture", "Ctrl+Enter");
+
+    public string ObjectsApplyNoProject => T("objects.apply.reason.noProject", "No active project to write into.");
+
+    public string ObjectsApplyRootPackNotInOrder => T("objects.apply.reason.rootPack", "The pack of this object is not in the load order.");
+
+    public string ObjectsApplyNotReady => T("objects.apply.reason.notReady", "The object is not built.");
+
+    public string ObjectsApplyStale => T("objects.apply.reason.stale", "The object is outdated. Refresh it first.");
+
+    public string ObjectsApplyNoChanges => T("objects.apply.reason.noChanges", "Nothing changed.");
+
+    public string ObjectsApplyChecking => T("objects.apply.checking", "Checking the changes");
+
+    public string ObjectsApplyWriting => T("objects.apply.writing", "Applying the changes");
+
+    /// <param name="rows">Rows set, inserted and deleted.</param>
+    /// <param name="files">Files changed.</param>
+    public string ObjectsApplyResultChanged(int rows, int files) => F("objects.apply.result.changed", "{0} rows in {1} files changed", rows, files);
+
+    /// <param name="texts">Loc texts set and inserted.</param>
+    public string ObjectsApplyResultTexts(int texts) => F("objects.apply.result.texts", "{0} texts", texts);
+
+    /// <param name="files">Files created (copies included).</param>
+    /// <param name="names">The created files, joined with ", " (data, escaped).</param>
+    public string ObjectsApplyResultCreated(int files, string names) => F("objects.apply.result.created", "{0} files created: {1}", files, names);
+
+    public string ObjectsApplyResultWarnings(int count) => F("objects.apply.result.warnings", "{0} warnings", count);
+
+    public string ObjectsApplyResultNothing => T("objects.apply.result.nothing", "Nothing to write: the text has no change.");
 }
