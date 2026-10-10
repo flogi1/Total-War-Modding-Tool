@@ -254,9 +254,7 @@ public static class ObjectTextParser
             }
 
             var reference = references[0];
-            var rule = _category?.Sections.FirstOrDefault(r =>
-                string.Equals(ObjectText.ShortTableName(r.Table), ObjectText.ShortTableName(reference.SourceTable), StringComparison.OrdinalIgnoreCase)
-                && (r.FieldName is null || string.Equals(r.FieldName, reference.FieldName, StringComparison.OrdinalIgnoreCase)));
+            var rule = ObjectText.RuleFor(_category, reference.SourceTable, reference.FieldName);
             if (rule is { Hidden: true })
             {
                 Add(line, DiagnosticKind.HiddenSection, "the section is hidden by the category");

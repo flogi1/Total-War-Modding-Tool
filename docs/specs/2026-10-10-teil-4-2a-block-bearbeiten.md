@@ -419,6 +419,15 @@ jeder Task im selben Commit ergänzt):
   den Wert aus der `ObjectId`; ein abweichender Wert ist `RootKeyChanged`.
 - Differenz: `RowChange.Line` ist die Zeile des Zeilenkopfs, 1 für die Wurzel und 0 für Zeilen eines
   Abschnitts, den der Text nicht hat (`Delete`).
+- Kopie: `ObjectCopy.Rename(source, newId, build, categoryOf, graph)` nimmt zusätzlich die Kategorie pro
+  Tabelle (`categoryOf`) und den Graphen. Versteckte Abschnitte liefern den Hinweis `HiddenSection`
+  (Tabelle, Zeilenzahl) als Daten; die App zeigt ihn nicht an (Regel 1 oben: kein Hinweis).
+- Kopie: Zeilen einer Tabelle ohne eigenen Schlüssel, die nicht Junction ist (sie existieren nur
+  als Zeilen der Wurzel), werden wie Regel 2 kopiert. Die Regeln 2 bis 4 sagen dazu nichts.
+- Kopie: Die Regeln entscheiden pro Zeile über die Schlüsselfelder der Zeilen im Aufbau (`FieldValue.IsKey`).
+  Regel 3 gilt nur bei einer Wurzel mit einem Schlüsselwert und genau einem Schlüsselfeld der Zeile;
+  ein Unterobjekt bekommt den Schlüssel `neuerWurzelschlüssel + Rest`, und sein Feld auf die Wurzel
+  zeigt auf den neuen Schlüssel. Hinweise der Unterobjekte stehen im Ergebnis des Objekts.
 
 ### 5.4 Übernehmen: Zielregeln
 

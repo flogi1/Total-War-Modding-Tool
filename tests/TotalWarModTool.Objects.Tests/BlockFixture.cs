@@ -51,6 +51,14 @@ internal static class BlockFixture
             TestSchema.Field("icon"),
         ]),
         ("notes_tables", 1, [TestSchema.Field("building", reference: RootKey), TestSchema.Field("a"), TestSchema.Field("b")]),
+        ("bonus_tables", 1,
+        [
+            TestSchema.Field("building", key: true, reference: RootKey),
+            TestSchema.Field("culture", key: true),
+            TestSchema.Field("other", key: true),
+            TestSchema.Field("amount", FieldType.I32),
+            TestSchema.Field("note"),
+        ]),
         ("building_chains_tables", 1, [TestSchema.Field("key", key: true)]),
         ("units_def_tables", 1, [TestSchema.Field("key", key: true)])));
 

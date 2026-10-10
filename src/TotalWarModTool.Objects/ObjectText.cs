@@ -412,9 +412,15 @@ public static partial class ObjectText
         return result;
     }
 
-    private static bool Matches(SectionRule rule, ObjectSection section) =>
-        string.Equals(ShortTableName(rule.Table), ShortTableName(section.SourceTable), StringComparison.OrdinalIgnoreCase)
-        && (rule.FieldName is null || string.Equals(rule.FieldName, section.FieldName, StringComparison.OrdinalIgnoreCase));
+    private static bool Matches(SectionRule rule, ObjectSection section) => Matches(rule, section.SourceTable, section.FieldName);
+
+    private static bool Matches(SectionRule rule, string table, string fieldName) =>
+        string.Equals(ShortTableName(rule.Table), ShortTableName(table), StringComparison.OrdinalIgnoreCase)
+        && (rule.FieldName is null || string.Equals(rule.FieldName, fieldName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The first rule of the category that matches the section (table and field), null without one: the rule that decides for it.</summary>
+    internal static SectionRule? RuleFor(CategoryDefinition? category, string table, string fieldName) =>
+        category?.Sections.FirstOrDefault(rule => Matches(rule, table, fieldName));
 
     private static TextSpan Provenance(TableSource source) => new(Bracketed(source), source.Kind switch
     {

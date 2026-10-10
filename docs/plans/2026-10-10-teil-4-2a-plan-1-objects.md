@@ -400,7 +400,7 @@ Festlegungen:
 - `Diagnostics` der erzeugten `ParsedObject`s leer; `Line` der Felder und Zeilen 0.
 - Ein `ParsedSection` pro kopiertem Abschnitt mit `(SourceTable, FieldName)` der Quelle.
 
-- [ ] **Step 1: Failing Tests** (Schema wie Task 2 plus `traits_tables` (Key `key`), `trait_levels_tables` (Key `key`, `trait` ref `traits_tables.key`, `rank` I32), `level_effects_tables` (`level` ref `trait_levels_tables.key`, `effect` Key), `level_notes_tables` (Key `key`, `level` ref `trait_levels_tables.key`), `technologies_tables` (Key `key`, `building` ref `building_levels_tables.level_name`)):
+- [x] **Step 1: Failing Tests** (Schema wie Task 2 plus `traits_tables` (Key `key`), `trait_levels_tables` (Key `key`, `trait` ref `traits_tables.key`, `rank` I32), `level_effects_tables` (`level` ref `trait_levels_tables.key`, `effect` Key), `level_notes_tables` (Key `key`, `level` ref `trait_levels_tables.key`), `technologies_tables` (Key `key`, `building` ref `building_levels_tables.level_name`)):
 
 ```csharp
 [Fact] public void The_root_gets_the_new_key_and_its_texts()  // b1 → b9: Root level_name = b9, Texts onscreen_name Barracks; chain unverändert.
@@ -414,8 +414,10 @@ Festlegungen:
 [Fact] public void The_copy_parses_and_diffs_as_inserts_against_an_empty_baseline()  // ObjectDiff.Compute(viewWithoutRoot(newId), copy.Objects[0], graph, null): Root Insert plus ein Insert pro Zeile, keine Diagnostics. (viewWithoutRoot = new ObjectView(newId, null, [], [], [], order, []).)
 ```
 
-- [ ] **Step 2: RED**, **Step 3: Implementieren**, **Step 4: GREEN** (`dotnet test tests/TotalWarModTool.Objects.Tests`, `dotnet build TotalWarModTool.slnx`).
-- [ ] **Step 5: Commit** – `git commit -m "feat: rename an object and its sub-objects for copy-as"`.
+- [x] **Step 2: RED**, **Step 3: Implementieren**, **Step 4: GREEN** (`dotnet test tests/TotalWarModTool.Objects.Tests`, `dotnet build TotalWarModTool.slnx`).
+- [x] **Step 5: Commit** – `git commit -m "feat: rename an object and its sub-objects for copy-as"`.
+
+> **Status Task 4: erledigt (2026-10-10).** Objects-Tests 225 grün, 5 übersprungen; Build ohne Warnung. Abweichungen (Rulings, Spec „Festlegungen aus Plan 1“): `HiddenSection`-Hinweis wird geliefert, die App zeigt ihn nicht (Spec 5.8 Regel 1); Zeilen schlüsselloser Nicht-Junction-Tabellen werden wie Regel 2 kopiert; Tests nutzen `bonus_tables` (Schlüssel Gebäude+Kultur+other) statt „effects mit Schlüssel building+effect“. Gemeinsamer Helfer `ObjectText.RuleFor` (Parser, Differenz, Kopie).
 
 ---
 

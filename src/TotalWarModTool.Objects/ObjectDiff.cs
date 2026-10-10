@@ -97,13 +97,7 @@ public static class ObjectDiff
             _baseline.Sections.FirstOrDefault(s => string.Equals(s.SourceTable, table, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(s.FieldName, field, StringComparison.OrdinalIgnoreCase));
 
-        private bool IsHidden(ObjectSection section)
-        {
-            var rule = _category?.Sections.FirstOrDefault(r =>
-                string.Equals(ObjectText.ShortTableName(r.Table), ObjectText.ShortTableName(section.SourceTable), StringComparison.OrdinalIgnoreCase)
-                && (r.FieldName is null || string.Equals(r.FieldName, section.FieldName, StringComparison.OrdinalIgnoreCase)));
-            return rule is { Hidden: true };
-        }
+        private bool IsHidden(ObjectSection section) => ObjectText.RuleFor(_category, section.SourceTable, section.FieldName) is { Hidden: true };
 
         // ---- root ----
 
