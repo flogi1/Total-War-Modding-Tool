@@ -1,4 +1,6 @@
+using TotalWarModTool.Editing;
 using TotalWarModTool.Localization;
+using TotalWarModTool.Objects;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
@@ -54,4 +56,39 @@ public class DiagnosisTextsTests
 
     [Fact] public void Operation_titles_carry_the_name() =>
         Assert.Equal(("Open a.pack", "Open data__"), (Texts().OperationOpenPack("a.pack"), Texts().OperationOpenEntry("data__")));
+
+    public static IEnumerable<object[]> DiagnosticKinds => Enum.GetValues<DiagnosticKind>().Select(kind => new object[] { kind });
+
+    public static IEnumerable<object[]> WriteErrorKinds => Enum.GetValues<WriteErrorKind>().Select(kind => new object[] { kind });
+
+    public static IEnumerable<object[]> WrittenFileStates => Enum.GetValues<WrittenFileState>().Select(state => new object[] { state });
+
+    [Theory, MemberData(nameof(DiagnosticKinds))] public void Every_diagnostic_kind_has_a_text(DiagnosticKind kind)
+    {
+        var text = Texts().DiagnosticText(kind);
+        Assert.NotEqual("", text);
+        Assert.NotEqual(kind.ToString(), text);
+    }
+
+    [Theory, MemberData(nameof(WriteErrorKinds))] public void Every_write_error_kind_has_a_text(WriteErrorKind kind)
+    {
+        var text = Texts().WriteErrorText(kind);
+        Assert.NotEqual("", text);
+        Assert.NotEqual(kind.ToString(), text);
+    }
+
+    [Theory, MemberData(nameof(WrittenFileStates))] public void Every_written_file_state_has_a_text(WrittenFileState state)
+    {
+        var text = Texts().ObjectsFileStateText(state);
+        Assert.NotEqual("", text);
+        Assert.NotEqual(state.ToString(), text);
+    }
+
+    [Fact] public void Different_kinds_have_different_texts()
+    {
+        var t = Texts();
+        Assert.Equal(Enum.GetValues<DiagnosticKind>().Length, Enum.GetValues<DiagnosticKind>().Select(t.DiagnosticText).Distinct().Count());
+        Assert.Equal(Enum.GetValues<WriteErrorKind>().Length, Enum.GetValues<WriteErrorKind>().Select(t.WriteErrorText).Distinct().Count());
+        Assert.Equal(Enum.GetValues<WrittenFileState>().Length, Enum.GetValues<WrittenFileState>().Select(t.ObjectsFileStateText).Distinct().Count());
+    }
 }

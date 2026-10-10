@@ -319,6 +319,8 @@ und `AppTextsTests`: der bestehende Locale-Test deckt die neuen Keys (en und de 
 
 ### Task 4: Dialoge (`IObjectDialogs`, `ObjectDialogs`, `FakeObjectDialogs`) und die Texte der Diagnosen und Fehler
 
+**Status:** erledigt; `DiagnosisTextsTests` + `AppTextsTests` 40/40 grün (inkl. Locale-Test), Build ohne Warnung.
+
 Spec 5.5 (Rückfrage Dateikopie), 5.4 Regel 4 (Zieldatei), 5.7 („Übernehmen, Verwerfen, Abbrechen“), 7 (Fehlerdialoge). Alle Texte, die Lauf A und B dem Nutzer zeigen.
 
 **Files:**
