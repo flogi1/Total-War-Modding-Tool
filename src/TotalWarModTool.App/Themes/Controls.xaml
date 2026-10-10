@@ -1009,6 +1009,16 @@
         <Setter Property="Foreground" Value="{DynamicResource Theme.Accent}" />
     </Style>
 
+    <!-- A link of the object view: the colour of the base style, no underline until the mouse is over it. Set by key from code. -->
+    <Style x:Key="ThemeObjectLink" TargetType="Hyperlink" BasedOn="{StaticResource {x:Type Hyperlink}}">
+        <Setter Property="TextDecorations" Value="{x:Null}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="TextDecorations" Value="Underline" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- ========== DataGrid / DataGridColumnHeader / DataGridRow / DataGridCell ========== -->
     <Style TargetType="DataGrid">
         <Setter Property="Background" Value="{DynamicResource Theme.PanelBackground}" />

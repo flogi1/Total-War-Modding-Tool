@@ -498,10 +498,12 @@ public class TabsViewTests
 
             var items = OpenedItems(menu, setup.Grid);
 
-            Assert.Equal([Texts.GridInsertRow, Texts.GridDuplicateRows, Texts.GridDeleteRows, Texts.GridCopy, Texts.GridPaste], items.Select(item => item.Header));
-            Assert.Equal([tab.InsertRowCommand, tab.DuplicateRowsCommand, tab.DeleteRowsCommand, tab.CopyRowsCommand, tab.PasteRowsCommand], items.Select(item => item.Command));
+            Assert.Equal([Texts.GridInsertRow, Texts.GridDuplicateRows, Texts.GridDeleteRows, Texts.GridCopy, Texts.GridPaste, Texts.GridShowObject],
+                items.Select(item => item.Header));
+            Assert.Equal([tab.InsertRowCommand, tab.DuplicateRowsCommand, tab.DeleteRowsCommand, tab.CopyRowsCommand, tab.PasteRowsCommand, tab.ShowObjectCommand],
+                items.Select(item => item.Command));
             Assert.All(items, item => Assert.False(string.IsNullOrWhiteSpace((string)item.Header)));
-            Assert.Equal([true, false, false, false, true], items.Select(item => item.IsEnabled));         // nothing selected; insert and paste need none
+            Assert.Equal([true, false, false, false, true, false], items.Select(item => item.IsEnabled));  // nothing selected; insert and paste need none
         }
         finally
         {
@@ -526,7 +528,9 @@ public class TabsViewTests
             var table = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
             menu = Assert.IsType<ContextMenu>(setup.Grid.ContextMenu);
 
-            var item = Assert.Single(OpenedItems(menu, setup.Grid));
+            var items = OpenedItems(menu, setup.Grid);
+            Assert.Equal([Texts.GridCopy, Texts.GridShowObject], items.Select(entry => entry.Header));
+            var item = items[0];
 
             Assert.Equal(Texts.GridCopy, item.Header);
             Assert.Same(table.CopyRowsCommand, item.Command);
@@ -541,6 +545,51 @@ public class TabsViewTests
             var locItem = Assert.Single(OpenedItems(menu, setup.Grid));
             Assert.Equal(Texts.GridCopy, locItem.Header);
             Assert.Same(locTab.CopyRowsCommand, locItem.Command);
+        }
+        finally
+        {
+            if (menu is not null)
+            {
+                menu.IsOpen = false;
+            }
+
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void The_object_tab_template_shows_header_buttons_and_the_block() => Sta.Run(() =>
+    {
+        var setup = Create();
+        ContextMenu? menu = null;
+        try
+        {
+            var tab = new ObjectTabViewModel(Texts, setup.ViewModel.Close, [new ObjectRef("units_tables", ["a"], null)], 0, key => key);
+            setup.ViewModel.Tabs.Add(tab);
+            setup.ViewModel.SelectedTab = tab;
+            Pump(setup.Window);
+
+            string[] tips = [Texts.ObjectsBack, Texts.ObjectsForward, Texts.ObjectsRefresh, Texts.ObjectsJumpToRow];
+            var buttons = Descendants<Button>(setup.View).Where(button => button.ToolTip is string tip && tips.Contains(tip)).ToList();
+            Assert.Equal(tips, buttons.Select(button => (string)button.ToolTip));
+            Assert.Equal([tab.BackCommand, tab.ForwardCommand, tab.RefreshCommand, tab.JumpToRowCommand], buttons.Select(button => button.Command));
+            Assert.Same(tab, Descendants<ObjectBlockView>(setup.View).Single().DataContext);
+
+            // The notice of the idle tab shows under the header; Alt+Left and Alt+Right move through the history.
+            Assert.Equal(Visibility.Visible, Descendants<TextBlock>(setup.View).Single(text => text.Text == Texts.ObjectsStateIdle).Visibility);
+            var keys = Descendants<FrameworkElement>(setup.View).SelectMany(element => element.InputBindings.OfType<KeyBinding>())
+                .Where(binding => binding.Modifiers == ModifierKeys.Alt).ToList();
+            Assert.Equal([(Key.Left, tab.BackCommand), (Key.Right, tab.ForwardCommand)], keys.Select(binding => (binding.Key, binding.Command)));
+
+            // The read-only table offers the object of its row in its context menu.
+            setup.ViewModel.Add(Pack, TableEntry(["unit_key"], [["a"]]), null);
+            Pump(setup.Window);
+            var table = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+            menu = Assert.IsType<ContextMenu>(setup.Grid.ContextMenu);
+            var item = OpenedItems(menu, setup.Grid).Last();
+            Assert.Equal("Show as object", item.Header);                           // Texts.GridShowObject without a language file
+            Assert.Same(table.ShowObjectCommand, item.Command);
+            Assert.Equal(table.ShowObjectReason, item.ToolTip);
+            Assert.True(ToolTipService.GetShowOnDisabled(item));
         }
         finally
         {

@@ -97,6 +97,9 @@
                                 <Separator />
                                 <MenuItem Header="{Binding Texts.GridCopy}" Command="{Binding CopyRowsCommand}" />
                                 <MenuItem Header="{Binding Texts.GridPaste}" Command="{Binding PasteRowsCommand}" />
+                                <Separator />
+                                <MenuItem Header="{Binding Texts.GridShowObject}" Command="{Binding ShowObjectCommand}" ToolTip="{Binding ShowObjectReason}"
+                                          ToolTipService.ShowOnDisabled="True" />
                             </ContextMenu>
                         </local:TableGrid.ContextMenu>
                     </local:TableGrid>
@@ -136,6 +139,9 @@
                         <local:TableGrid.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="{Binding Texts.GridCopy}" Command="{Binding CopyRowsCommand}" />
+                                <Separator />
+                                <MenuItem Header="{Binding Texts.GridShowObject}" Command="{Binding ShowObjectCommand}" ToolTip="{Binding ShowObjectReason}"
+                                          ToolTipService.ShowOnDisabled="True" />
                             </ContextMenu>
                         </local:TableGrid.ContextMenu>
                     </local:TableGrid>
@@ -199,6 +205,43 @@
                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                              Visibility="{Binding ShowText, Converter={StaticResource BoolToVisibility}}" />
                 </Grid>
+            </DockPanel>
+        </DataTemplate>
+
+        <!--
+            An object: the buttons of the history, refresh and the jump to the row, then the status (its tool tip lists the warnings); under it
+            the notice and, while the tab is outdated, what changed with a refresh button; then the block. Alt+Left and Alt+Right move through
+            the history while the focus is in the tab.
+        -->
+        <DataTemplate DataType="{x:Type local:ObjectTabViewModel}">
+            <DockPanel>
+                <DockPanel.InputBindings>
+                    <KeyBinding Key="Left" Modifiers="Alt" Command="{Binding BackCommand}" />
+                    <KeyBinding Key="Right" Modifiers="Alt" Command="{Binding ForwardCommand}" />
+                </DockPanel.InputBindings>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,2">
+                    <Button Command="{Binding BackCommand}" Padding="8,2"
+                            Content="{Binding DataContext.Texts.ObjectsBack, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                            ToolTip="{Binding DataContext.Texts.ObjectsBack, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                    <Button Command="{Binding ForwardCommand}" Padding="8,2" Margin="4,0,0,0"
+                            Content="{Binding DataContext.Texts.ObjectsForward, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                            ToolTip="{Binding DataContext.Texts.ObjectsForward, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                    <Button Command="{Binding RefreshCommand}" Padding="8,2" Margin="4,0,0,0"
+                            Content="{Binding DataContext.Texts.ObjectsRefresh, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                            ToolTip="{Binding DataContext.Texts.ObjectsRefresh, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                    <Button Command="{Binding JumpToRowCommand}" Padding="8,2" Margin="4,0,0,0"
+                            Content="{Binding DataContext.Texts.ObjectsJumpToRow, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                            ToolTip="{Binding DataContext.Texts.ObjectsJumpToRow, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                    <TextBlock Text="{Binding Status}" ToolTip="{Binding WarningsText}" Margin="12,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock x:Name="NoticeLine" DockPanel.Dock="Top" Text="{Binding Notice}" Style="{StaticResource GridMessageLine}" />
+                <DockPanel x:Name="StaleBar" DockPanel.Dock="Top" Margin="6,2,6,4" LastChildFill="True"
+                           Visibility="{Binding IsStale, Converter={StaticResource BoolToVisibility}}">
+                    <Button DockPanel.Dock="Right" Margin="12,0,0,0" Padding="10,2" VerticalAlignment="Center" Command="{Binding RefreshCommand}"
+                            Content="{Binding DataContext.Texts.ObjectsRefresh, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                    <TextBlock Text="{Binding StaleText}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource Theme.Warning}" />
+                </DockPanel>
+                <local:ObjectBlockView Lines="{Binding Lines, Mode=OneWay}" />
             </DockPanel>
         </DataTemplate>
 
