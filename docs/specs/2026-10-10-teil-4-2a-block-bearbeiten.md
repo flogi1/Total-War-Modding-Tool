@@ -574,6 +574,8 @@ den Papierkorb statt in den Speicher (Backlog, Annahme 5).
 
 - **Schreibplan, Spieltexte.** Loc-Regel 1 nimmt auch eine Kopie, die den Schlüssel hält. Eine angehängte Loc-Zeile hat `Tooltip false`; Ersetzen behält `Tooltip`. Die Loc-Frage steht unter dem Schlüssel `*loc` (`WriteAnswers.LocKey`) und gilt für alle Textänderungen ohne Datei.
 
+- **Undo-Schritt.** `FileContentsStep` prüft alle Dateien gegen den zuletzt hinterlassenen Fingerprint, bevor die erste geschrieben wird. Ein Fehler nach der ersten Datei lässt den Schritt fallen und nennt jede Datei mit Zustand (Spec 7 „Tausch scheitert“ gilt für das Übernehmen, nicht für Undo). `FileContentsChangedException` ist eine `StepDeferredException`; der Schritt bleibt in der History.
+
 ### 5.7 Editor
 
 Der Objekt-Tab nutzt AvalonEdit:
