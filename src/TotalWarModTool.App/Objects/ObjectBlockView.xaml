@@ -6,7 +6,7 @@
         one paragraph per line and one run per span. The colours of the spans are resource references to the tokens of the theme.
     -->
     <FlowDocumentScrollViewer x:Name="Viewer" IsSelectionEnabled="True" IsToolBarVisible="False"
-                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto"
                               SelectionBrush="{DynamicResource Theme.Selection}">
         <FlowDocument x:Name="Document" FontFamily="Consolas" PagePadding="8" TextAlignment="Left"
                       Background="{DynamicResource Theme.PanelBackground}" Foreground="{DynamicResource Theme.Text}" />

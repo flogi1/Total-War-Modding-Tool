@@ -49,9 +49,17 @@ Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
   - Aus Plan 2: Abschnittstitel nur dann als Link, wenn Zeilen verborgen sind
   - Aus Plan 2: Ziel-Tooltip zeigt nur den Namen, nicht die Kurzbeschreibung
   - Aus Plan 2: Pluralformen der Statuszeile („1 Warnungen“, „1 mods“): Texte mit Einzahl/Mehrzahl
-  - Aus Plan 2: Veraltet-Markierung durch eine Schema-Änderung während eines laufenden Aufbaus wird von dessen Ergebnis gelöscht (enges Fenster)
   - Aus Plan 2: `MaxObjectHistory` (Session) und `ObjectTabViewModel.MaxHistory` sind zwei Konstanten mit demselben Wert 50 (Parity-Test oder gemeinsame Library)
   - Aus Plan 2: Neuer Tab per Umschalt-Klick übernimmt den Hinweis „ungespeicherte Quelle“ nicht
+  - Aus Plan 2: `EntryPath` der Zeilenherkunft ist auf den Wegen Duplikat, ohne Schlüssel und älteres Layout von `TableStore.AddRow` ungetestet
+  - Aus Plan 2: `RowKey` vergleicht in der Record-Gleichheit die Listen-Referenzen; nie als Dictionary-Schlüssel verwenden
+  - Aus Plan 2: `InternalsVisibleTo(App.Tests)` in `Objects.csproj` entfernen, sobald es eine öffentliche Fabrik für `LocTable` gibt
+  - Aus Plan 2: Tabellen- oder Schlüsselwerte nur aus Leerzeichen kommen durch die Reparatur der Session
+  - Aus Plan 2: Kategorie-Tests: die versteckte `cai`-Regel ist nicht festgenagelt; die Feldprüfung akzeptiert jede eingehende Referenz dieses Namens
+  - Aus Plan 2: Ein nicht aufgelöster `{platzhalter}` einer Nutzer-Kategoriedatei zeigt den Tooltip „Ziel unbekannt“
+  - Aus Plan 2: Ein Wechsel des Spielordners markiert Objekt-Tabs mit dem Schema-Text
+  - Aus Plan 2: Der Sprung zur Zeile braucht das aktive Projekt (eine Suche nach dem Projektordner hielte ihn auch für andere Projekte am Laufen)
+  - Aus Plan 2: Die stille Prüfung läuft auch beim ersten Bearbeiten einer Zelle (`ModifiedChanged`), nicht nur beim Speichern
 
 Teil 5: Lua-Editor
   - Editor-Komponente wählen (NuGet nur nach Rückfrage)
