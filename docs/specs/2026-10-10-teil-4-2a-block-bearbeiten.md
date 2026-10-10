@@ -757,6 +757,27 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   sie ohne „Zeile N:“, nur mit der Art des Fehlers. Eine Kopie ohne Änderung (etwa eine leere Kopie eines Assistenten)
   bricht nach Lauf A mit „Nichts zu schreiben“ ab, nichts wird geschrieben. Ein fehlgeschlagener Rollback ohne Tab
   (Kopie) löst die Prüfung der Objekt-Tabs aus statt einer Markierung.
+- **Assistent „Neues Gebäude“ (App):** Menü Werkzeuge, vor „Einstellungen“. Gesperrt (Tooltip nennt den Grund) in dieser
+  Reihenfolge: kein brauchbares aktives Projekt, kein Spielordner oder kein Schema, eine andere Operation läuft, das Spielprofil hat
+  keinen Abschnitt `building` in `wizards.json` (fehlende oder unbrauchbare Datei; das Problem steht im Log), das Schema kennt Namen
+  der Definition nicht (`MissingIn`). Der Schema-Abgleich braucht die Stores; der Sperrgrund baut sie nicht (erst ein Aufbau oder der
+  Assistent selbst). Stellt der Assistent beim Start fest, dass Namen fehlen, meldet er das in einem Dialog und schreibt nichts; danach
+  nennt der Tooltip den Grund. `wizards.json` wird einmal beim Start aus `<Profilordner>\<profil>\` gelesen, wie die Kategorie-Dateien.
+- **Ablauf:** Lauf „Vorlagen werden geladen“ (Ladereihenfolge ohne Wurzel-Pack und `BuildingCatalog`), dann ein Dialog mit Volk,
+  Filter, Vorlagenliste, Schlüssel und Kette, dann der Schreibweg der Kopie (Lauf A, Rückfragen, Lauf B, ein Undo-Schritt, Beschreibung
+  „New building: <Schlüssel>“). Die Vorauswahl des Volks kommt aus dem gewählten Tab, wenn er ein Objekt-Tab mit Ergebnis ist.
+- **Stufenwahl im Dialog:** „Stufe in der bestehenden Kette nach“ mit einer Liste der Stufen der Vorlagen-Kette (`StagesOf`), vorgewählt
+  die letzte. Hat die Vorlage keine Kette, ist die Wahl gesperrt und „Neue Kette“ gesetzt. Der Schlüssel folgt der Vorlage
+  (`<vorlage>_copy`), bis der Nutzer ihn ändert.
+- **Schlüsselprüfung im Dialog:** wie bei „Kopieren als“ (leer, Leerraum), dazu: der Schlüssel ist schon eine Stufe des Katalogs
+  (Meldung nennt die Stufentabelle ohne `_tables`), oder `<Schlüssel><chainKeySuffix>` ist schon eine Kette einer Stufe (Meldung nennt
+  die Kettentabelle ohne `_tables`). Die Kettenprüfung gilt in beiden Modi, damit der Schlüssel für einen späteren Wechsel frei bleibt.
+  Ketten ohne Stufen und alles Weitere fängt `TakenKeys` in Lauf A.
+- **Name nur über `nameText`:** Den Zusatz `nameSuffix` bekommen nur die Texte der Spalte `nameText` (Tabelle der Varianten). Andere
+  Texte der Kopie (etwa Beschreibungen) bleiben wie in der Vorlage.
+- **Neues Gebäude öffnet in neuem Tab:** Anders als „Kopieren als“ (gleicher Tab, Verlauf wächst) öffnet der Assistent die neue Stufe in
+  einem neuen Objekt-Tab und wählt ihn. Die Ergebniszeile nennt die angelegten Dateien und die Hinweise der Kopie; Undo wählt diesen Tab
+  und baut ihn neu.
 
 ### 5.9 App
 

@@ -60,4 +60,17 @@ internal sealed class FakeObjectDialogs : IObjectDialogs
         WhileAsking?.Invoke();
         return NewKeyAnswer(validate);
     }
+
+    /// <summary>Gives the answer of <see cref="AskNewBuilding"/> from its input; null cancels. Cancels by default.</summary>
+    public Func<NewBuildingInput, NewBuildingAnswer?> BuildingAnswer { get; set; } = _ => null;
+
+    /// <summary>The input of every <see cref="AskNewBuilding"/> call.</summary>
+    public List<NewBuildingInput> BuildingAsks { get; } = [];
+
+    public NewBuildingAnswer? AskNewBuilding(NewBuildingInput input)
+    {
+        BuildingAsks.Add(input);
+        WhileAsking?.Invoke();
+        return BuildingAnswer(input);
+    }
 }

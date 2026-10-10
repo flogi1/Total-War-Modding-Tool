@@ -68,6 +68,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
         _openEntry = openEntry;
         _openProjectFile = openProjectFile;
         _categories = LoadCategories(paths, workspace.Profile);
+        Wizards = LoadWizards(paths, workspace.Profile);
         _seenCatalog = workspace.Catalog;
 
         workspace.Changed += (_, _) => OnWorkspaceChanged();
@@ -100,6 +101,12 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     /// <summary>Set by the composition root like ApplyHandler (ObjectApplyController.CopyAsync), copied to every new tab through RunGuardedAsync.</summary>
     internal Func<ObjectTabViewModel, Task>? CopyHandler { get; set; }
+
+    /// <summary>The wizards of the game profile (wizards.json beside the category files); null when the file is missing or cannot be used (logged).</summary>
+    internal WizardDefinitions? Wizards { get; }
+
+    /// <summary>The selected tab when it is an object tab; null otherwise.</summary>
+    internal ObjectTabViewModel? SelectedObjectTab => _tabs.SelectedTab as ObjectTabViewModel;
 
     /// <summary>The random source of new integer keys; Random.Shared unless a test sets a seeded one.</summary>
     internal Random KeyRandom { get; set; } = Random.Shared;
@@ -270,6 +277,9 @@ public sealed partial class ObjectsController : IRowObjectOpener
         return RandomIntegerKeys.Create(KeyRandom, (table, field, value) => stores.Tables.Get(table, order, ct).FindByField(field, value).Count > 0);
     }
 
+    /// <summary>Why nothing can be built or copied now, whatever the project: no game, no schema, another operation runs; null when none of these.</summary>
+    internal string? EnvironmentReason() => MissingReason() ?? (IsBusy ? _texts.ProjectBusy : null);
+
     /// <summary>Why no tab can apply or copy now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.</summary>
     internal string? ApplyEnvironmentReason() =>
         _projects?.Active is not { IsUsable: true } ? _texts.ObjectsApplyNoProject : IsBusy ? _texts.ProjectBusy : null;
@@ -348,6 +358,22 @@ public sealed partial class ObjectsController : IRowObjectOpener
         }
 
         return loaded.ByRootTable;
+    }
+
+    private WizardDefinitions? LoadWizards(AppPaths paths, GameProfile? profile)
+    {
+        if (profile is null)
+        {
+            return null;
+        }
+
+        var loaded = WizardDefinitionLoader.Load(Path.Combine(paths.ProfilesDirectory, profile.Id, WizardDefinitionLoader.FileName));
+        if (loaded.Problem is { } problem)
+        {
+            _log.Warn($"The wizard file {WizardDefinitionLoader.FileName} was skipped: {DisplayText.Safe(problem)}");
+        }
+
+        return loaded.Definitions;
     }
 
     private static bool IsEdgeFailure(Exception ex) =>

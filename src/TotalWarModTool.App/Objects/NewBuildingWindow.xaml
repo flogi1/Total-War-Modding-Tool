@@ -1,0 +1,95 @@
+<Window x:Class="TotalWarModTool.App.NewBuildingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:local="clr-namespace:TotalWarModTool.App"
+        Title="{Binding Texts.ObjectsWizardBuildingTitle}"
+        Width="560" Height="640" MinWidth="420" MinHeight="480" ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource Theme.WindowBackground}"
+        Foreground="{DynamicResource Theme.Text}"
+        ContentRendered="OnContentRendered">
+    <!--
+        DataContext is the NewBuildingViewModel. Like the new table dialog: a fixed size with the template list in the one row that grows (it
+        virtualizes), the boxes update the view model on every keystroke, OK is the default button and disabled while the check has a text.
+        Names and keys are game data and go through the WizardLabelConverter, which escapes them.
+    -->
+    <Window.Resources>
+        <local:WizardLabelConverter x:Key="WizardLabel" />
+        <Style x:Key="ErrorTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.Warning}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Text}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <DataTemplate x:Key="SubcultureTemplate">
+            <TextBlock Text="{Binding Converter={StaticResource WizardLabel}, ConverterParameter=name}" />
+        </DataTemplate>
+        <DataTemplate x:Key="ChoiceTemplate">
+            <TextBlock Text="{Binding Converter={StaticResource WizardLabel}}" />
+        </DataTemplate>
+    </Window.Resources>
+    <Grid Margin="16" FocusManager.FocusedElement="{Binding ElementName=FilterBox}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="SubcultureLabel" Grid.Row="0" Text="{Binding Texts.ObjectsWizardSubculture}" Margin="0,0,0,4" />
+        <ComboBox x:Name="SubcultureBox" Grid.Row="1" Margin="0,0,0,12"
+                  ItemsSource="{Binding Subcultures}" SelectedItem="{Binding SelectedSubculture, Mode=TwoWay}"
+                  ItemTemplate="{StaticResource SubcultureTemplate}"
+                  automation:AutomationProperties.LabeledBy="{Binding ElementName=SubcultureLabel}" />
+
+        <TextBlock x:Name="FilterLabel" Grid.Row="2" Text="{Binding Texts.ObjectsWizardFilter}" Margin="0,0,0,4" />
+        <TextBox x:Name="FilterBox" Grid.Row="3" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=FilterLabel}"
+                 PreviewKeyDown="OnFilterKeyDown" />
+
+        <TextBlock x:Name="TemplateLabel" Grid.Row="4" Text="{Binding Texts.ObjectsWizardTemplate}" Margin="0,0,0,4" />
+        <ListBox x:Name="TemplateList" Grid.Row="5" Margin="0,0,0,12" SelectionMode="Single" MinHeight="120"
+                 ItemsSource="{Binding FilteredTemplates}" SelectedItem="{Binding SelectedTemplate, Mode=TwoWay}"
+                 ItemTemplate="{StaticResource ChoiceTemplate}"
+                 ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=TemplateLabel}"
+                 PreviewKeyDown="OnListKeyDown" SelectionChanged="OnSelectionChanged" />
+
+        <TextBlock x:Name="KeyLabel" Grid.Row="6" Text="{Binding Texts.ObjectsWizardKey}" Margin="0,0,0,4" />
+        <TextBox x:Name="KeyBox" Grid.Row="7" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=KeyLabel}" />
+
+        <RadioButton x:Name="NewChainButton" Grid.Row="8" GroupName="Chain" Content="{Binding Texts.ObjectsWizardNewChain}" Margin="0,0,0,6"
+                     IsChecked="{Binding NewChain, Mode=TwoWay}" />
+        <DockPanel Grid.Row="9" Margin="0,0,0,12">
+            <RadioButton x:Name="ExistingChainButton" DockPanel.Dock="Left" GroupName="Chain" VerticalAlignment="Center" Margin="0,0,8,0"
+                         Content="{Binding Texts.ObjectsWizardExistingChain}"
+                         IsChecked="{Binding ExistingChain, Mode=TwoWay}" IsEnabled="{Binding CanChooseExistingChain}" />
+            <ComboBox x:Name="StageBox" ItemsSource="{Binding Stages}" SelectedItem="{Binding SelectedStage, Mode=TwoWay}"
+                      ItemTemplate="{StaticResource ChoiceTemplate}" IsEnabled="{Binding ExistingChain}"
+                      automation:AutomationProperties.LabeledBy="{Binding ElementName=ExistingChainButton}" />
+        </DockPanel>
+
+        <TextBlock x:Name="ErrorText" Grid.Row="10" Text="{Binding Error}" Style="{StaticResource ErrorTextStyle}" />
+
+        <StackPanel Grid.Row="11" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+            <Button x:Name="OkButton" Content="{Binding Texts.DialogOk}" MinWidth="90" Padding="12,3" IsDefault="True"
+                    IsEnabled="{Binding CanAccept}" Click="OnOkClick" />
+            <Button x:Name="CancelButton" Content="{Binding Texts.DialogCancel}" MinWidth="90" Padding="12,3" Margin="8,0,0,0" IsCancel="True"
+                    Click="OnCancelClick" />
+        </StackPanel>
+    </Grid>
+</Window>

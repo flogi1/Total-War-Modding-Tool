@@ -21,6 +21,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly RelayCommand _newTableCommand;
     private readonly RelayCommand _newLocCommand;
     private ResolvedSchema? _seenSchema;
+    private ObjectWizardController? _wizards;
 
     // Which of the two view models that report to the project status item said something last (the one of the file commands, else the one of the project commands).
     private bool _fileStatusIsNewer;
@@ -179,6 +180,22 @@ public sealed class MainViewModel : ObservableObject
 
     /// <summary>The menu "Edit" is shown.</summary>
     public bool HasDocuments => Documents is not null;
+
+    /// <summary>The wizards of the menu Tools; set by the composition root after the object controllers exist, null before and in tests without them.</summary>
+    public ObjectWizardController? Wizards
+    {
+        get => _wizards;
+        set
+        {
+            if (SetProperty(ref _wizards, value))
+            {
+                OnPropertyChanged(nameof(HasWizards));
+            }
+        }
+    }
+
+    /// <summary>The wizard entries of the menu Tools are shown.</summary>
+    public bool HasWizards => _wizards is not null;
 
     /// <summary>The first line of the result of the last project command, for the status bar; null when there is none.</summary>
     public string? ProjectStatusLine

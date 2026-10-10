@@ -1,6 +1,7 @@
 namespace TotalWarModTool.App;
 
-// Texts of "Copy as" on an object tab (ObjectApplyController, ObjectTabViewModel, ObjectDialogs, the editor's context menu).
+// Texts of "Copy as" on an object tab (ObjectApplyController, ObjectTabViewModel, ObjectDialogs, the editor's context menu) and of the wizards
+// (ObjectWizardController, NewBuildingWindow, the menu Tools).
 public sealed partial class AppTexts
 {
     public string ObjectsCopyAs => T("objects.copyAs", "Copy as");
@@ -45,4 +46,30 @@ public sealed partial class AppTexts
     public string ObjectsEditorCopy => T("objects.editor.copy", "Copy");
 
     public string ObjectsEditorPaste => T("objects.editor.paste", "Paste");
+
+    // The wizards: the entry of the menu Tools, the dialog of the new building and why the wizard is disabled.
+    public string MenuToolsNewBuilding => T("menu.tools.newBuilding", "New building");
+
+    public string ObjectsWizardBuildingTitle => T("objects.wizard.building.title", "New building");
+
+    public string ObjectsWizardSubculture => T("objects.wizard.subculture", "Race");
+
+    public string ObjectsWizardFilter => T("objects.wizard.filter", "Filter");
+
+    public string ObjectsWizardTemplate => T("objects.wizard.template", "Template");
+
+    public string ObjectsWizardKey => T("objects.wizard.key", "Key");
+
+    public string ObjectsWizardNewChain => T("objects.wizard.newChain", "New chain");
+
+    public string ObjectsWizardExistingChain => T("objects.wizard.existingChain", "Stage in the existing chain after");
+
+    public string ObjectsWizardNoTemplate => T("objects.wizard.noTemplate", "Choose a template.");
+
+    public string ObjectsWizardLoading => T("objects.wizard.loading", "Loading the templates");
+
+    public string ObjectsWizardMissing => T("objects.wizard.missing", "The game profile has no wizard for this.");
+
+    /// <param name="names">The tables and fields the schema does not know, joined (data, escaped by the caller).</param>
+    public string ObjectsWizardSchemaMismatch(string names) => F("objects.wizard.schemaMismatch", "The schema does not know: {0}", names);
 }

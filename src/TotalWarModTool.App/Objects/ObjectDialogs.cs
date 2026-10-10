@@ -2,7 +2,7 @@ using System.Windows;
 
 namespace TotalWarModTool.App;
 
-/// <summary>The WPF side of <see cref="IObjectDialogs"/>: message boxes, <see cref="ChoiceWindow"/> questions and the <see cref="NameInputWindow"/> owned by the main window. Wiring only.</summary>
+/// <summary>The WPF side of <see cref="IObjectDialogs"/>: message boxes, <see cref="ChoiceWindow"/> questions, the <see cref="NameInputWindow"/> and the <see cref="NewBuildingWindow"/> owned by the main window. Wiring only.</summary>
 public sealed class ObjectDialogs : IObjectDialogs
 {
     private readonly AppTexts _texts;
@@ -56,6 +56,19 @@ public sealed class ObjectDialogs : IObjectDialogs
     public string? AskNewKey(string objectName, string suggestion, Func<string, string?> validate)
     {
         var window = new NameInputWindow(new NameInputViewModel(_texts, _texts.ObjectsCopyAsLabel, suggestion, validate), _texts.ObjectsCopyAsTitle(objectName));
+        if (_owner() is { IsLoaded: true } owner)
+        {
+            window.Owner = owner;
+        }
+
+        window.ShowDialog();
+        return window.Result;
+    }
+
+    public NewBuildingAnswer? AskNewBuilding(NewBuildingInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var window = new NewBuildingWindow(new NewBuildingViewModel(_texts, input));
         if (_owner() is { IsLoaded: true } owner)
         {
             window.Owner = owner;

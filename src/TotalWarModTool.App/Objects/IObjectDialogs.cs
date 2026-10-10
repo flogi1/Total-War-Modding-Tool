@@ -1,6 +1,14 @@
+using TotalWarModTool.Objects;
+
 namespace TotalWarModTool.App;
 
-/// <summary>Everything the apply and the copy of an object ask or tell the user. Display strings are escaped by the caller. The fake in the tests records the calls.</summary>
+/// <summary>What the building dialog shows. ValidateKey refuses an empty key, spaces and tabs, a level key the catalog has and a key whose chain key it has.</summary>
+public sealed record NewBuildingInput(BuildingCatalog Catalog, string? PreselectedSubculture, Func<string, string?> ValidateKey);
+
+/// <summary>After null: a new chain. Else the stage the new building follows.</summary>
+public sealed record NewBuildingAnswer(string Template, string Key, BuildingStage? After);
+
+/// <summary>Everything the apply, the copy of an object and the wizards ask or tell the user. Display strings are escaped by the caller. The fake in the tests records the calls.</summary>
 public interface IObjectDialogs
 {
     /// <summary>Tells the user that something could not be done. Shown as a warning.</summary>
@@ -17,4 +25,7 @@ public interface IObjectDialogs
 
     /// <summary>The new key for a copy of objectName; the box starts with suggestion, validate gives the reason a key is refused or null. Null: cancel.</summary>
     string? AskNewKey(string objectName, string suggestion, Func<string, string?> validate);
+
+    /// <summary>The dialog of the new building: subculture, template, key and chain. Null: cancel.</summary>
+    NewBuildingAnswer? AskNewBuilding(NewBuildingInput input);
 }

@@ -569,7 +569,7 @@ public sealed partial class ObjectApplyController
     }
 
     // The files a plan creates (new files and copies of files of the game), relative to the pack folder of the project.
-    private static List<string> CreatedFiles(WritePlan plan) =>
+    internal static List<string> CreatedFiles(WritePlan plan) =>
         plan.Files.Where(file => file.Kind != PlannedFileKind.Changed).Select(file => file.RelativeFile).ToList();
 
     // Runs inside run A on a pool thread: nothing here touches the UI.
