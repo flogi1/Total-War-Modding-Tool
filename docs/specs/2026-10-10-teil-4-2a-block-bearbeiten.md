@@ -706,6 +706,24 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 - **Ungeübernommener Text** markiert den Tab wie ungespeicherte Änderungen (`IsModified`). Zurück, Vor,
   Aktualisieren und ein Link im selben Tab fragen vorher „Übernehmen, Verwerfen, Abbrechen“; ein Link
   in einem neuen Tab fragt nicht. Ein neues Ergebnis ersetzt den Text.
+- **Ablauf des Übernehmens:** zwei Runner-Läufe mit den Dialogen dazwischen. Lauf A „Änderungen werden
+  geprüft“ (Parse, Differenz, Snapshot, Plan ohne Antworten), dann Fehlerdialog oder Rückfragen auf dem
+  UI-Thread, Raster-Sperre, Lauf B „Änderungen werden übernommen“ (Schreiben), dann Schritt in die
+  History und Neuaufbau des Tabs. Die Ladereihenfolge des Übernehmens ist die des Aufbaus (der Snapshot
+  gehört zur Baseline, aus der der Text kam). `referenceExists` fragt den Store im Lauf A.
+- **Leere Differenz:** `IsEmpty` nach Lauf A (etwa nur Leerzeichen am Ende einer Zeile geändert) ist eine
+  Meldung „Nichts zu schreiben“; es wird nichts geschrieben und kein Schritt aufgezeichnet.
+- **Abbrechen:** Jede Antwort „Abbrechen“ (Zieldatei, Dateikopie), eine Raster-Sperre und ein Abbruch vor
+  der ersten Datei in Lauf B lassen den Text ungeübernommen, schreiben nichts und zeichnen keinen Schritt
+  auf. Ein Lauf B, der geschrieben hat, zählt auch dann, wenn der Runner ihn als abgebrochen meldet.
+- **Fehler beim Schreiben:** Der Dialog nennt Art und Datei (`FileChanged`, `FileUnknown`, `WriteFailed`);
+  bei `RollbackFailed` jede Datei mit Zustand, und der Tab wird als veraltet markiert (die Platte ist
+  nicht mehr die Baseline). `FileChanged` und `FileUnknown` lösen eine Prüfung der Objekt-Tabs aus.
+- **Fehlerdialog:** zeigt höchstens 10 Zeilen (Zeilennummer und Art), dann „und N weitere“.
+- **Neuaufbau:** Läuft der Neuaufbau nicht (eine andere Operation läuft), bleibt das alte Ergebnis; der Tab
+  wird dann als veraltet markiert, weil es nicht mehr zur Platte passt.
+- **„Übernehmen“ in der Frage „Übernehmen, Verwerfen, Abbrechen“** zeigt den Sperrgrund, wenn der Tab nicht
+  übernehmen kann (veraltet, Pack nicht in der Ladereihenfolge, kein Projekt); der Text bleibt dann stehen.
 
 ## 6. Verworfene Alternativen
 

@@ -118,14 +118,43 @@ public sealed partial class ObjectsController
         tab.SetJumpNotice(rows.SelectRowByKey(keyValues) ? JumpOutcome.None : JumpOutcome.RowNotFound);
     }
 
-    private ObjectTabViewModel NewTab(IReadOnlyList<ObjectRef> history, int position) =>
-        new(_texts, _tabs.Close, history, position, _translate)
+    private ObjectTabViewModel NewTab(IReadOnlyList<ObjectRef> history, int position)
+    {
+        var tab = new ObjectTabViewModel(_texts, _tabs.Close, history, position, _translate)
         {
             BuildHandler = tab => RunDetached(() => BuildAsync(tab), BuildWhat),
             OpenHandler = (_, target, _) => AddAndBuild(NewTab([target], 0)),
             JumpHandler = tab => RunDetached(() => JumpAsync(tab), "Jumping to the row of an object"),
             ApplyEnvironmentReason = ApplyEnvironmentReason,
         };
+
+        // The composition root sets the two handlers right after it made the apply controller, before any tab is restored.
+        if (ApplyHandler is { } apply)
+        {
+            tab.ApplyHandler = target => RunGuardedAsync(() => apply(target), "Applying an object");
+        }
+
+        if (LeaveHandler is { } leave)
+        {
+            tab.LeaveHandler = target => LeaveGuardedAsync(leave, target);
+        }
+
+        return tab;
+    }
+
+    // A question that fails unexpectedly at the edge of the app counts as "stay": the tab keeps its text.
+    private async Task<bool> LeaveGuardedAsync(Func<ObjectTabViewModel, Task<bool>> leave, ObjectTabViewModel tab)
+    {
+        try
+        {
+            return await leave(tab);
+        }
+        catch (Exception ex) when (IsEdgeFailure(ex))
+        {
+            _log.Error("The question about unapplied object text failed unexpectedly.", ex);
+            return false;
+        }
+    }
 
     private void AddAndBuild(ObjectTabViewModel tab)
     {
@@ -258,7 +287,7 @@ public sealed partial class ObjectsController
         }
     }
 
-    private static bool SourcesChanged(Stores stores, BuildContext context, StaleCandidate candidate)
+    private static bool SourcesChanged(ObjectStores stores, BuildContext context, StaleCandidate candidate)
     {
         var order = Resolve(context, candidate.Current);
         var before = candidate.Result.Order.Sources;
@@ -294,7 +323,9 @@ public sealed partial class ObjectsController
 
     // Starts work whose result nobody awaits (a handler of a tab, a change event). async void on purpose: the exceptions that such work can meet at
     // the edge of the app are logged here; anything else is a surprise and reaches the global handler.
-    private async void RunDetached(Func<Task> work, string what)
+    private async void RunDetached(Func<Task> work, string what) => await RunGuardedAsync(work, what);
+
+    private async Task RunGuardedAsync(Func<Task> work, string what)
     {
         try
         {

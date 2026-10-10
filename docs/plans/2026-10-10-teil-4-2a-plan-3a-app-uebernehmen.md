@@ -439,6 +439,8 @@ Regeln:
 
 ### Task 5: `ObjectApplyController` – Lauf A, Dialoge, Lauf B, Schritt, Neuaufbau
 
+**Status:** erledigt; `ObjectApplyControllerTests` 17/17, `ObjectsControllerTests` 25/25, `ProjectFilesControllerTests` 57/57 grün, Build ohne Warnung. Abweichungen siehe Spec „Festlegungen aus Plan 3a“ (u. a. `CategoryOf`/`ResolveOrder` nicht angelegt, `TestGame.NewMain` liefert die History, Rollback-Fehler nur als Meldungstest).
+
 Der Kern des Plans. Spec 5.4 (Rückfragen anwenden), 5.5 (Kopie-Frage), 5.6 (Schreiben, Schritt mit `Record`), 5.9 (Objekt-Tab, Rückfragen, Raster-Sperre, Logging), 7.
 
 **Files:**

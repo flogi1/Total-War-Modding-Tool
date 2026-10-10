@@ -27,9 +27,13 @@ public sealed class FakeOperationRunner : IOperationRunner
 
     public List<OperationProgress> Reports { get; } = [];
 
+    /// <summary>Called with the title of every run before its work starts (and before <see cref="CancelNext"/> is read): lets a test change the world between two runs, or cancel one chosen run.</summary>
+    public Action<string>? BeforeRun { get; set; }
+
     public Task<OperationOutcome<T>> RunAsync<T>(string title, Func<IProgress<OperationProgress>, CancellationToken, T> work)
     {
         Titles.Add(title);
+        BeforeRun?.Invoke(title);
         using var cts = new CancellationTokenSource();
         if (CancelNext)
         {

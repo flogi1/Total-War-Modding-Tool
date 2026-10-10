@@ -37,7 +37,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
     private readonly HashSet<string> _unreadableCategories = new(StringComparer.OrdinalIgnoreCase);
 
     // Made by the first build, dropped when the schema or the game folder changes. Null in between.
-    private Stores? _stores;
+    private ObjectStores? _stores;
 
     // The catalog seen at the last change of the workspace: a new one may hold changed packs.
     private PackCatalogResult? _seenCatalog;
@@ -92,6 +92,12 @@ public sealed partial class ObjectsController : IRowObjectOpener
         tabs.Changed += (_, _) => OnTabsChanged();
     }
 
+    /// <summary>Set by the composition root: the apply of a tab (ObjectApplyController.ApplyAsync). Copied to every tab made after it was set.</summary>
+    internal Func<ObjectTabViewModel, Task>? ApplyHandler { get; set; }
+
+    /// <summary>Set by the composition root: the question before a tab with unapplied text moves on or closes (ObjectApplyController.LeaveAsync). Copied to every tab made after it was set.</summary>
+    internal Func<ObjectTabViewModel, Task<bool>>? LeaveHandler { get; set; }
+
     /// <summary>The answer of <see cref="DisabledReason"/> may have changed: the workspace changed, or an own operation ended.</summary>
     public event EventHandler? Changed;
 
@@ -125,7 +131,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
             return;
         }
 
-        var stores = _stores ??= Stores.Create(_workspace.Schema!, context.InstallPath);
+        var stores = _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath);
         var started = tab.Current;
         var category = _categories.GetValueOrDefault(started.Table);
         tab.SetCategoryProblem(_unreadableCategories.Contains(started.Table));
@@ -176,7 +182,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
     }
 
     // Runs inside the operation: reads used_mods.txt and language.txt, the packs and the project files.
-    private static ObjectBuildResult Build(Stores stores, BuildContext context, ObjectRef current, CategoryDefinition? category,
+    private static ObjectBuildResult Build(ObjectStores stores, BuildContext context, ObjectRef current, CategoryDefinition? category,
         IProgress<OperationProgress> progress, CancellationToken ct)
     {
         var order = Resolve(context, current);
@@ -205,6 +211,10 @@ public sealed partial class ObjectsController : IRowObjectOpener
     }
 
     private bool IsBusy => _runner.IsRunning || !_workspace.CanStartOperation;
+
+    /// <summary>The stores of the current schema and game folder, made when missing; null without a game or a schema.</summary>
+    internal ObjectStores? EnsureStores() =>
+        MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath) : null;
 
     // Why no tab can apply now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.
     private string? ApplyEnvironmentReason() =>
@@ -290,23 +300,4 @@ public sealed partial class ObjectsController : IRowObjectOpener
         ex is InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException or Win32Exception;
 
     private sealed record BuildContext(GameProfile Profile, string InstallPath, PackCatalogResult Catalog, string? ProjectFolder, string? ProjectName);
-
-    /// <summary>The stores of one schema and one game folder. The stores are thread-safe; the silent check uses them from a pool thread.</summary>
-    private sealed record Stores(ResolvedSchema Schema, string InstallPath, TableStore Tables, LocStore Loc, ObjectBuilder Builder)
-    {
-        public static Stores Create(ResolvedSchema schema, string installPath)
-        {
-            var gameSchema = schema.Schema ?? throw new ArgumentException("The schema must be loaded.", nameof(schema));
-            var graph = ReferenceGraph.Build(gameSchema);
-            var tables = new TableStore(gameSchema, graph);
-            var loc = new LocStore();
-            return new Stores(schema, installPath, tables, loc, new ObjectBuilder(graph, tables, loc));
-        }
-
-        public void Clear()
-        {
-            Tables.Clear();
-            Loc.Clear();
-        }
-    }
 }

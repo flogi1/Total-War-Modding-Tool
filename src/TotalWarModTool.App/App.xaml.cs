@@ -197,6 +197,13 @@ public partial class App : Application
             viewModel.OpenEntryAsync, viewModel.OpenProjectFileAsync);
         documents.Tabs.ObjectOpener = objects;
 
+        // Writing the text of an object into the project: the handlers are set before any object tab exists (the session is restored later).
+        var objectApply = new ObjectApplyController(objects, projects, documents, history, progressRunner, new ObjectDialogs(texts, () => mainWindow),
+            paths.TrashDirectory, log, texts, TimeProvider.System);
+        objects.ApplyHandler = objectApply.ApplyAsync;
+        objects.LeaveHandler = objectApply.LeaveAsync;
+        objectApply.FilesChanged += (_, projectId) => projectFilesController.NotifyFilesChanged(projectId);
+
         SessionCoordinator? session = null;
         if (sessionStore is not null)
         {

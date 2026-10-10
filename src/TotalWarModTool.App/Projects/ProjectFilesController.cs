@@ -81,6 +81,9 @@ public sealed class ProjectFilesController
     /// <summary>Raised after a file action or the undo or redo of a file step changed the files of a project.</summary>
     public event EventHandler<Guid>? FilesChanged;
 
+    /// <summary>Tells the listeners of <see cref="FilesChanged"/> that something else (the apply of an object) changed the files of the project.</summary>
+    public void NotifyFilesChanged(Guid projectId) => FilesChanged?.Invoke(this, projectId);
+
     /// <summary>
     /// Raised when a file that was open in a tab should be opened again under the name it has now: after a rename and after the undo or redo
     /// of one. The tab of the old name is closed already. The composition root connects it to the opening of a project file.

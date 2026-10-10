@@ -150,7 +150,7 @@ internal sealed class TestGame : IDisposable
         }
 
         var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents, files);
-        return new MainSetup(main, projects, dialogs, documents, files, fileDialogs);
+        return new MainSetup(main, projects, dialogs, documents, files, fileDialogs, history);
     }
 
     /// <summary>Creates a project (it becomes the active one when it is the first) and writes the given files below its pack folder.</summary>
@@ -191,7 +191,7 @@ internal sealed class TestGame : IDisposable
 
 /// <summary>What <see cref="TestGame.NewMain"/> built.</summary>
 internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs, DocumentsController? Documents = null,
-    ProjectFilesViewModel? Files = null, FakeFileDialogs? FileDialogs = null);
+    ProjectFilesViewModel? Files = null, FakeFileDialogs? FileDialogs = null, TotalWarModTool.UndoRedo.ActionHistory? History = null);
 
 /// <summary>A Steam source that finds no Steam installation.</summary>
 internal sealed class NoSteam : ISteamLocationSource
