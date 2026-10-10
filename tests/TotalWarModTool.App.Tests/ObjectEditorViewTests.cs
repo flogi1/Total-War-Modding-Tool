@@ -279,4 +279,52 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    private static List<TrailingElement> TrailingsOf(ObjectEditorView view, int number)
+    {
+        var line = view.Editor.Document.GetLineByNumber(number);
+        return view.Editor.TextArea.TextView.GetOrConstructVisualLine(line).Elements.OfType<TrailingElement>().ToList();
+    }
+
+    [Fact] public void Intact_lines_show_their_trailing_and_changed_lines_do_not() => Sta.Run(() =>
+    {
+        var tab = Tab(LinkResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var head = Assert.Single(TrailingsOf(view, 1));
+            Assert.Contains(head.Pieces, piece => piece.Text.Contains("[db.pack]", StringComparison.Ordinal));
+            Assert.Equal(0, head.DocumentLength);
+            Assert.Equal(tab.BaselineText, view.Editor.Text);
+
+            var number = LineOf(view, "chain = chain1");
+            var line = view.Editor.Document.GetLineByNumber(number);
+            view.Editor.Document.Replace(line.EndOffset - 1, 1, "2");
+            Pump(window);
+
+            Assert.Empty(TrailingsOf(view, number));
+            Assert.Single(TrailingsOf(view, 1));
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void The_caret_cannot_enter_a_trailing() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var (view, window) = Create(tab);
+        try
+        {
+            view.Editor.TextArea.Caret.Offset = tab.HeadLineLength;
+            System.Windows.Documents.EditingCommands.MoveRightByCharacter.Execute(null, view.Editor.TextArea);
+
+            Assert.Equal(tab.HeadLineLength + 1, view.Editor.TextArea.Caret.Offset);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

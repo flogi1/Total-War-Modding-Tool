@@ -42,6 +42,7 @@ public sealed partial class ObjectEditorView : UserControl
         }
 
         Editor.TextArea.TextView.LineTransformers.Add(new BlockColorizer(() => _map, key => Editor.TryFindResource(key) as Brush));
+        Editor.TextArea.TextView.ElementGenerators.Add(new TrailingGenerator(() => _map, () => _tab, key => Editor.TryFindResource(key) as Brush));
 
         Editor.TextChanged += OnEditorTextChanged;
         DataContextChanged += OnDataContextChanged;

@@ -751,6 +751,12 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   ist nie intakt, auch wenn ihr Text dem einer gelöschten Zeile gleicht.
 - **Theme-Wechsel zur Laufzeit:** Der Editor färbt über `TryFindResource` beim Zeichnen; ein Wechsel wirkt beim
   nächsten Redraw (Scrollen, Tippen, neuer Block), siehe Backlog.
+- **Anhängsel im Editor:** gedämpft (`ObjectTrailing`); Herkunft, überschriebene Quellen, Duplikat- und
+  Layout-Marken und Warnungen behalten die Farbe ihres Spans. Ein Element pro intakter Zeile hinter dem Text,
+  ohne Dokumenttext (`DocumentLength 0`; `VisualLength` ist in AvalonEdit mindestens 1, ein Wert 0 ist nicht
+  möglich). Der Cursor hat keinen Halt im Anhängsel (`HandlesLineBorders`, kein Halt im Element), Selektion und
+  Kopieren enthalten es nie. Bei einer gefalteten Zeile steht es hinter der ersten Dokumentzeile, vor dem
+  Faltungstext.
 
 ## 6. Verworfene Alternativen
 

@@ -101,6 +101,9 @@ public sealed class ObjectTabViewModel : TabViewModel
         }
     }
 
+    /// <summary>The text of a section title key (the loc key of a category rule) in the current language; for the trailing of the editor.</summary>
+    public string TranslateTitle(string key) => _translate(key);
+
     /// <summary>The block text of the last result (ObjectText.RenderBlock(...).Text); empty without a result.</summary>
     public string BaselineText => _baselineText;
 
