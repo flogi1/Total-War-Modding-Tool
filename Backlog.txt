@@ -261,7 +261,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 - Kopierregel für eigene Schlüsselzeilen, die zum Objekt gehören (Plan 4, Assistenten): Die Kaserne hat in `building_units_allowed` 4 Zeilen mit eigenem Schlüssel `key` ohne Präfix; die Regel meldet sie als Fremdschlüsselzeilen und kopiert sie nicht, obwohl ein neues Gebäude ohne erlaubte Einheiten unbrauchbar ist. Vorschlag: optionales Feld pro Abschnitt in der Kategorie-Datei (zum Beispiel `"copy": "owned"`), gesetzt für `building_units_allowed`, Standard unverändert (`technologies` bleibt ein Hinweis). Die Regel bleibt allgemein, die Assistenten tragen keine Ausnahme. Das Feld erst mit Plan 4 einführen; findet die Abnahme weitere solche Tabellen, eine Heuristik prüfen („Schlüssel wird von keiner anderen Tabelle referenziert“), vorher an den Echtdaten messen
 - Leerzeichen am Ende im Editor sichtbar machen (Plan 3): als Anhängsel markieren, damit der Nutzer sieht, dass der Wert eines hat und beim Bearbeiten erhalten bleibt
-- Für Plan 2 (Übernehmen), aus den Festlegungen von Plan 1: `ObjectDiff.Compute` nimmt die Kategorie als Parameter; die Typprüfung nutzt `CellText.TryParse`, die Farbkanal-Regel aus `CellCheck` (`Editing`) fehlt, also vor dem Schreiben prüfen; `TextChange` trägt keinen `EntryPath`, die Datei eines Spieltexts über Loc-Schlüssel und Ladereihenfolge ermitteln; `RowProvenance.OverriddenEntries` kann länger sein als `Overridden` (eine Quelle mit dem Schlüssel in mehreren Dateien), ein Löschen muss alle Pfade bedienen; der `HiddenSection`-Hinweis der Kopie ist nur Daten und wird nicht angezeigt (Spec 5.8 Regel 1)
 - Abnahme Plan 1 bis 3: Dateiersetzung gilt jetzt auch zwischen Vanilla-Packs (`data_1.pack` über `data.pack`); eine Stichprobe an einer Tabelle, die ein späteres Vanilla-Pack patcht, prüfen, ob die Reihenfolge stimmt und keine neuere Datei fälschlich verdrängt wird
 - Echtdaten-Messung ergänzen (je eine Schleife im bestehenden Test): Zeilen in Junction- und Satz-Abschnitten mit leerem String-Schlüsselfeld; Werte mit führenden Leerzeichen in diesen Abschnitten (19 echte Zellen beginnen mit einem Leerzeichen, in welchen Feldern ist unbekannt); Test `The_empire_builds_in_under_two_seconds` ist knapp (einmal 2003 ms bei Grenze 2000 ms, sonst 1445 bis 1914 ms), Grenze oder Messung prüfen
 - Block: Wert mit führenden Leerzeichen in Junction- und Satzzeilen geht beim Round-Trip verloren (die Leerzeichen zählen als Einrückung); `SameValue` toleriert nur Leerzeichen am Ende
@@ -271,6 +270,16 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Block: eine Spieltext-Spalte, die heißt wie das Feld auf die Wurzel, ist nicht editierbar (Fehler „points at the root"); die Regel „zweites Vorkommen in Anführungszeichen ist der Text" müsste vor die Prüfung des Wurzelfelds
 - `ObjectDiff`: ein `ParsedSection` mit unbekanntem Feld auf die Wurzel verschwindet ohne Diagnose (`UnknownSection` melden); `RootFieldMissing` sagt bei einer Baseline ohne Wurzel „value stays", obwohl der Standardwert gesetzt wird
 - Tests: `A_section_hidden_by_the_category_is_never_deleted_or_inserted_through_the_baseline` prüft nur die Löschseite; die Einfügeseite deckt der Parser-Test `HiddenSection` ab, Name anpassen oder ergänzen
+
+== Aus Teil 4.2a Plan 2 (Editing) zurückgestellt ==
+
+- Eine Projektdatei, deren letzte Zeile gelöscht wird, bleibt mit Kopfzeilen bestehen (Löschen leerer Dateien beim Übernehmen, mit Papierkorb und Undo)
+- `Set` eines Felds, das die Dateiversion nicht hat, ist ein Fehler `FieldNotInFileVersion`; Alternative: die Datei auf die neueste Schemaversion heben, mit Rückfrage
+- Pack-Einträge liest der Snapshot ohne Retry (ein gesperrtes Pack ist ein Fehler vor dem Schreiben); `PackAccess.ReadIndex` mit Retry nutzen, wenn das in der Praxis stört
+- `ProjectWriter` schreibt pro Datei atomar statt in zwei Phasen (alle temp-Dateien, dann Tausch); eine Staging-API in `Projects` bauen, wenn je ein Teilzustand auftritt. Das Rückschreiben nach einem Fehler macht weiter, auch wenn eine Datei nicht zurückgeschrieben werden kann (`WrittenFileState.Written` wird nicht erzeugt)
+- Speicher der History (Spec Annahme 5): `FileContentsStep` hält `Previous` und `Next` jeder Datei im Speicher; in Plan 3 messen, ob `Previous` in den Papierkorb statt in den Speicher muss
+- `FileCopyQuestion.DeletedKeys` verbindet Schlüsselwerte mit `|`, `ObjectId.JoinedKey` ohne Trennzeichen; bei Plan 3 (Anzeige) prüfen, ob eine gemeinsame Form nötig ist
+- `ProjectWritePlan` prüft in einem Set einer Überschreibzeile die Farbkanäle nur für `ChangedFields`; ungeänderte Kanäle der Baseline werden nicht geprüft
 
 == Wartet auf ein öffentliches Remote ==
 
