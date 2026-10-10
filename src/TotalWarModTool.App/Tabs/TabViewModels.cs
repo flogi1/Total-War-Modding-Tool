@@ -120,6 +120,14 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         UpdateStale();
     }
 
+    /// <summary>A new build shows the current state: the pack and schema marks go. What happened to a file outside stays.</summary>
+    internal void ClearStale()
+    {
+        _packStale = false;
+        _schemaStale = false;
+        UpdateStale();
+    }
+
     /// <summary>
     /// Sets what happened to the file of a project tab outside: it was changed, it was deleted, or nothing (<see cref="OutsideChange.None"/>
     /// clears both, which a reload or a successful save does). The new value replaces the old one; deleted wins over changed, both win over

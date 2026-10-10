@@ -155,7 +155,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
                 tab.ApplyCancelled();
                 break;
             default:
-                // The runner has shown and logged the failure.
+                // A failed outcome was shown and logged by the runner; a RunAsync that threw was logged above.
                 tab.ApplyFailed();
                 break;
         }

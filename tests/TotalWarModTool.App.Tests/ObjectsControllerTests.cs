@@ -127,6 +127,22 @@ public class ObjectsControllerTests
         Assert.Equal((SourceKind.Mod, modPath), (root.Provenance.Source.Kind, root.Provenance.Source.Path));
     }
 
+    [Fact] public async Task A_row_of_a_pack_missing_from_the_catalog_adds_no_root_pack()
+    {
+        string? modPath = null;
+        using var setup = await CreateAsync(game => modPath = ObjectsTestSchema.WriteModPack(game, "mod.pack", [["k1", "Mod label"]]));
+        var table = await OpenTableAsync(setup, modPath!);
+        File.Delete(modPath!);
+        await setup.Workspace.RefreshAsync();
+        Assert.DoesNotContain(setup.Workspace.Catalog!.Packs, pack => string.Equals(pack.Path, modPath, StringComparison.OrdinalIgnoreCase));
+
+        var tab = Show(setup, table, "k1");
+
+        Assert.Null(tab.Current.RootPackPath);
+        Assert.DoesNotContain(tab.Result!.Order.Warnings, warning => warning.Problem == LoadOrderProblem.RootPackAdded);
+        Assert.Equal(SourceKind.Vanilla, tab.Result.View.Root!.Provenance.Source.Kind);
+    }
+
     [Fact] public async Task An_unsaved_project_table_shows_the_saved_state_notice()
     {
         using var setup = await CreateAsync();
@@ -250,6 +266,7 @@ public class ObjectsControllerTests
 
         Assert.Equal(2, setup.Builds("k1"));
         Assert.Equal(ObjectTabState.Ready, tab.State);
+        Assert.False(tab.IsStale);
     }
 
     [Fact] public async Task Refresh_without_a_game_says_why()
@@ -279,6 +296,12 @@ public class ObjectsControllerTests
         Assert.Equal(setup.Texts.ObjectsStale, tab.StaleText);
         Assert.Equal(ObjectTabState.Ready, tab.State);
         Assert.Equal(1, setup.Builds("k1"));
+
+        tab.RefreshCommand.Execute(null);
+
+        Assert.False(tab.IsStale);
+        Assert.Equal(ObjectTabState.Ready, tab.State);
+        Assert.Equal(2, setup.Builds("k1"));
     }
 
     [Fact] public async Task A_change_of_another_table_marks_nothing()

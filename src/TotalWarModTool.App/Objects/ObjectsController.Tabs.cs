@@ -132,7 +132,8 @@ public sealed partial class ObjectsController
         }
     }
 
-    // The pack of a row that comes from a pack that is not vanilla; null for vanilla packs and project files.
+    // The pack of a row that comes from a pack of the catalog that is not vanilla; null for vanilla packs, project files and packs the catalog
+    // no longer lists (a pack that is gone cannot feed the load order).
     private string? RootPackOf(RowsTabViewModel tab)
     {
         if (TabSource.TryGetProjectId(tab.PackPath, out _))
@@ -141,7 +142,7 @@ public sealed partial class ObjectsController
         }
 
         var pack = _workspace.Catalog?.Packs.FirstOrDefault(known => SamePath(known.Path, tab.PackPath));
-        return pack?.Origin == PackOrigin.Vanilla ? null : tab.PackPath;
+        return pack is { Origin: not PackOrigin.Vanilla } ? tab.PackPath : null;
     }
 
     private void StartStaleCheck() => RunDetached(CheckStaleAsync, "Checking the object tabs for changed sources");

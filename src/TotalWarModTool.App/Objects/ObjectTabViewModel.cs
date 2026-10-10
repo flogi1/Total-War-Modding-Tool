@@ -186,7 +186,10 @@ public sealed class ObjectTabViewModel : TabViewModel
         SetState(ObjectTabState.Building);
     }
 
-    /// <summary>The build delivered <paramref name="result"/>: it is rendered, the expanded sections and the notice of a jump are forgotten.</summary>
+    /// <summary>
+    /// The build delivered <paramref name="result"/>: it is rendered, the expanded sections, the notice of a jump and the pack and schema marks
+    /// are forgotten.
+    /// </summary>
     public void ApplyResult(ObjectBuildResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -200,6 +203,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         OnPropertyChanged(nameof(State));
         RenderLines();
         SetProperty(ref _warningsText, WarningsOf(result), nameof(WarningsText));
+        ClearStale();
         RefreshDerived();
     }
 
@@ -268,7 +272,9 @@ public sealed class ObjectTabViewModel : TabViewModel
         }
     }
 
-    /// <summary>Shows another entry: what the old object showed and the flags of its source tab are dropped, then the controller builds.</summary>
+    /// <summary>
+    /// Shows another entry: what the old object showed, its stale marks and the flags of its source tab are dropped, then the controller builds.
+    /// </summary>
     private void MoveTo(int position)
     {
         _position = position;
@@ -292,6 +298,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         OnPropertyChanged(nameof(Lines));
         OnPropertyChanged(nameof(Status));
         OnPropertyChanged(nameof(WarningsText));
+        ClearStale();
         RefreshNotice();
         RaiseCommands();
         BuildHandler?.Invoke(this);

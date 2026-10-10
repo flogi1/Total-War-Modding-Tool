@@ -168,6 +168,28 @@ public class ObjectTabViewModelTests
         Assert.Equal(Texts.ObjectsStateIdle, tab.Notice);
     }
 
+    [Fact] public void Moving_to_another_object_drops_the_stale_mark()
+    {
+        var tab = ReadyTab();
+        tab.MarkStale();
+        Assert.True(tab.IsStale);
+        tab.NavigateTo(Id("b"), newTab: false);
+        Assert.False(tab.IsStale);
+        Assert.Equal(string.Empty, tab.StaleText);
+    }
+
+    [Fact] public void A_new_result_drops_the_stale_marks_but_not_an_outside_change()
+    {
+        var tab = ReadyTab();
+        tab.MarkStale();
+        tab.MarkSchemaStale();
+        tab.ApplyResult(Result());
+        Assert.False(tab.IsStale);
+        tab.SetOutsideChange(OutsideChange.Changed);
+        tab.ApplyResult(Result());
+        Assert.True(tab.IsStaleOutside);
+    }
+
     [Fact] public void The_commands_wait_while_a_build_runs()
     {
         var tab = Tab(position: 1, history: [Ref("a"), Ref("b")]);
