@@ -776,6 +776,8 @@ Mit WH3, einem Projekt und dem Spiel installiert:
 9. **Annahme 5:** zehn Dateikopien großer Tabellen (`building_effects_junction`: Zeile löschen, Übernehmen, Strg+Z, Übernehmen, …), Task-Manager: Speicher der App vor und nach, Differenz in Spec Abschnitt 10 eintragen (Erwartung unter 200 MB).
 10. **Ohne Projekt:** aktives Projekt entfernen → Knopf gesperrt, Tooltip „Kein aktives Projekt“.
 
+**Abnahme (2026-10-10, Nutzer):** voller Testlauf grün (App 1022, Exit 0); die Punkte 1 bis 10 der Checkliste bestanden laut Nutzer; Annahme 1 (Spielstart, gelöschte Einheit fehlt) und Annahme 5 (Speicher unter 200 MB) bestätigt, eingetragen in Spec Abschnitt 10. Plan 3a ist abgenommen.
+
 ## Nächste Phase
 
 Nach Plan 3a: Review (starkes Modell), voller Testlauf und die Abnahme oben mit dem Nutzer. Dann Plan 3b (Färbung aus `BlockText`-Spans, Anhängsel als `VisualLineElementGenerator`, Falten, Fehlerunterstreichung mit entprelltem Parser, Strg+Klick auf Links, Hover-Namen, Theme-Tokens `ObjectTrailing` und `ObjectError`), sobald die Interfaces aus diesem Plan existieren. Umsetzung der Tasks nach Task-Brief: mittleres Modell reicht; Task 5 ist der größte Brief.
