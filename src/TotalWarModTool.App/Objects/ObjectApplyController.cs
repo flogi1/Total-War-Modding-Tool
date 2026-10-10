@@ -608,11 +608,13 @@ public sealed partial class ObjectApplyController
         return new CheckPlanned(changes, snapshot, plan);
     }
 
-    // A diagnostic without a line (line 0: from a copy, which has no text) is shown without the line prefix.
+    // A diagnostic without a line (line 0: from a copy, which has no text) has no line prefix; its detail (the field and the reason) says where.
     private string ErrorsMessage(IReadOnlyList<BlockDiagnostic> errors)
     {
         var lines = errors
-            .Select(error => error.Line > 0 ? _texts.ObjectsApplyErrorLine(error.Line, _texts.DiagnosticText(error.Kind)) : _texts.DiagnosticText(error.Kind))
+            .Select(error => error.Line > 0
+                ? _texts.ObjectsApplyErrorLine(error.Line, _texts.DiagnosticText(error.Kind))
+                : string.IsNullOrEmpty(error.Detail) ? _texts.DiagnosticText(error.Kind) : _texts.DiagnosticText(error.Kind) + " " + Shown(error.Detail))
             .ToList();
         return _texts.ObjectsApplyErrorsMessage(errors.Count) + "\n" + string.Join("\n", CappedLines.Of(lines, _texts.ReportMoreLines));
     }

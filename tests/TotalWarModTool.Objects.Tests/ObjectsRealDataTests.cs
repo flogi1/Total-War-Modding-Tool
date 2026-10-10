@@ -358,9 +358,11 @@ public class ObjectsRealDataTests
         throw new InvalidOperationException(row.Table + " has no field " + field);
     }
 
-    private static CopyResult CopyBarracks3(WizardRun run, string newKey)
+    private static CopyResult CopyBarracks3(WizardRun run, string newKey) => CopyLevel(run, "wh_main_emp_barracks_3", newKey);
+
+    private static CopyResult CopyLevel(WizardRun run, string templateKey, string newKey)
     {
-        var source = run.Builder.Build(Id(run.Definition.LevelTable, "wh_main_emp_barracks_3"), run.Context.Order, null, CancellationToken.None);
+        var source = run.Builder.Build(Id(run.Definition.LevelTable, templateKey), run.Context.Order, null, CancellationToken.None);
         var allocator = RandomIntegerKeys.Create(new Random(1),
             (t, f, v) => run.Store.Get(t, run.Context.Order, CancellationToken.None).FindByField(f, v).Count > 0);
         return ObjectCopy.Rename(source, Id(run.Definition.LevelTable, newKey),
@@ -434,6 +436,50 @@ public class ObjectsRealDataTests
         Assert.DoesNotContain(composed.Notes, n => n.Table == run.Definition.LevelTable);
         Assert.DoesNotContain(composed.Notes, n => n.Kind == CopyNoteKind.NoChain);
         Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [RealDataFact] public void A_new_chain_of_a_template_never_holds_a_stage_of_the_template_chain()
+    {
+        var run = NewWizardRun();
+        var graph = run.Context.Graph;
+        var subcultures = new List<string> { "wh_main_sc_emp_empire" };
+        subcultures.AddRange(run.Catalog.Subcultures.Select(s => s.Key).Where(k => k != "wh_main_sc_emp_empire").Take(2));
+        Assert.Equal(3, subcultures.Count);
+
+        var checkedTemplates = 0;
+        var withStageSubObject = 0;
+        foreach (var subculture in subcultures)
+        {
+            foreach (var template in run.Catalog.TemplatesOf(subculture).Take(30))
+            {
+                var chain = run.Catalog.ChainOf(template.Key);
+                if (chain is null)
+                {
+                    continue;
+                }
+
+                var newKey = "twmt_test_" + template.Key;
+                var levelCopy = CopyLevel(run, template.Key, newKey);
+                var chainSource = run.Builder.Build(Id(run.Definition.ChainTable, chain), run.Context.Order, null, CancellationToken.None);
+                var chainCopy = ObjectCopy.Rename(chainSource, BuildingWizard.ChainIdFor(run.Definition, newKey),
+                    id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, graph,
+                    RandomIntegerKeys.Create(new Random(2), (t, f, v) => run.Store.Get(t, run.Context.Order, CancellationToken.None).FindByField(f, v).Count > 0));
+                if (chainCopy.Objects.Any(o => string.Equals(o.Id.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)))
+                {
+                    withStageSubObject++;
+                }
+
+                var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)");
+
+                var levels = composed.Objects.Where(o => string.Equals(o.Id.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)).ToList();
+                Assert.True(levels.Count == 1, $"{template.Key}: {levels.Count} objects of the level table");
+                Assert.Equal(newKey, levels[0].Id.KeyValues[0]);
+                checkedTemplates++;
+            }
+        }
+
+        _output.WriteLine($"Checked {checkedTemplates} template(s) of {string.Join(", ", subcultures)}; chain copy held a stage as sub-object in {withStageSubObject}");
+        Assert.True(checkedTemplates > 0);
     }
 
     [RealDataFact] public void The_empire_has_templates()

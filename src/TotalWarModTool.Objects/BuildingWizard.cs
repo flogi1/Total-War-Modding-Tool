@@ -293,7 +293,10 @@ public static class BuildingWizard
             level = level with { Root = SetField(root, definition.LevelField, "0") };
             objects.Add(level with { Sections = sections });
             objects.AddRange(levelCopy.Objects.Skip(1));
-            objects.AddRange(chainCopy.Objects);
+
+            // A stage whose key starts with the chain key plus "_" became a sub-object of the chain copy (ObjectCopy rule 3). A new chain
+            // starts with the new level only, so no stage of the template chain is taken over.
+            objects.AddRange(chainCopy.Objects.Where(o => !string.Equals(o.Id.Table, definition.LevelTable, StringComparison.OrdinalIgnoreCase)));
 
             // The stages of the template chain point at the template chain, not at the copy: expected, not a problem.
             foreach (var note in chainCopy.Notes)

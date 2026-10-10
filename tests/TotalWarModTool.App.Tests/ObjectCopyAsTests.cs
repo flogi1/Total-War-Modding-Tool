@@ -177,7 +177,8 @@ public class ObjectCopyAsTests
         var (title, message) = Assert.Single(setup.Dialogs.Messages);
         Assert.Equal(setup.Texts.ObjectsApplyErrorsTitle, title);
         Assert.StartsWith(setup.Texts.ObjectsApplyErrorsMessage(1), message);
-        Assert.Contains(setup.Texts.DiagnosticText(DiagnosticKind.InvalidValue), message);
+        Assert.Contains(setup.Texts.DiagnosticText(DiagnosticKind.InvalidValue) + " '", message);
+        Assert.Contains("'value'", message);
         Assert.DoesNotContain(setup.Texts.ObjectsApplyErrorLine(0, string.Empty).Trim(), message);
         AssertNothingCopied(setup);
     }

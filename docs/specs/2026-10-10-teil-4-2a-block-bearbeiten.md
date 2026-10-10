@@ -720,6 +720,13 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   nach (Art, Tabelle) zusammengezählt; der Hinweis `ForeignKeyRows` der Ketten-Kopie auf die Stufentabelle
   (die Stufen der Vorlage-Kette) entfällt. Hat die Vorlage keine Kette, bleibt das Feld unverändert,
   `level` wird 0 und der Hinweis `NoChain` (Tabelle der Ketten, Anzahl 0) steht im Ergebnis.
+- **Neue Kette übernimmt keine Stufe der Vorlage-Kette (Schlussreview):** Beginnt der Schlüssel einer Stufe mit dem
+  Schlüssel der Vorlage-Kette und `_` (zum Beispiel Kette `foo_chain`, Stufen `foo_chain_1` bis `_n`), macht Regel 3 der
+  Kopierregel sie zu Unterobjekten der Ketten-Kopie. `BuildingWizard.Compose` übernimmt im Zweig „Neue Kette“ deshalb nur
+  die Objekte der Ketten-Kopie, deren Tabelle nicht die Stufentabelle ist; die neue Kette beginnt mit der einen neuen
+  Stufe. Echtdaten (`A_new_chain_of_a_template_never_holds_a_stage_of_the_template_chain`, je bis zu 30 Vorlagen von
+  `wh_main_sc_emp_empire`, `filter_all` und `wh2_main_rogue`): von 90 geprüften Vorlagen trug die Ketten-Kopie bei 69 ein
+  Unterobjekt der Stufentabelle, nach `Compose` bleibt genau ein Objekt der Stufentabelle.
 - **Alle Kultur-Varianten der Vorlage werden kopiert:** Auch Varianten anderer Völker (Regel 2 der
   Kopierregel); der Assistent filtert nicht. Die Spieltexte `name` aller kopierten Varianten bekommen den
   Zusatz `nameSuffix`.
@@ -755,7 +762,8 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 - **Kontextmenü des Editors:** AvalonEdit hatte keines. Es gibt jetzt eines mit Ausschneiden, Kopieren, Einfügen und
   „Kopieren als“ (Texte `objects.editor.cut`, `objects.editor.copy`, `objects.editor.paste`).
 - **Fehler einer Kopie ohne Zeile:** Diagnosen einer Kopie tragen Zeile 0 (es gibt keinen Text). Der Fehlerdialog zeigt
-  sie ohne „Zeile N:“, nur mit der Art des Fehlers. Eine Kopie ohne Änderung (etwa eine leere Kopie eines Assistenten)
+  sie ohne „Zeile N:“, mit der Art des Fehlers und dem `Detail` der Diagnose (Feld und Grund, über `DisplayText.Safe`
+  entschärft und gekürzt), damit der Nutzer sieht, wo der Fehler liegt. Die Diagnose trägt keine Tabelle. Eine Kopie ohne Änderung (etwa eine leere Kopie eines Assistenten)
   bricht nach Lauf A mit „Nichts zu schreiben“ ab, nichts wird geschrieben. Ein fehlgeschlagener Rollback ohne Tab
   (Kopie) löst die Prüfung der Objekt-Tabs aus statt einer Markierung.
 - **Assistent „Neues Gebäude“ (App):** Menü Werkzeuge, vor „Einstellungen“. Gesperrt (Tooltip nennt den Grund) in dieser
@@ -1025,7 +1033,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a (2026-10-10, zehn Dateikopien großer Tabellen, Speicher beobachtet): **bestätigt**, unter 200 MB (Angabe des Nutzers, ohne genaue Zahl). Plan 2 hält `Previous` und `Next` im Schritt; ein Auslagern in den Papierkorb ist nicht nötig. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
 | 7 | Eine Kette aus „Neue Kette“ bringt die 16 `cai_construction_system_synergies`-Zeilen und die `cai_construction_system_building_values`-Zeile der Vorlage-Kette mit (Spike vor Plan 4). Ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette. Das Spiel startet damit ohne Fehler, und die AI baut nicht offensichtlich falsch. | Abnahme Plan 4 mit Spielstart. Widerlegt: Kategorie-Datei für Ketten mit versteckten `cai_*`-Abschnitten (Backlog). |
-| 8 | Kopierte Junction-Zeilen, die ein Vanilla-Objekt an die Kopie binden (`technology_required_building_levels_junctions`: die Technologien `wh_main_tech_emp_barracks_4` bis `_6` nennen danach auch die Kopie), ändern das Verhalten der Vanilla-Objekte nicht (das Spiel liest mehrere geforderte Stufen als „eine davon“). | Abnahme Plan 4 mit Spielstart: die Technologien bleiben wie vorher erforschbar. Widerlegt: Regel für solche Junctions (nicht kopieren oder Hinweis), Entscheidung mit dem Nutzer. |
+| 8 | Kopierte Junction-Zeilen, die ein Vanilla-Objekt an die Kopie binden (`technology_required_building_levels_junctions`: die Technologien `wh_main_tech_emp_barracks_4` bis `_6` nennen danach auch die Kopie), ändern das Verhalten der Vanilla-Objekte nicht (das Spiel liest mehrere geforderte Stufen als „eine davon“). | Abnahme Plan 4 mit Spielstart: die Technologien bleiben wie vorher erforschbar. Nach „Kopieren als“ von `wh_main_emp_barracks_2` zusätzlich prüfen, dass die Vanilla-Kaserne `wh_main_emp_barracks_1` die Kopie nicht als zusätzlichen Ausbauzweig anbietet und die Gebäudesets sich verhalten wie vorher („Kopieren als“ kopiert die Zeilen der Upgrade- und der Set-Junction; der Assistent entfernt die Upgrade-Zeilen, „Kopieren als“ nicht). Widerlegt: Regel für solche Junctions (nicht kopieren oder Hinweis), Entscheidung mit dem Nutzer. |
 
 ### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)
 

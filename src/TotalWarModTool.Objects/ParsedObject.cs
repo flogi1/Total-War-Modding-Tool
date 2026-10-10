@@ -28,7 +28,7 @@ public enum DiagnosticKind
     TextWithoutOwnerKey,
 }
 
-/// <summary>Line is 1-based. Detail is short technical English (the App translates by Kind and shows Detail only in logs).</summary>
+/// <summary>Line is 1-based (0: none, from a copy). Detail is short technical English (the App translates by Kind; it shows Detail only for a diagnostic without a line, and in logs).</summary>
 public sealed record BlockDiagnostic(int Line, DiagnosticSeverity Severity, DiagnosticKind Kind, string Detail);
 
 public sealed record ParsedField(string Name, string Text, int Line);

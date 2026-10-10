@@ -195,6 +195,27 @@ public class BuildingWizardTests
     }
 
     [Fact]
+    public void A_new_chain_takes_over_no_stage_of_the_template_chain()
+    {
+        // The stage "new_l_chain_1" starts with the chain key plus "_", so ObjectCopy made it a sub-object of the chain copy.
+        var chainCopy = new CopyResult(
+        [
+            ChainCopy().Objects[0],
+            new ParsedObject(new ObjectId("levels_tables", ["new_l_chain_1"]),
+                [new ParsedField("level_name", "new_l_chain_1", 0), new ParsedField("chain", "new_l_chain", 0), new ParsedField("level", "1", 0)], [], [], []),
+            new ParsedObject(new ObjectId("sub_tables", ["new_l_chain_sub"]), [new ParsedField("key", "new_l_chain_sub", 0)], [], [], []),
+        ],
+        []);
+
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), chainCopy, null, " (copy)");
+
+        var levels = result.Objects.Where(o => o.Id.Table == "levels_tables").ToList();
+        Assert.Equal("new_l", Assert.Single(levels).Id.KeyValues[0]);
+        Assert.Contains(result.Objects, o => o.Id.Table == "chains_tables" && o.Id.KeyValues[0] == "new_l_chain");
+        Assert.Contains(result.Objects, o => o.Id.Table == "sub_tables" && o.Id.KeyValues[0] == "new_l_chain_sub");
+    }
+
+    [Fact]
     public void A_new_chain_drops_the_note_about_the_stages_of_the_template_chain()
     {
         var chainCopy = ChainCopy(new CopyNote(CopyNoteKind.ForeignKeyRows, "levels_tables", 3), new CopyNote(CopyNoteKind.ForeignKeyRows, "other", 1));
