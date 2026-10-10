@@ -32,14 +32,14 @@ public sealed class TableStore
         /// <summary>Every source that had rows of the key before the current one, in order.</summary>
         public List<TableSource> History { get; } = [];
 
-        /// <summary>Every distinct entry path of the replaced layers that held the key, in order.</summary>
-        public List<string> HistoryEntries { get; } = [];
+        /// <summary>Every distinct file (source and entry path) of the replaced layers that held the key, in order.</summary>
+        public List<OverriddenLayer> HistoryLayers { get; } = [];
 
         /// <summary>The sources the current rows replaced.</summary>
         public IReadOnlyList<TableSource> Overridden { get; set; } = [];
 
-        /// <summary>The entry paths of the replaced layers, see <see cref="HistoryEntries"/>.</summary>
-        public IReadOnlyList<string> OverriddenEntries { get; set; } = [];
+        /// <summary>The files of the replaced layers, see <see cref="HistoryLayers"/>.</summary>
+        public IReadOnlyList<OverriddenLayer> OverriddenLayers { get; set; } = [];
     }
 
     private readonly GameSchema _schema;
@@ -233,7 +233,7 @@ public sealed class TableStore
 
                 if (!mappings.TryGetValue(read.Definition, out var mapping))
                 {
-                    mapping = MapFields(definition, read.Definition);
+                    mapping = RowLayout.MapFields(definition, read.Definition);
                     mappings[read.Definition] = mapping;
                 }
 
@@ -244,10 +244,10 @@ public sealed class TableStore
                     continue;
                 }
 
-                var olderLayout = !IsIdentity(mapping, definition, read.Definition);
+                var olderLayout = !RowLayout.IsIdentity(mapping, definition, read.Definition);
                 foreach (var row in read.Rows)
                 {
-                    var cells = olderLayout ? Remap(definition, read.Definition, mapping, row) : row;
+                    var cells = olderLayout ? RowLayout.Remap(definition, read.Definition, mapping, row) : row;
                     AddRow(rows, keyStates, definition, keyFields, listings, sourceIndex, cells, olderLayout, entry.EntryPath);
                 }
             }
@@ -285,7 +285,7 @@ public sealed class TableStore
             }
 
             state.Positions.Add(rows.Count);
-            rows.Add(new MergedRow(cells, new RowProvenance(source, state.Overridden, olderLayout, true, entryPath) { OverriddenEntries = state.OverriddenEntries }));
+            rows.Add(new MergedRow(cells, new RowProvenance(source, state.Overridden, olderLayout, true, entryPath) { OverriddenLayers = state.OverriddenLayers }));
             return;
         }
 
@@ -293,10 +293,10 @@ public sealed class TableStore
         // key is remembered, so a delete can strip the key from all of them.
         foreach (var position in state.Positions)
         {
-            var layerEntry = rows[position]!.Provenance.EntryPath;
-            if (!state.HistoryEntries.Contains(layerEntry, StringComparer.Ordinal))
+            var layer = new OverriddenLayer(listings[state.SourceIndex].Source, rows[position]!.Provenance.EntryPath);
+            if (!state.HistoryLayers.Contains(layer))
             {
-                state.HistoryEntries.Add(layerEntry);
+                state.HistoryLayers.Add(layer);
             }
         }
 
@@ -308,92 +308,11 @@ public sealed class TableStore
         var first = state.Positions[0];
         state.History.Add(listings[state.SourceIndex].Source);
         var overridden = state.History.ToArray();
-        var overriddenEntries = state.HistoryEntries.ToArray();
-        rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false, entryPath) { OverriddenEntries = overriddenEntries });
+        var overriddenLayers = state.HistoryLayers.ToArray();
+        rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false, entryPath) { OverriddenLayers = overriddenLayers });
         state.Positions = [first];
         state.SourceIndex = sourceIndex;
         state.Overridden = overridden;
-        state.OverriddenEntries = overriddenEntries;
-    }
-
-    /// <summary>For every target field the index of the field of the same name (a changed type is converted in <see cref="Remap"/>) in the source definition, -1 when there is none. Null when a target field has an unsupported type.</summary>
-    private static int[]? MapFields(TableDefinition target, TableDefinition source)
-    {
-        var mapping = new int[target.Fields.Count];
-        for (var i = 0; i < mapping.Length; i++)
-        {
-            var field = target.Fields[i];
-            if (field.Type == FieldType.Unsupported)
-            {
-                return null;
-            }
-
-            mapping[i] = -1;
-            for (var j = 0; j < source.Fields.Count; j++)
-            {
-                if (string.Equals(source.Fields[j].Name, field.Name, StringComparison.OrdinalIgnoreCase))
-                {
-                    mapping[i] = j;
-                    break;
-                }
-            }
-        }
-
-        return mapping;
-    }
-
-    private static bool IsIdentity(int[] mapping, TableDefinition target, TableDefinition source)
-    {
-        if (target.Fields.Count != source.Fields.Count)
-        {
-            return false;
-        }
-
-        for (var i = 0; i < mapping.Length; i++)
-        {
-            if (mapping[i] != i || target.Fields[i].Type != source.Fields[i].Type)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static object?[] Remap(TableDefinition target, TableDefinition source, int[] mapping, object?[] row)
-    {
-        var cells = new object?[mapping.Length];
-        for (var i = 0; i < cells.Length; i++)
-        {
-            var targetType = target.Fields[i].Type;
-            if (mapping[i] < 0)
-            {
-                cells[i] = CellText.DefaultValue(targetType);
-                continue;
-            }
-
-            var sourceType = source.Fields[mapping[i]].Type;
-            cells[i] = sourceType == targetType ? row[mapping[i]] : Convert(sourceType, targetType, row[mapping[i]]);
-        }
-
-        return cells;
-    }
-
-    /// <summary>A field whose type changed between versions: through its text, the default value when the text does not fit.</summary>
-    private static object? Convert(FieldType sourceType, FieldType targetType, object? value)
-    {
-        try
-        {
-            if (CellText.TryParse(targetType, CellText.Format(sourceType, value), out var converted, out _))
-            {
-                return converted;
-            }
-        }
-        catch (ArgumentException)
-        {
-            // The value does not have the type its definition says; the default value is the safe answer.
-        }
-
-        return CellText.DefaultValue(targetType);
+        state.OverriddenLayers = overriddenLayers;
     }
 }

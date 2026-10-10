@@ -99,6 +99,23 @@ public class FileReplacementTests
     }
 
     [Fact]
+    public void Overridden_layers_carry_their_source_with_the_entry_path()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePackEntries(tmp.File("v.pack"), Schema, ("v", "units_tables", 2, [U("k1", "Alpha", 10)])));
+        var mod = TestSources.Mod(TestSources.WritePackEntries(tmp.File("m.pack"), Schema, ("m", "units_tables", 2, [U("k1", "Mod", 20)])));
+        var proj = Path.Combine(tmp.Path, "proj");
+        TestSources.WriteProjectTable(proj, Schema, "units_tables", 2, "a", [U("k1", "Project", 99)]);
+        var project = TestSources.Project(proj);
+
+        var table = NewStore().Get("units_tables", TestSources.Order(vanilla, mod, project), None);
+
+        var row = Assert.Single(table.Rows);
+        Assert.Equal([new OverriddenLayer(vanilla, "db/units_tables/v"), new OverriddenLayer(mod, "db/units_tables/m")], row.Provenance.OverriddenLayers);
+        Assert.Equal(["db/units_tables/v", "db/units_tables/m"], row.Provenance.OverriddenEntries);
+    }
+
+    [Fact]
     public void A_layer_that_holds_the_key_in_two_files_lists_both_files()
     {
         using var tmp = new TempDir();

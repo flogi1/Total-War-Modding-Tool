@@ -75,7 +75,44 @@ public class ObjectDiffTests
         Assert.Empty(unchanged.Diagnostics);
         var row = Assert.Single(edited.Rows);
         Assert.Equal(["note"], row.ChangedFields);
-        Assert.Equal("abd", row.Cells[3]);
+        Assert.Equal("abd ", row.Cells[3]);
+    }
+
+    [Fact]
+    public void A_set_and_a_delete_carry_the_previous_cells()
+    {
+        var view = WithEffects(EffectRow("e1"), EffectRow("e2", "city", "4"));
+        var rootView = Full();
+
+        var set = Diff(rootView, Rendered(rootView).Replace("create_cost = 100", "create_cost = 200", StringComparison.Ordinal));
+        var delete = Diff(view, WithRoot("", "effects", "  effect = e1", "    scope = province", "    value = 10"));
+        var insert = Diff(view, WithRoot("", "effects", "  effect = e1", "    scope = province", "    value = 10",
+            "  effect = e2", "    scope = city", "    value = 4", "  effect = e9", "    scope = x", "    value = 1"));
+
+        var setRow = Assert.Single(set.Rows);
+        Assert.Equal(["b1", "chain1", "100", ""], setRow.PreviousCells);
+        Assert.Equal(["b1", "chain1", "200", ""], setRow.Cells);
+        var deleteRow = Assert.Single(delete.Rows);
+        Assert.Equal(RowChangeKind.Delete, deleteRow.Kind);
+        Assert.Equal(deleteRow.Cells, deleteRow.PreviousCells);
+        var insertRow = Assert.Single(insert.Rows);
+        Assert.Equal(RowChangeKind.Insert, insertRow.Kind);
+        Assert.Null(insertRow.PreviousCells);
+    }
+
+    [Fact]
+    public void A_trailing_space_of_the_stored_value_survives_an_edit()
+    {
+        var view = View(RootRow(note: "alpha "));
+
+        var edited = Diff(view, Rendered(view).Replace("note = alpha", "note = beta", StringComparison.Ordinal));
+        var same = Diff(view, Rendered(view));
+
+        var row = Assert.Single(edited.Rows);
+        Assert.Equal("beta ", row.Cells[3]);
+        Assert.Contains("note", row.ChangedFields);
+        Assert.Equal("alpha ", row.PreviousCells![3]);
+        Assert.True(same.IsEmpty);
     }
 
     [Fact]

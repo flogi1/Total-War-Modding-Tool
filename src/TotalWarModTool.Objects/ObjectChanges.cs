@@ -12,10 +12,10 @@ public enum RowChangeKind
 /// Cells holds every field of the table in schema order as text: for Set the baseline values with the changed ones replaced, for Insert the
 /// parsed values with defaults for the rest, for Delete the baseline values. ChangedFields names the fields that differ (Set only).
 /// Provenance is the baseline row's (Set, Delete) or null (Insert). Line is the text line of the row head (0 for a row of a section the
-/// text lacks).
+/// text lacks). PreviousCells holds every field of the baseline row in schema order as stored (Set, Delete), null for Insert.
 /// </summary>
 public sealed record RowChange(RowChangeKind Kind, string Table, string? RootField, string? RootValue, IReadOnlyList<string> Cells,
-    IReadOnlyList<string> ChangedFields, RowProvenance? Provenance, int Line);
+    IReadOnlyList<string> ChangedFields, RowProvenance? Provenance, int Line, IReadOnlyList<string>? PreviousCells = null);
 
 public enum TextChangeKind
 {

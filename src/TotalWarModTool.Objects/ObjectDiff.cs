@@ -158,7 +158,7 @@ public static class ObjectDiff
                     continue;
                 }
 
-                result[i] = text;
+                result[i] = KeepTrailingWhitespace(baselineTexts[i], text);
                 changed.Add(definition.Fields[i].Name);
                 if (!invalid[i])
                 {
@@ -168,7 +168,7 @@ public static class ObjectDiff
 
             if (changed.Count > 0)
             {
-                _rows.Add(new RowChange(RowChangeKind.Set, table, null, null, result, changed, _baseline.Root.Provenance, 1));
+                _rows.Add(new RowChange(RowChangeKind.Set, table, null, null, result, changed, _baseline.Root.Provenance, 1, baselineTexts));
             }
         }
 
@@ -214,7 +214,7 @@ public static class ObjectDiff
             {
                 if (!matched[i])
                 {
-                    _rows.Add(new RowChange(RowChangeKind.Delete, table, fieldName, rootValue, baselineCells[i], [], baselineRows[i].Provenance, line));
+                    _rows.Add(new RowChange(RowChangeKind.Delete, table, fieldName, rootValue, baselineCells[i], [], baselineRows[i].Provenance, line, baselineCells[i]));
                 }
             }
         }
@@ -329,7 +329,7 @@ public static class ObjectDiff
                     continue;
                 }
 
-                result[i] = text;
+                result[i] = KeepTrailingWhitespace(baselineCells[i], text);
                 changed.Add(definition.Fields[i].Name);
                 if (!invalid[i])
                 {
@@ -339,7 +339,7 @@ public static class ObjectDiff
 
             if (changed.Count > 0)
             {
-                _rows.Add(new RowChange(RowChangeKind.Set, section.SourceTable, section.FieldName, rootValue, result, changed, baselineRow.Provenance, row.Line));
+                _rows.Add(new RowChange(RowChangeKind.Set, section.SourceTable, section.FieldName, rootValue, result, changed, baselineRow.Provenance, row.Line, baselineCells));
             }
         }
 
@@ -479,6 +479,15 @@ public static class ObjectDiff
         /// The block trims the end of every value, so a stored value that differs from the parsed one only by whitespace at its end (536 real
         /// values end with a space) is unchanged. An edit of such a value is still seen.
         /// </summary>
+        /// <summary>The block shows values without their trailing whitespace, so an edited value gets the stored ending back.</summary>
+        private static string KeepTrailingWhitespace(string baseline, string parsed)
+        {
+            var trimmed = baseline.TrimEnd();
+            return trimmed.Length < baseline.Length && (parsed.Length == 0 || !char.IsWhiteSpace(parsed[^1]))
+                ? parsed + baseline[trimmed.Length..]
+                : parsed;
+        }
+
         private static bool SameValue(string baseline, string parsed) =>
             string.Equals(baseline, parsed, StringComparison.Ordinal) || string.Equals(baseline.TrimEnd(), parsed, StringComparison.Ordinal);
 

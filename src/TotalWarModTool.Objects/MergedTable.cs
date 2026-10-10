@@ -15,14 +15,20 @@ public enum SourceProblemKind
 /// <summary>EntryPath is the pack entry path or the project file relative to the project folder. It is empty when the whole source is meant.</summary>
 public sealed record SourceProblem(TableSource Source, string EntryPath, SourceProblemKind Kind, string Detail);
 
+/// <summary>One overridden layer of a row: the source and the file (pack entry, or project file below the project folder) that held the key.</summary>
+public sealed record OverriddenLayer(TableSource Source, string EntryPath);
+
 /// <summary>
 /// Overridden lists the sources whose row with the same key this row replaced, earliest first. EntryPath is the pack entry ("db/x_tables/data__")
 /// or the project file below the project folder ("pack\db\x_tables\a.tsv") the row was read from; empty only for a row built without a listing.
 /// </summary>
 public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate, string EntryPath = "")
 {
-    /// <summary>The entry path of every file of the sources in <see cref="Overridden"/> that held the key (pack entry or project file below the project folder), earliest first; a source that held it in several files contributes several paths, so it can be longer than Overridden. Empty for rows nothing overrides.</summary>
-    public IReadOnlyList<string> OverriddenEntries { get; init; } = [];
+    /// <summary>Every file of every source in <see cref="Overridden"/> that held the key, earliest first; a source with several files gives several layers, so it can be longer than Overridden. Empty for rows nothing overrides.</summary>
+    public IReadOnlyList<OverriddenLayer> OverriddenLayers { get; init; } = [];
+
+    /// <summary>The entry paths of <see cref="OverriddenLayers"/>, in order.</summary>
+    public IReadOnlyList<string> OverriddenEntries => OverriddenLayers.Select(static l => l.EntryPath).ToList();
 }
 
 /// <summary>One merged row. Cells is shared with the cache (and may be the array the decoder produced): it must not be modified.</summary>
