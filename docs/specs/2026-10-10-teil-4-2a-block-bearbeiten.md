@@ -755,6 +755,9 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   ändert sich der Text, sind `Diagnostics`, `ErrorCount` und `IsDiffEmpty` wieder leer beziehungsweise falsch; ein
   neues Ergebnis (`ApplyResult`) und ein Objektwechsel leeren sie ebenfalls. `ApplyAsync` ruft `Check()` zuerst und
   lehnt einen Zustand mit Fehlern oder leerer Differenz ohne Dialog ab (Log-Eintrag mit dem Grund).
+  Auf einem Tab mit veraltetem Schema läuft die Prüfung nicht (ein vorhandenes Ergebnis wird verworfen, „Übernehmen“
+  bleibt mit „veraltet“ gesperrt), und sie legt nie Stores an: Nur ein Aufbau tut das. Eine Ausnahme in Parse oder Diff
+  wird geloggt (ohne den Text des Nutzers) und liefert kein Ergebnis.
 - **Sperrgründe von „Übernehmen“** (Ergänzung zu Plan 3a): nach „Tab veraltet“ und vor „Text gleich der Baseline“
   kommen „N Fehler im Text“ und, bei leerer Differenz (nur Leerzeichen am Zeilenende), „Nichts geändert“.
 - **Unterstreichung und Tooltip:** Jede Zeile mit einer Diagnose bekommt eine Wellenlinie unter dem ganzen Text der

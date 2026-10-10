@@ -523,6 +523,26 @@ public class ObjectTabViewModelTests
         return tab;
     }
 
+    [Fact] public void A_schema_stale_tab_does_not_check_and_drops_its_check_result()
+    {
+        var calls = 0;
+        var tab = CheckingTab(() =>
+        {
+            calls++;
+            return new ObjectChanges([], [], [Error(2, DiagnosticKind.InvalidValue)]);
+        });
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.Check();
+        Assert.Equal((1, 1), (calls, tab.ErrorCount));
+
+        tab.MarkSchemaStale();
+        tab.Check();
+
+        Assert.Equal(1, calls);
+        Assert.Empty(tab.Diagnostics);
+        Assert.Equal(Texts.ObjectsApplyStale, tab.ApplyDisabledReason);
+    }
+
     [Fact] public void Errors_of_the_check_disable_apply_and_name_their_count()
     {
         var tab = CheckingTab(() => new ObjectChanges([], [], [Error(2, DiagnosticKind.UnknownField), Error(3, DiagnosticKind.InvalidValue)]));

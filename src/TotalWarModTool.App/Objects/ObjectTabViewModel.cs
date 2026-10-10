@@ -257,12 +257,24 @@ public sealed class ObjectTabViewModel : TabViewModel
 
     /// <summary>
     /// Runs the check for the current text now (the view calls it after the debounce, the apply before it starts). No-op without a result or a
-    /// handler.
+    /// handler or while the schema is stale.
     /// </summary>
     public void Check()
     {
         if (_result is null || CheckHandler is not { } handler)
         {
+            return;
+        }
+
+        // The schema changed since the build: a check would compare the old block with the new schema. The result goes, the apply says "stale".
+        if (IsSchemaStale)
+        {
+            if (_checked is not null)
+            {
+                _checked = null;
+                RaiseCheckChanged();
+            }
+
             return;
         }
 

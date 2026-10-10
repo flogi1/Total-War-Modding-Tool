@@ -212,25 +212,38 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     private bool IsBusy => _runner.IsRunning || !_workspace.CanStartOperation;
 
+    /// <summary>The stores as they are now, without making any; null when the build has not made them yet or a schema or game folder change dropped them.</summary>
+    internal ObjectStores? Stores => _stores;
+
     /// <summary>The stores of the current schema and game folder, made when missing; null without a game or a schema.</summary>
     internal ObjectStores? EnsureStores() =>
         MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath) : null;
 
     /// <summary>
     /// The check while typing: parses the text of the tab against its result and diffs it, without reference checks (the apply checks those).
-    /// Pure and quick enough for the UI thread; null without stores or a result.
+    /// Pure and quick enough for the UI thread; null without stores or a result. It never makes stores: only a build does, so a check after a
+    /// schema change cannot rebuild the reference graph inside the typing timer.
     /// </summary>
     private ObjectChanges? Check(ObjectTabViewModel tab)
     {
-        if (tab.Result is not { } result || EnsureStores() is not { } stores)
+        if (tab.Result is not { } result || _stores is not { } stores)
         {
             return null;
         }
 
-        var parsed = ObjectTextParser.Parse(tab.Text, result.View, result.Category, stores.Graph);
-        return parsed.HasErrors
-            ? new ObjectChanges([], [], parsed.Diagnostics)
-            : ObjectDiff.Compute(result.View, parsed, result.Category, stores.Graph, null);
+        try
+        {
+            var parsed = ObjectTextParser.Parse(tab.Text, result.View, result.Category, stores.Graph);
+            return parsed.HasErrors
+                ? new ObjectChanges([], [], parsed.Diagnostics)
+                : ObjectDiff.Compute(result.View, parsed, result.Category, stores.Graph, null);
+        }
+        catch (Exception ex)
+        {
+            // The text of the user is not logged.
+            _log.Error("The check of an object text failed.", ex);
+            return null;
+        }
     }
 
     // Why no tab can apply now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.

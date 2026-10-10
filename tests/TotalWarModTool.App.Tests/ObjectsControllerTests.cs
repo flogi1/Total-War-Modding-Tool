@@ -550,4 +550,22 @@ public class ObjectsControllerTests
         Assert.Equal(0, tab.ErrorCount);
         Assert.True(tab.IsDiffEmpty);
     }
+
+    [Fact] public async Task The_check_does_not_create_stores()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        var folder = setup.Game.Root.File("other-schemas");
+        ObjectsTestSchema.WriteSchema(setup.Game, folder);
+        setup.Game.Settings.SchemaFolder = folder;
+        Assert.True(tab.IsStale);
+        Assert.Null(setup.Controller.Stores);
+
+        tab.Text = tab.Text.Replace("  value = 1", "  value = abc", StringComparison.Ordinal);
+        tab.Check();
+
+        Assert.Empty(tab.Diagnostics);
+        Assert.Null(setup.Controller.Stores);
+    }
 }

@@ -120,6 +120,9 @@ public abstract class TabViewModel : ObservableObject, IDisposable
         UpdateStale();
     }
 
+    /// <summary>True while the schema mark is set: the data shown was built against an older schema.</summary>
+    internal bool IsSchemaStale => _schemaStale;
+
     /// <summary>A new build shows the current state: the pack and schema marks go. What happened to a file outside stays.</summary>
     internal void ClearStale()
     {
