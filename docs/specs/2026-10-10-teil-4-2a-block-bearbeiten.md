@@ -402,6 +402,23 @@ jeder Task im selben Commit ergänzt):
   `allows ` (Platzhalter leer) zum Muster passt; Platzhalterwerte werden getrimmt.
 - Der Kategorie-Loader lehnt ein Muster mit zwei Platzhaltern ohne Text dazwischen ab (Detail
   „pattern has two placeholders without text between them.“).
+- Differenz: `ObjectDiff.Compute(baseline, parsed, category, graph, referenceExists)` nimmt wie `Parse`
+  die Kategorie und den `ReferenceGraph` (die Skizze oben nennt `GameSchema`). Die Kategorie ist nötig,
+  damit die Zeilen versteckter Abschnitte, die nicht im Text stehen, nie als `Delete` erscheinen; sie
+  ist deshalb kein optionaler Parameter. `referenceExists` null prüft keine Referenzen.
+- Differenz: Die Typprüfung nutzt `CellText.TryParse` aus `Tables` (`CellCheck` liegt in `Editing`, das
+  `Objects` nicht referenziert). Die Zusatzregel für Farbkanäle gilt dadurch hier nicht; Plan 2 prüft
+  vor dem Schreiben mit `CellCheck`, falls das Schreiben sie nicht ohnehin erzwingt.
+- Differenz: `TextChange` trägt keinen `EntryPath` der alten Zeile, weil `LocEntry` keinen kennt. Plan 2
+  ermittelt die Datei über den Loc-Schlüssel und die Ladereihenfolge (Spec 5.4).
+- Differenz: Identität einer Abschnittszeile sind die Schlüsselfelder ohne das Feld auf die Wurzel.
+  Hat die Tabelle Schlüsselfelder, aber nur dieses, bilden alle Zeilen eine Gruppe, die nach
+  Reihenfolge zugeordnet wird (eine mehr als der Aufbau: `DuplicateCountExceeded`). Tabellen ganz ohne
+  Schlüsselfelder werden über den ganzen Feldsatz zugeordnet.
+- Differenz: Fehlt ein Wurzelschlüsselfeld im Text einer Wurzel, die es noch nicht gibt, nimmt `Compute`
+  den Wert aus der `ObjectId`; ein abweichender Wert ist `RootKeyChanged`.
+- Differenz: `RowChange.Line` ist die Zeile des Zeilenkopfs, 1 für die Wurzel und 0 für Zeilen eines
+  Abschnitts, den der Text nicht hat (`Delete`).
 
 ### 5.4 Übernehmen: Zielregeln
 

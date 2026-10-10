@@ -325,7 +325,7 @@ Festlegungen:
 - Referenzen: für jedes geparste Feld mit `Reference` (aus `graph.Latest(table).Fields`) und nicht leerem Wert, dessen Wert sich gegenüber der Baseline-Zelle ändert oder dessen Zeile `Insert` ist: `referenceExists(ResolveTableName(ref.Table), ref.Column, value)` false → `ReferenceNotFound` (Warning). `null` als Delegat: keine Prüfung.
 - Reihenfolge von `Rows`: Wurzel zuerst, dann Abschnitte in Textreihenfolge, darin Zeilen in Textreihenfolge, `Delete`s eines Abschnitts nach dessen anderen Änderungen in Baseline-Reihenfolge.
 
-- [ ] **Step 1: Failing Tests** in `ObjectDiffTests.cs` (Baseline-Views wie in Task 2, `Parse` aus Task 2 für die Texte, damit die Tests die reale Kette prüfen):
+- [x] **Step 1: Failing Tests** in `ObjectDiffTests.cs` (Baseline-Views wie in Task 2, `Parse` aus Task 2 für die Texte, damit die Tests die reale Kette prüfen):
 
 ```csharp
 [Fact] public void An_unchanged_text_gives_no_changes()  // Parse(RenderBlock(view).Text) → IsEmpty, keine Diagnostics.
@@ -353,8 +353,10 @@ Festlegungen:
 
 In `BlockTextTests`: `[Fact] public void Render_then_parse_then_diff_is_empty_for_every_kind_of_row()` – dieselbe View wie in Task 2, `ObjectDiff.Compute(view, parsed, graph, null).IsEmpty`.
 
-- [ ] **Step 2: RED**, **Step 3: Implementieren** (eine Datei, private Hilfsklasse `RowMatcher` für Schlüssel, Ordnungszahlen und keyless Zuordnung), **Step 4: GREEN** (`dotnet test tests/TotalWarModTool.Objects.Tests`, `dotnet build TotalWarModTool.slnx`).
-- [ ] **Step 5: Commit** – `git commit -m "feat: compute row and text changes between the parsed block and the built object"`.
+- [x] **Step 2: RED**, **Step 3: Implementieren** (eine Datei, private Hilfsklasse `RowMatcher` für Schlüssel, Ordnungszahlen und keyless Zuordnung), **Step 4: GREEN** (`dotnet test tests/TotalWarModTool.Objects.Tests`, `dotnet build TotalWarModTool.slnx`).
+- [x] **Step 5: Commit** – `git commit -m "feat: compute row and text changes between the parsed block and the built object"`.
+
+> **Status Task 3: erledigt (2026-10-10).** Objects-Tests 215 grün, 5 übersprungen; Build ohne Warnung. Abweichungen (Rulings, siehe Spec „Festlegungen aus Plan 1“): `Compute(baseline, parsed, category, graph, referenceExists)` nimmt die Kategorie (versteckte Abschnitte nie löschen); Typprüfung über `CellText.TryParse` statt `CellCheck`; `TextChange` ohne `EntryPath`; Tabellen, deren einziger Schlüssel das Feld auf die Wurzel ist, werden nach Reihenfolge zugeordnet.
 
 ---
 

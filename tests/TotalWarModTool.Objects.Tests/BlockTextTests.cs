@@ -339,6 +339,19 @@ public class BlockTextTests
         Assert.Equal("He said \"hi\" \\ x", Assert.Single(parsed.Texts).Text);
     }
 
+    [Fact]
+    public void Render_then_parse_then_diff_is_empty_for_every_kind_of_row()
+    {
+        var view = BlockFixture.EveryKind();
+
+        var block = ObjectText.RenderBlock(view, BlockFixture.Category);
+        var parsed = ObjectTextParser.Parse(block.Text, view, BlockFixture.Category, BlockFixture.Graph);
+        var changes = ObjectDiff.Compute(view, parsed, BlockFixture.Category, BlockFixture.Graph, null);
+
+        Assert.Empty(changes.Diagnostics);
+        Assert.True(changes.IsEmpty);
+    }
+
     [Theory]
     [InlineData("He said \"hi\"", "\"He said \\\"hi\\\"\"")]
     [InlineData("a\\b", "\"a\\\\b\"")]
