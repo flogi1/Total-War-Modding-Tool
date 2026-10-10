@@ -85,15 +85,15 @@ public class ObjectsRealDataTests
         var watch = Stopwatch.StartNew();
         var view = builder.Build(Id("factions_tables", "wh_main_emp_empire"), context.Order, null, CancellationToken.None);
         watch.Stop();
-        var lines = ObjectText.Render(view, null, new RenderOptions(new HashSet<int>()));
+        var block = ObjectText.RenderBlock(view, null);
         _output.WriteLine($"Build of wh_main_emp_empire with a fresh store: {watch.ElapsedMilliseconds} ms");
         PrintView(view);
-        _output.WriteLine($"Render: {lines.Count} lines");
+        _output.WriteLine($"Render: {block.Lines.Count} lines");
 
         Assert.True(watch.ElapsedMilliseconds < 2000, $"Build took {watch.ElapsedMilliseconds} ms");
         Assert.True(view.Sections.Count >= 20, $"{view.Sections.Count} sections");
-        Assert.True(lines.Count > 100, $"{lines.Count} lines");
-        Assert.Contains(lines, line => line.Spans.Any(span => span.Kind == SpanKind.Collapsed));
+        Assert.True(block.Lines.Count > 100, $"{block.Lines.Count} lines");
+        Assert.Contains(block.Sections, section => section.Rows.Count > ObjectText.DefaultCollapseThreshold);
     }
 
     [RealDataFact] public void A_trait_has_a_display_name_somewhere()
@@ -221,6 +221,26 @@ public class ObjectsRealDataTests
 
     [RealDataFact] public void The_empire_block_round_trips_and_parses_fast() =>
         RoundTrip(Id("factions_tables", "wh_main_emp_empire"), CategoryOf("factions_tables"));
+
+    [RealDataFact] public void The_empire_block_diffs_fast()
+    {
+        var context = Shared.Value;
+        var builder = NewBuilder(context);
+        var category = CategoryOf("factions_tables");
+        var view = builder.Build(Id("factions_tables", "wh_main_emp_empire"), context.Order, null, CancellationToken.None);
+        var block = ObjectText.RenderBlock(view, category);
+
+        ObjectDiff.Compute(view, ObjectTextParser.Parse(block.Text, view, category, context.Graph), category, context.Graph, null);
+        var watch = Stopwatch.StartNew();
+        var parsed = ObjectTextParser.Parse(block.Text, view, category, context.Graph);
+        var changes = ObjectDiff.Compute(view, parsed, category, context.Graph, null);
+        watch.Stop();
+
+        _output.WriteLine($"Parse and diff of wh_main_emp_empire ({block.Lines.Count} lines, warm): {watch.Elapsed.TotalMilliseconds:F1} ms");
+        Assert.Empty(changes.Diagnostics);
+        Assert.True(changes.IsEmpty);
+        Assert.True(watch.Elapsed.TotalMilliseconds < 50, $"Parse and diff took {watch.Elapsed.TotalMilliseconds:F1} ms");
+    }
 
     // The first trait that has level rows whose key is the trait key plus "_" (the sub-objects of the copy rule).
     private static ObjectId FirstTraitWithLevels(ObjectBuilder builder, TableStore store)

@@ -28,7 +28,7 @@ public sealed record BlockRowRange(int Section, int Row, int FirstLine, int Last
 
 /// <summary>
 /// HeadLine is the section head; FirstLine..LastLine the lines of its rows. Rows lists the row blocks in order, so the App can fold everything
-/// after RenderOptions.CollapsedPreview rows.
+/// after ObjectText.DefaultCollapsedPreview rows.
 /// </summary>
 public sealed record BlockSectionRange(int Section, int HeadLine, int FirstLine, int LastLine, IReadOnlyList<BlockRowRange> Rows);
 

@@ -363,7 +363,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 == Aus Teil 4.2a Plan 3a (App) zurückgestellt ==
 
-- `ObjectText.Render`, `TextLine` und `RenderOptions` in `Objects` entfernen, sobald Plan 3b die Färbung auf `BlockText` hat (die Anzeige aus 4.1 ist in Plan 3a schon weg)
 - Die Frage nach der Zieldatei mit mehr als etwa 6 Kandidaten braucht eine Liste statt Knöpfen
 - Reine Leerzeichen-Änderungen: Plan 3a meldet „Nichts zu schreiben“ erst nach dem Klick; Plan 3b könnte den Knopf sperren, solange die Differenz leer ist
 - Text-Undo im Editor (zwei Stapel, Spec 6); bis dahin gilt Strg+Z nur für die globale History

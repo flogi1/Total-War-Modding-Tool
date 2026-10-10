@@ -226,7 +226,7 @@ public class BlockTextTests
         var block = ObjectText.RenderBlock(view, null);
 
         Assert.Equal(25, block.Lines.Count(l => l.Kind == BlockLineKind.RowHead));
-        Assert.DoesNotContain(block.Lines, l => l.Spans.Concat(l.Trailing).Any(s => s.Kind == SpanKind.Collapsed));
+        Assert.DoesNotContain(block.Lines, l => l.Spans.Concat(l.Trailing).Any(s => s.Text.StartsWith('+')));
         var range = Assert.Single(block.Sections);
         Assert.Equal(25, range.Rows.Count);
         Assert.Equal(range.HeadLine + 1, range.Rows[0].FirstLine);
