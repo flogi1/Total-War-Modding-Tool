@@ -789,7 +789,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Abnahme Plan 3: zehn Dateikopien großer Tabellen, Speicher beobachten. Plan 2 hält `Previous` und `Next` im Schritt; die Messung folgt in Plan 3. |
-| 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Plan 3, erste Task. |
+| 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
 
 ### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)
 
@@ -816,6 +816,23 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   unkritisch), 8 enthalten einen Tab. Folgen: siehe die Festlegungen aus Plan 1 unter 5.3
   (`ControlCharacter` nur für die Dialekt-Folge, Differenz ignoriert Leerzeichen am Ende, gleichnamige
   Spalte und Feld, Abschnittskopf ohne Feld).
+
+### Ergebnis des Spikes zu Annahme 6 (2026-10-10, AvalonEdit)
+
+- Paket `AvalonEdit` 6.3.1.120 (MIT, AvalonEdit Contributors, Assets für `net8.0-windows7.0`, keine weiteren
+  Abhängigkeiten), Version in `Directory.Packages.props`, Referenz nur in der App. Build der ganzen Solution:
+  0 Warnungen, 0 Fehler, keine Sonderbehandlung.
+- Kompiliert unter Nullable und `TreatWarningsAsErrors`: `TextEditor`, `Document.UndoStack.SizeLimit = 0`
+  (Editor-Undo aus, nur die globale History), `TextSegmentReadOnlySectionProvider` (Nur-Lesen-Segmente),
+  `VisualLineElementGenerator` (Anhängsel als virtuelle Elemente), `DocumentColorizingTransformer` (Färbung),
+  `IBackgroundRenderer` (Unterstreichung), `FoldingManager` (Falten), `TextArea.TextEntered`.
+- Laufzeit auf einem STA-Thread (Test-Helfer `Sta.Run`): Dokument mit 602 Zeilen setzen, einfügen, ersetzen und
+  einen Abschnitt falten in unter 500 ms; `CanUndo` bleibt false bei `SizeLimit 0`.
+- Festlegung für Plan 3: `FoldingManager.UpdateFoldings` verlangt Faltungen innerhalb des Dokuments
+  („Folding must be within document boundary“), also erst Text setzen, dann falten; bei leerem Dokument keine
+  Faltungen übergeben.
+- Der Spike-Code (Klasse, Test, Paketreferenz) wurde nach der Messung entfernt; Plan 3 Task 1 führt das Paket
+  mit der ersten echten Nutzung ein.
 
 ## 11. Entscheidungen des Nutzers (2026-10-10)
 
