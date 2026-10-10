@@ -822,9 +822,12 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
    Muster. Test-first, keine App-Änderung. Echtdaten-Round-Trip.
 2. **Plan 2: `Editing` und `UndoRedo` Schreiben.** `ProjectWritePlan`, `ProjectWriter`,
    `FileContentsStep`, Dateikopie, Rückfragen als Daten. Test-first, keine App-Änderung.
-3. **Plan 3: App Editor und Übernehmen.** AvalonEdit, Färbung, Anhängsel, Falten, Fehleranzeige,
-   Übernehmen über den Runner, Rückfragen, Ergebniszeile, Sperren, Undo-Verhalten, Raster-Kopplung,
-   Texte, manuelle Checkliste.
+3. **Plan 3: App Editor und Übernehmen**, geteilt in zwei Pläne:
+   - **Plan 3a: Editor-Durchstich und Übernehmen.** AvalonEdit (roh, ohne Färbung), Übernehmen über
+     den Runner, Rückfragen, Ergebniszeile, Sperren, Undo-Verhalten, Raster-Kopplung, Guards beim
+     Schließen, Texte, manuelle Checkliste.
+   - **Plan 3b: Darstellung im Editor.** Färbung, Anhängsel, Falten, Fehleranzeige (Unterstreichung mit
+     entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`.
 4. **Plan 4: App Kopieren und Assistenten.** „Kopieren als“, „Neues Gebäude“, „Neuer Trait“, Texte,
    manuelle Checkliste mit Spielstart.
 
@@ -832,11 +835,11 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 
 | Nr. | Annahme | Prüfung |
 |---|---|---|
-| 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3 und 4: Pack bauen, installieren, Spiel starten, gelöschte Einheit fehlt, neues Gebäude baubar. |
+| 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3a mit Spielstart: offen (gelöschte Einheit fehlt). Abnahme Plan 4: neues Gebäude baubar. Pack bauen, installieren, Spiel starten. |
 | 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. |
 | 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
-| 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Abnahme Plan 3: zehn Dateikopien großer Tabellen, Speicher beobachten. Plan 2 hält `Previous` und `Next` im Schritt; die Messung folgt in Plan 3. |
+| 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a: offen (zehn Dateikopien großer Tabellen, Speicher beobachten). Plan 2 hält `Previous` und `Next` im Schritt. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
 
 ### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)

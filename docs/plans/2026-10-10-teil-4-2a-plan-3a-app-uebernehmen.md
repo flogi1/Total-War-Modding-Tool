@@ -743,6 +743,8 @@ Die Tastenwege und das Zusammenspiel von Editor, Hauptfenster und Template. Spec
 
 ### Task 9: Abschluss (Changelog, Backlog, manuelle Checkliste, Spec-Annahmen)
 
+**Status:** erledigt; Build ohne Warnung, `Objects.Tests` 264 (+11 übersprungen), `Editing.Tests` 113, alle angefassten App-Testklassen einzeln grün. **Voller App-Lauf und manuelle Abnahme stehen aus** (nur mit OK des Nutzers, siehe Testregel).
+
 **Files:**
 - Modify: `CHANGELOG.md` („Unreleased“, „Neu“)
 - Modify: `Backlog.txt` (Abschnitt „Aus Teil 4.2a Plan 3a (App) zurückgestellt“)
