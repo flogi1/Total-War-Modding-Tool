@@ -16,6 +16,9 @@ public sealed partial class ObjectsController
     private Task? _staleCheck;
     private bool _staleCheckAgain;
 
+    // The number of open scopes of SuppressLazyBuilds.
+    private int _suppressLazyBuilds;
+
     /// <summary>The object tabs of the tab list, in tab order.</summary>
     public IReadOnlyList<ObjectTabViewModel> ObjectTabs => _tabs.Tabs.OfType<ObjectTabViewModel>().ToList();
 
@@ -123,12 +126,49 @@ public sealed partial class ObjectsController
         }
     }
 
-    // A tab that was not built yet (restored, or the runner was busy) is built when it is shown.
+    // A tab that was not built yet (restored, or the runner was busy) is built when it is shown, unless a restore scope is open.
     private void OnTabsChanged()
+    {
+        if (_suppressLazyBuilds == 0)
+        {
+            BuildSelectedIfIdle();
+        }
+    }
+
+    private void BuildSelectedIfIdle()
     {
         if (_tabs.SelectedTab is ObjectTabViewModel { State: ObjectTabState.Idle } tab)
         {
             RunDetached(() => BuildAsync(tab), BuildWhat);
+        }
+    }
+
+    /// <summary>
+    /// Opens a scope in which selecting an Idle object tab starts no build (a restore adds and selects several tabs and only the one that stays
+    /// selected should be built). When the last open scope is disposed, the selected tab is built if it is Idle and the runner is free.
+    /// </summary>
+    public IDisposable SuppressLazyBuilds()
+    {
+        _suppressLazyBuilds++;
+        return new LazyBuildScope(this);
+    }
+
+    private sealed class LazyBuildScope(ObjectsController owner) : IDisposable
+    {
+        private ObjectsController? _owner = owner;
+
+        public void Dispose()
+        {
+            if (_owner is not { } controller)
+            {
+                return;
+            }
+
+            _owner = null;
+            if (--controller._suppressLazyBuilds == 0)
+            {
+                controller.BuildSelectedIfIdle();
+            }
         }
     }
 

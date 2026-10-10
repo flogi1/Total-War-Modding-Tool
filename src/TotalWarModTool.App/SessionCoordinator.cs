@@ -174,25 +174,29 @@ public sealed class SessionCoordinator
                 }
             }
 
-            foreach (var item in ordered)
+            // Add selects a tab on its own when nothing is selected, and that may be an Idle object tab that is not the active one. While the
+            // scope is open no object tab is built; when it ends, the tab that stays selected is (if it is an object tab and the runner is free).
+            using (_objects?.SuppressLazyBuilds())
             {
-                if (item.ObjectTab is { } objectTab)
+                foreach (var item in ordered)
                 {
-                    _tabs.AddTab(objectTab, select: false);
+                    if (item.ObjectTab is { } objectTab)
+                    {
+                        _tabs.AddTab(objectTab, select: false);
+                    }
+                    else if (!_tabs.Tabs.Any(tab => IsTabOf(tab, item.File!)))
+                    {
+                        _tabs.Add(item.File!.Source, item.File.Entry, schema, select: false);
+                    }
                 }
-                else if (!_tabs.Tabs.Any(tab => IsTabOf(tab, item.File!)))
-                {
-                    _tabs.Add(item.File!.Source, item.File.Entry, schema, select: false);
-                }
-            }
 
-            // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
-            // The stored active tab is the one to show; when it was dropped, the first tab is. An object tab that is shown is built now (it is
-            // Idle), by the controller, and only when the runner is free.
-            if (ordered.Count > 0)
-            {
-                var shown = active ?? ordered[0];
-                _tabs.SelectedTab = shown.ObjectTab ?? _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, shown.File!)) ?? _tabs.SelectedTab;
+                // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
+                // The stored active tab is the one to show; when it was dropped, the first tab is.
+                if (ordered.Count > 0)
+                {
+                    var shown = active ?? ordered[0];
+                    _tabs.SelectedTab = shown.ObjectTab ?? _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, shown.File!)) ?? _tabs.SelectedTab;
+                }
             }
 
             _restored = true;

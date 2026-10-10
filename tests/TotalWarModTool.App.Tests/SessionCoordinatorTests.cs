@@ -544,6 +544,27 @@ public class SessionCoordinatorTests
         }
     }
 
+    // Only the tab that stays selected is built: the first restored object tab is selected on its way and must not start its own build.
+    [Fact] public async Task Restore_builds_only_the_active_object_tab()
+    {
+        var (game, c, main, objects, store) = await CreateWithObjects();
+        using (game)
+        {
+            store.Save(new SessionState([
+                ObjectSessionTab("x_tables", "k1", new SessionObjectRef("x_tables", ["k1"], null)),
+                ObjectSessionTab("x_tables", "k2", new SessionObjectRef("x_tables", ["k2"], null))], 1, []));
+            var session = new SessionCoordinator(store, store.Load(), c, main.Main.Explorer, main.Main.Tabs, game.Log, main.Projects, objects);
+
+            await session.RestoreAsync();
+
+            var tabs = main.Main.Tabs.Tabs.Cast<ObjectTabViewModel>().ToList();
+            Assert.Equal(["k1", "k2"], tabs.Select(tab => tab.Current.JoinedKey));
+            Assert.Same(tabs[1], main.Main.Tabs.SelectedTab);
+            Assert.Equal(game.Texts.ObjectsBuilding("k2"), Assert.Single(game.Runner.Titles));
+            Assert.Equal((ObjectTabState.Idle, ObjectTabState.Ready), (tabs[0].State, tabs[1].State));
+        }
+    }
+
     [Fact] public async Task Without_an_objects_controller_object_tabs_are_left_out()
     {
         var (game, c, main, _, store) = await CreateWithObjects();

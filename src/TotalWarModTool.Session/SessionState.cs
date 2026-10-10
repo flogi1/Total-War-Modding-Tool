@@ -10,7 +10,7 @@ public sealed record SessionObjectTab(IReadOnlyList<SessionObjectRef> History, i
 
 /// <summary>
 /// One open tab: the entry <paramref name="EntryPath"/> inside the pack at <paramref name="PackPath"/>. An object tab has the pack path
-/// "object:&lt;table&gt;", the id of its first entry as entry path and <paramref name="Object"/> set; it is null for a file tab.
+/// "object:&lt;table&gt;", the id of its current entry as entry path and <paramref name="Object"/> set; it is null for a file tab.
 /// </summary>
 public sealed record SessionTab(string PackPath, string EntryPath, SessionObjectTab? Object = null);
 

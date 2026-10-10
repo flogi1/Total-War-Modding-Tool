@@ -182,6 +182,23 @@ public class ObjectsControllerTests
         Assert.Equal(setup.Texts.ProjectBusy, setup.Controller.DisabledReason(table));
     }
 
+    [Fact] public async Task Selecting_an_idle_tab_inside_a_lazy_build_scope_builds_nothing_until_the_scope_ends()
+    {
+        using var setup = await CreateAsync();
+        var tab = setup.Controller.CreateTab([new ObjectRef("x_tables", ["k1"], null)], 0);
+
+        var scope = setup.Controller.SuppressLazyBuilds();
+        setup.Tabs.AddTab(tab);
+
+        Assert.Same(tab, setup.Tabs.SelectedTab);
+        Assert.Equal((ObjectTabState.Idle, 0), (tab.State, setup.Builds("k1")));
+
+        scope.Dispose();
+        scope.Dispose();                                                               // a second dispose changes nothing
+
+        Assert.Equal((ObjectTabState.Ready, 1), (tab.State, setup.Builds("k1")));
+    }
+
     [Fact] public async Task A_link_builds_the_target_in_the_same_tab_and_a_shift_click_opens_a_new_one()
     {
         using var setup = await CreateAsync();
