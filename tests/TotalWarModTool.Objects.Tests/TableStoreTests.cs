@@ -521,4 +521,30 @@ public class TableStoreTests
         Assert.Equal(after, store.SignatureOf("units_tables", order, None));
         Assert.Same(second, store.Get("units_tables", order, None));
     }
+
+    [Fact]
+    public void HasPackEntry_finds_an_entry_of_a_vanilla_or_mod_pack_ignoring_case_and_separators()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePackEntries(tmp.File("vanilla.pack"), Schema,
+            ("data__", "units_tables", 2, [U("u1", "A", 1)])));
+        var mod = TestSources.Mod(TestSources.WritePackEntries(tmp.File("mod.pack"), Schema, ("m", "units_tables", 2, [U("u2", "B", 2)])));
+        var projectFolder = tmp.File("project");
+        TestSources.WriteProjectTable(projectFolder, Schema, "units_tables", 2, "a", [U("u3", "C", 3)]);
+        var order = TestSources.Order(vanilla, mod, TestSources.Project(projectFolder));
+        var store = NewStore();
+
+        Assert.True(store.HasPackEntry(order, "db/units_tables/data__", None));
+        Assert.True(store.HasPackEntry(order, @"DB\UNITS_TABLES\M", None));
+        Assert.False(store.HasPackEntry(order, "db/units_tables/a", None));           // only the project holds it
+        Assert.False(store.HasPackEntry(order, "db/pairs_tables/data__", None));
+    }
+
+    [Fact]
+    public void HasPackEntry_treats_an_unreadable_pack_as_empty()
+    {
+        using var tmp = new TempDir();
+        var missing = TestSources.Vanilla(tmp.File("gone.pack"));
+        Assert.False(NewStore().HasPackEntry(TestSources.Order(missing), "db/units_tables/data__", None));
+    }
 }

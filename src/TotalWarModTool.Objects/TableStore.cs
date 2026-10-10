@@ -125,6 +125,25 @@ public sealed class TableStore
     }
 
     /// <summary>
+    /// True when a Vanilla or Mod source of the order holds an entry with this pack path ('/' or '\', ignoring case). Project sources are not
+    /// asked. A pack that cannot be read counts as not holding it. Thread-safe like <see cref="Get"/>.
+    /// </summary>
+    public bool HasPackEntry(LoadOrder order, string packPath, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        ArgumentNullException.ThrowIfNull(packPath);
+        foreach (var source in order.Sources)
+        {
+            if (source.Kind != SourceKind.Project && _reader.HasEntry(source, packPath, cancellationToken))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The state of the files that matter for the table over the order: the string <see cref="Get"/> uses as its cache key, one token per
     /// source (a pack without entries of the table gives "-", a missing pack "missing"). Equal signatures mean <see cref="Get"/> would see the
     /// same content. Decodes no entry and does not touch the table cache; only a pack whose file changed has its index read again.

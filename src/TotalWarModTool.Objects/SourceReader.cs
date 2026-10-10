@@ -121,6 +121,15 @@ internal sealed class SourceReader
         return new SourceListing(source, token, PackRefs(data, entries), []);
     }
 
+    /// <summary>True when the pack of <paramref name="source"/> holds an entry with this pack path ('/' or '\', ignoring case). A pack that cannot be read holds none.</summary>
+    public bool HasEntry(TableSource source, string packPath, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(packPath);
+        var (data, _, _) = OpenPack(source, cancellationToken);
+        return data?.Index.Find(packPath) is not null;
+    }
+
     public SourceListing ListLoc(TableSource source, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);

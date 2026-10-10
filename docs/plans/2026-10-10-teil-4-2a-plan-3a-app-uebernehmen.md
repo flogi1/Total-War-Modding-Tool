@@ -44,6 +44,8 @@
 
 ### Task 1: AvalonEdit einbinden und die Editor-View
 
+**Status:** erledigt (Commit 996fdc4); `ObjectEditorViewTests` + `ObjectTabViewModelTests` 32/32 grün, Build ohne Warnung.
+
 Das Paket, die View mit dem Editor, Text in beide Richtungen, Nur-Lesen-Kopfzeile, Tastenbindungen. Noch ohne Übernehmen-Logik: die View zeigt den Text eines `ObjectTabViewModel` und schreibt Eingaben zurück. Spec 5.7 (Nur-Lesen-Segmente, Tastatur), Annahme 6 (Spike-Ergebnis).
 
 **Files:**
@@ -145,6 +147,8 @@ und `ObjectEditorViewTests.cs` (STA, Fenster wie `ObjectBlockViewTests.Create`; 
 ---
 
 ### Task 2: `TableStore.HasPackEntry` (Kopie-Erkennung) in `Objects`
+
+**Status:** erledigt; `Objects.Tests` 264 grün (+2), 11 Echtdaten übersprungen, Build ohne Warnung.
 
 Der Snapshot-Leser fragt pro Projektdatei, ob ein Vanilla- oder Mod-Pack der Ladereihenfolge einen Eintrag mit demselben Pack-Pfad hat (`PackEntryExists`, Plan 2). Der `SourceReader` hält die Pack-Indizes schon; die App soll sie nicht noch einmal lesen.
 
