@@ -472,7 +472,7 @@ public class EditableRowsTabViewModelTests
 
     [Fact] public void The_row_commands_re_evaluate_when_the_row_count_changes()
     {
-        var (tab, _, history) = Make(2);
+        var (tab, document, history) = Make(2);
         var delete = 0; var duplicate = 0;
         tab.DeleteRowsCommand.CanExecuteChanged += (_, _) => delete++;
         tab.DuplicateRowsCommand.CanExecuteChanged += (_, _) => duplicate++;
@@ -480,7 +480,9 @@ public class EditableRowsTabViewModelTests
         Assert.True(tab.DeleteRowsCommand.CanExecute(null));
         var (d, u) = (delete, duplicate);
 
-        tab.DeleteRowsCommand.Execute(null);                            // the selection is stale now: nothing valid is left selected
+        // Through the history, not the command: a row command requests (and so sets) a new selection, a change of the document does not.
+        history.Execute(document.DeleteRows([1]));                      // the selection is stale now: nothing valid is left selected
+        Assert.Equal([1], tab.SelectedRows);
         Assert.True(delete > d && duplicate > u);
         Assert.False(tab.DeleteRowsCommand.CanExecute(null));
         Assert.False(tab.DuplicateRowsCommand.CanExecute(null));
