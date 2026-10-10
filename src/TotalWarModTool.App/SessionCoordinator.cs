@@ -20,6 +20,7 @@ public sealed class SessionCoordinator
     private readonly TabsViewModel _tabs;
     private readonly IAppLog _log;
     private readonly ProjectsController? _projects;
+    private readonly ObjectsController? _objects;
     private readonly bool _writable;
     private bool _restored;
 
@@ -31,8 +32,9 @@ public sealed class SessionCoordinator
     private PackCatalogResult? _lastCatalog;
 
     /// <param name="projects">The mod projects; null: entries of projects in the stored session are not brought back and fall out of the next save.</param>
+    /// <param name="objects">The object view; null: object tabs of the stored session are not brought back and fall out of the next save.</param>
     public SessionCoordinator(SessionStore store, SessionLoadResult loaded, WorkspaceController workspace, ExplorerViewModel explorer,
-        TabsViewModel tabs, IAppLog log, ProjectsController? projects = null)
+        TabsViewModel tabs, IAppLog log, ProjectsController? projects = null, ObjectsController? objects = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(loaded);
@@ -48,6 +50,7 @@ public sealed class SessionCoordinator
         _tabs = tabs;
         _log = log;
         _projects = projects;
+        _objects = objects;
 
         _writable = loaded.Status is not (LoadStatus.NewerVersion or LoadStatus.Unreadable);
         if (!_writable)
@@ -68,11 +71,12 @@ public sealed class SessionCoordinator
 
     /// <summary>
     /// The session as it is now: tabs in order (a project file is a tab with the key <c>project:&lt;guid&gt;</c> of its project), the index of
-    /// the selected tab (-1 without tabs), the expanded packs and then the expanded projects as <c>project:&lt;guid&gt;</c>.
+    /// the selected tab (-1 without tabs), the expanded packs and then the expanded projects as <c>project:&lt;guid&gt;</c>. An object tab
+    /// is stored with its history and the position in it.
     /// </summary>
     public SessionState Capture()
     {
-        var tabs = _tabs.Tabs.Select(tab => new SessionTab(tab.PackPath, tab.EntryPath)).ToList();
+        var tabs = _tabs.Tabs.Select(CaptureTab).ToList();
         var selected = _tabs.SelectedTab is { } tab ? _tabs.Tabs.IndexOf(tab) : -1;
         var expanded = _explorer.ExpandedPackPaths.Concat(_explorer.ExpandedProjectIds.Select(TabSource.KeyOf)).ToList();
         return new SessionState(tabs, tabs.Count == 0 ? -1 : Math.Max(selected, 0), expanded);
@@ -138,42 +142,57 @@ public sealed class SessionCoordinator
                 .Concat(projectResult.Tabs.Where(tab => _projects!.Projects.Any(state => state.Id == tab.ProjectId))
                     .Select(tab => new RestoredEntry(TabSource.ForProject(tab.ProjectId, tab.Name), tab.Entry)))
                 .ToList();
-            var ordered = new List<RestoredEntry>();
-            RestoredEntry? active = null;
+            // An object tab needs no catalog entry: it is made Idle from its stored history and built when it is activated. Without an
+            // objects controller it is dropped.
+            var ordered = new List<RestoredTab>();
+            RestoredTab? active = null;
             for (var i = 0; i < stored.Tabs.Count; i++)
             {
                 var saved = stored.Tabs[i];
-                var match = candidates.FirstOrDefault(candidate => IsTabOf(candidate, saved));
-                if (match is null)
+                RestoredTab? item = null;
+                if (saved.Object is { } savedObject)
                 {
-                    continue;
+                    if (_objects is not null)
+                    {
+                        item = new RestoredTab(null, _objects.CreateTab(ToHistory(savedObject), savedObject.Position));
+                        ordered.Add(item);
+                    }
+                }
+                else if (candidates.FirstOrDefault(candidate => IsTabOf(candidate, saved)) is { } match)
+                {
+                    item = ordered.Find(entry => ReferenceEquals(entry.File, match));
+                    if (item is null)
+                    {
+                        item = new RestoredTab(match, null);
+                        ordered.Add(item);
+                    }
                 }
 
-                if (!ordered.Exists(entry => ReferenceEquals(entry, match)))
+                if (item is not null && i == stored.ActiveTab)
                 {
-                    ordered.Add(match);
-                }
-
-                if (i == stored.ActiveTab)
-                {
-                    active = match;
+                    active = item;
                 }
             }
 
-            foreach (var restored in ordered)
+            foreach (var item in ordered)
             {
-                if (!_tabs.Tabs.Any(tab => IsTabOf(tab, restored)))
+                if (item.ObjectTab is { } objectTab)
                 {
-                    _tabs.Add(restored.Source, restored.Entry, schema, select: false);
+                    _tabs.AddTab(objectTab, select: false);
+                }
+                else if (!_tabs.Tabs.Any(tab => IsTabOf(tab, item.File!)))
+                {
+                    _tabs.Add(item.File!.Source, item.File.Entry, schema, select: false);
                 }
             }
 
             // Set explicitly: Add selects a tab on its own when nothing is selected, and that must not be the active one by accident.
-            // The stored active tab is the one to show; when it was dropped, the first tab is.
+            // The stored active tab is the one to show; when it was dropped, the first tab is. An object tab that is shown is built now (it is
+            // Idle), by the controller, and only when the runner is free.
             if (ordered.Count > 0)
             {
                 var shown = active ?? ordered[0];
-                _tabs.SelectedTab = _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, shown)) ?? _tabs.SelectedTab;
+                _tabs.SelectedTab = shown.ObjectTab ?? _tabs.Tabs.FirstOrDefault(tab => IsTabOf(tab, shown.File!)) ?? _tabs.SelectedTab;
             }
 
             _restored = true;
@@ -240,6 +259,12 @@ public sealed class SessionCoordinator
         SessionTab? activeTab = stored.ActiveTab >= 0 && stored.ActiveTab < stored.Tabs.Count ? stored.Tabs[stored.ActiveTab] : null;
         foreach (var tab in stored.Tabs)
         {
+            // An object tab is no entry of a pack: the coordinator restores it itself (the workspace would report it as a pack that is gone).
+            if (tab?.Object is not null)
+            {
+                continue;
+            }
+
             // A null tab is passed on: the workspace is the one that fails on it, and logs that.
             if (tab is not null && TabSource.TryGetProjectId(tab.PackPath, out var id))
             {
@@ -269,6 +294,14 @@ public sealed class SessionCoordinator
         return (new SessionState(packTabs, packActive, packPaths), projectTabs, projectIds);
     }
 
+    private static SessionTab CaptureTab(TabViewModel tab) => tab is ObjectTabViewModel objectTab
+        ? new SessionTab(objectTab.PackPath, objectTab.EntryPath, new SessionObjectTab(
+            objectTab.History.Select(entry => new SessionObjectRef(entry.Table, [.. entry.KeyValues], entry.RootPackPath)).ToList(), objectTab.Position))
+        : new SessionTab(tab.PackPath, tab.EntryPath);
+
+    private static List<ObjectRef> ToHistory(SessionObjectTab stored) =>
+        stored.History.Select(entry => new ObjectRef(entry.Table, [.. entry.KeyValues], entry.RootPackPath)).ToList();
+
     private static bool IsTabOf(TabViewModel tab, RestoredEntry restored) =>
         string.Equals(tab.PackPath, restored.Source.Key, StringComparison.OrdinalIgnoreCase)
         && string.Equals(tab.EntryPath, restored.Entry.EntryPath, StringComparison.OrdinalIgnoreCase);
@@ -279,4 +312,7 @@ public sealed class SessionCoordinator
 
     // A tab that came back, from a pack or from a project; Source.Key is the path of the pack or the key of the project.
     private sealed record RestoredEntry(TabSource Source, OpenedEntry Entry);
+
+    // One tab to bring back, in the stored order: a file (File) or an object tab that was made for it (ObjectTab).
+    private sealed record RestoredTab(RestoredEntry? File, ObjectTabViewModel? ObjectTab);
 }

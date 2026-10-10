@@ -1,3 +1,4 @@
+using TotalWarModTool.Objects;
 using TotalWarModTool.Session;
 using TotalWarModTool.Storage;
 using TotalWarModTool.Workspace;
@@ -458,6 +459,106 @@ public class SessionCoordinatorTests
 
             Assert.Equal(["a.txt"], main.Main.Tabs.Tabs.Select(t => t.Title));
             Assert.Empty(main.Main.Explorer.ExpandedProjectIds);
+            Assert.Equal(1, dirty);
+        }
+    }
+
+    private const string XEntry = "db/x_tables/data__";
+    private const string YEntry = "db/y_tables/data__";
+
+    // A game with the object schema, a vanilla pack (x_tables k1, k2; y_tables), loaded, and the controllers the composition root has.
+    private static async Task<(TestGame Game, WorkspaceController C, MainSetup Main, ObjectsController Objects, SessionStore Store)> CreateWithObjects()
+    {
+        var game = new TestGame(withSchema: false);
+        ObjectsTestSchema.WriteSchema(game);
+        ObjectsTestSchema.WriteVanillaPack(game, "data.pack", ObjectsTestSchema.XRows, ObjectsTestSchema.YRows);
+        File.WriteAllText(Path.Combine(game.InstallPath, LoadOrderResolver.UsedModsFileName), string.Empty);
+        ObjectsTestSchema.WriteLocPack(game);
+        var c = game.NewController(profile: ObjectsTestSchema.Profile);
+        await c.LoadAsync();
+        var main = game.NewMain(c, withDocuments: true);
+        var objects = new ObjectsController(c, main.Projects, main.Documents, main.Main.Tabs, game.Runner, game.Paths, game.Log, game.Texts,
+            key => key, main.Main.OpenEntryAsync, main.Main.OpenProjectFileAsync);
+        main.Main.Tabs.ObjectOpener = objects;
+        return (game, c, main, objects, new SessionStore(game.Paths.RoamingRoot, "testgame"));
+    }
+
+    private static SessionTab ObjectSessionTab(string table, string key, params SessionObjectRef[] history) =>
+        new(TabSource.ObjectPrefix + table, new ObjectId(table, [key]).ToString(), new SessionObjectTab(history, history.Length - 1));
+
+    [Fact] public async Task Restore_brings_back_object_tabs_in_order_without_building_them()
+    {
+        var (game, c, main, objects, store) = await CreateWithObjects();
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0].Path;
+            var objectTab = new SessionTab(TabSource.ObjectPrefix + "x_tables", new ObjectId("x_tables", ["k1"]).ToString(),
+                new SessionObjectTab([new SessionObjectRef("x_tables", ["k1"], null), new SessionObjectRef("x_tables", ["k2"], null)], 0));
+            store.Save(new SessionState([new(pack, XEntry), objectTab, new(pack, YEntry)], 0, []));
+            var session = new SessionCoordinator(store, store.Load(), c, main.Main.Explorer, main.Main.Tabs, game.Log, main.Projects, objects);
+            var dirty = 0; session.Dirty += (_, _) => dirty++;
+
+            await session.RestoreAsync();
+
+            var tabs = main.Main.Tabs.Tabs;
+            Assert.Equal(3, tabs.Count);
+            Assert.IsType<TableTabViewModel>(tabs[0]);
+            var restored = Assert.IsType<ObjectTabViewModel>(tabs[1]);
+            Assert.IsType<TableTabViewModel>(tabs[2]);
+            Assert.Equal(["k1", "k2"], restored.History.Select(entry => entry.JoinedKey));
+            Assert.Equal(0, restored.Position);
+            Assert.Equal(ObjectTabState.Idle, restored.State);                         // built when it is activated, not by the restore
+            Assert.Empty(game.Runner.Titles);
+            Assert.Same(tabs[0], main.Main.Tabs.SelectedTab);
+            Assert.Equal(0, dirty);                                                    // nothing was left out
+        }
+    }
+
+    [Fact] public async Task Save_writes_object_tabs_with_their_history()
+    {
+        var (game, c, main, objects, store) = await CreateWithObjects();
+        using (game)
+        {
+            var session = new SessionCoordinator(store, store.Load(), c, main.Main.Explorer, main.Main.Tabs, game.Log, main.Projects, objects);
+            await session.RestoreAsync();
+            var pack = c.Catalog!.Packs[0];
+            await main.Main.OpenEntryAsync(pack, XEntry);
+            var table = Assert.IsType<TableTabViewModel>(main.Main.Tabs.SelectedTab);
+            var index = Enumerable.Range(0, 100).First(i => table.KeyOfRow(i) is { } key && key.KeyValues.SequenceEqual(new[] { "k1" }));
+            objects.Show(table, table.KeyOfRow(index)!);
+            var tab = Assert.IsType<ObjectTabViewModel>(main.Main.Tabs.SelectedTab);
+            tab.NavigateTo(new ObjectId("x_tables", ["k2"]), newTab: false);
+
+            session.Save();
+
+            var saved = store.Load().State;
+            Assert.Equal(2, saved.Tabs.Count);
+            Assert.Null(saved.Tabs[0].Object);
+            var savedObject = saved.Tabs[1];
+            Assert.Equal((tab.PackPath, tab.EntryPath), (savedObject.PackPath, savedObject.EntryPath));
+            Assert.Equal(TabSource.ObjectPrefix + "x_tables", savedObject.PackPath);
+            Assert.Equal(1, savedObject.Object!.Position);
+            Assert.Equal(["k1", "k2"], savedObject.Object.History.Select(entry => string.Concat(entry.KeyValues)));
+            Assert.All(savedObject.Object.History, entry => Assert.Equal("x_tables", entry.Table));
+            Assert.Equal(1, saved.ActiveTab);
+        }
+    }
+
+    [Fact] public async Task Without_an_objects_controller_object_tabs_are_left_out()
+    {
+        var (game, c, main, _, store) = await CreateWithObjects();
+        using (game)
+        {
+            var pack = c.Catalog!.Packs[0].Path;
+            store.Save(new SessionState([new(pack, XEntry), ObjectSessionTab("x_tables", "k1", new SessionObjectRef("x_tables", ["k1"], null)), new(pack, YEntry)], 2, []));
+            var session = new SessionCoordinator(store, store.Load(), c, main.Main.Explorer, main.Main.Tabs, game.Log, main.Projects);
+            var dirty = 0; session.Dirty += (_, _) => dirty++;
+
+            await session.RestoreAsync();
+
+            Assert.All(main.Main.Tabs.Tabs, tab => Assert.IsType<TableTabViewModel>(tab));
+            Assert.Equal(2, main.Main.Tabs.Tabs.Count);
+            Assert.Same(main.Main.Tabs.Tabs[1], main.Main.Tabs.SelectedTab);           // the stored active tab, its index after the dropped one
             Assert.Equal(1, dirty);
         }
     }
