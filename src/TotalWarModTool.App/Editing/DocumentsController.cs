@@ -184,6 +184,11 @@ public sealed partial class DocumentsController
             return;
         }
 
+        if (next is FileContentsStep contentsStep && !CanRunContentsStep(contentsStep, undo))
+        {
+            return;
+        }
+
         IUndoableAction step;
         try
         {
@@ -197,7 +202,12 @@ public sealed partial class DocumentsController
             _log.Warn($"{what} of \"{DisplayText.Safe(next?.Description ?? string.Empty)}\" did not run and stays in the history: {DisplayText.Safe(ex.Message)}");
             // A missing project folder may never come back: that text names the way out (remove the project from the list).
             var detail = DisplayText.Safe(ex.Message, MaxDetailChars, " (" + _texts.TextShortened + ")");
-            var text = ex is ProjectUnreachableException ? _texts.FileStepProjectUnreachable : _texts.FileStepDeferred;
+            var text = ex switch
+            {
+                ProjectUnreachableException => _texts.FileStepProjectUnreachable,
+                FileContentsChangedException changedFile => _texts.FileContentsStepChanged(Shown(changedFile.RelativeFile)),
+                _ => _texts.FileStepDeferred,
+            };
             _dialogs.ShowMessage(undo ? _texts.EditUndoBlockedTitle : _texts.EditRedoBlockedTitle, MessageText.WithDetail(text, detail));
             return;
         }
@@ -245,6 +255,10 @@ public sealed partial class DocumentsController
         if (plan is not null)
         {
             ApplyFileStep(plan);
+        }
+        else if (step is FileContentsStep contents)
+        {
+            ApplyContentsStep(contents);
         }
 
         SelectTabOf(step);

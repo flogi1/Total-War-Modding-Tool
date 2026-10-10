@@ -580,6 +580,8 @@ Ablauf `ApplyAsync(tab)` (Festlegungen):
 
 ### Task 6: Undo eines Übernehmens (`DocumentsController` und `FileContentsStep`)
 
+**Status:** erledigt; `ObjectApplyControllerTests` 24/24, `DocumentsControllerTests` 23/23, `DocumentsControllerSavingTests`/`ExternalTests` 47/47 je, `ProjectFilesControllerTests` 57/57, `AppTextsTests` grün, Build ohne Warnung. Abweichung: eigener Text `FileContentsStepChanged` statt `FileStepFileChanged` (siehe Spec).
+
 Spec 5.9 (Undo wählt den Objekt-Tab, Schließen entfernt die Schritte nicht, Raster-Tabs melden die Außen-Änderung), 7 („Undo, Datei seither geändert“).
 
 **Files:**

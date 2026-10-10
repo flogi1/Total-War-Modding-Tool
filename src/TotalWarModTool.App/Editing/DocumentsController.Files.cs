@@ -1,3 +1,4 @@
+using TotalWarModTool.Editing;
 using TotalWarModTool.Projects;
 
 namespace TotalWarModTool.App;
@@ -13,6 +14,12 @@ public sealed partial class DocumentsController
     /// raised when the step failed.
     /// </summary>
     public event EventHandler<Guid>? FileStepApplied;
+
+    /// <summary>
+    /// Raised after the undo or redo of a <see cref="FileContentsStep"/> ran (not when it failed or was deferred), with the step. The object
+    /// apply controller selects and rebuilds the tab the step came from.
+    /// </summary>
+    public event EventHandler<FileContentsStep>? FileContentsStepApplied;
 
     /// <summary>
     /// Raised after the undo or redo of a <see cref="FileStep"/> closed the tab of a file that the step renamed: the file should be opened
@@ -32,6 +39,33 @@ public sealed partial class DocumentsController
         ArgumentNullException.ThrowIfNull(relativeFile);
         return _tabs.Tabs.Where(tab => TabSource.TryGetProjectId(tab.PackPath, out var id) && id == projectId && SameFile(tab.EntryPath, relativeFile)).ToList();
     }
+
+    // A step of the contents of files runs only when no editable tab holds unsaved work of one of its files (the write would overwrite it). The
+    // tab is selected and the message shown otherwise. No tab is closed by such a step: the files stay, only their contents change.
+    private bool CanRunContentsStep(FileContentsStep step, bool undo)
+    {
+        var tabs = step.Files.SelectMany(file => TabsOfFile(step.ProjectId, file)).Distinct().ToList();
+        if (FirstTabWithUnsavedWork(tabs) is not { } unsaved)
+        {
+            return true;
+        }
+
+        _tabs.SelectedTab = unsaved;
+        _dialogs.ShowMessage(undo ? _texts.EditUndoBlockedTitle : _texts.EditRedoBlockedTitle, _texts.FileTabUnsaved(Shown(unsaved.EntryPath)));
+        return false;
+    }
+
+    // After a step of the contents ran: the explorer lists the files again, the object tab it came from is shown and built again, and the
+    // open tabs of the files notice the change at once instead of at the next activation of the window.
+    private void ApplyContentsStep(FileContentsStep step)
+    {
+        FileStepApplied?.Invoke(this, step.ProjectId);
+        FileContentsStepApplied?.Invoke(this, step);
+        CheckExternalChangesDetached();
+    }
+
+    // The check never throws (see CheckExternalChangesAsync); nothing waits for it.
+    private async void CheckExternalChangesDetached() => await CheckExternalChangesAsync();
 
     /// <summary>
     /// The first tab among <paramref name="tabs"/> that holds work a file operation would lose: an editable tab that differs from its last

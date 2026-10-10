@@ -724,6 +724,18 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   wird dann als veraltet markiert, weil es nicht mehr zur Platte passt.
 - **„Übernehmen“ in der Frage „Übernehmen, Verwerfen, Abbrechen“** zeigt den Sperrgrund, wenn der Tab nicht
   übernehmen kann (veraltet, Pack nicht in der Ladereihenfolge, kein Projekt); der Text bleibt dann stehen.
+- **Undo und Redo eines Übernehmens (`FileContentsStep`):** Der Schritt sperrt wie ein `FileStep`, wenn ein
+  Raster-Tab einer seiner Dateien ungespeicherte Änderungen hält (Meldung, Tab wird gewählt, der Schritt
+  bleibt). Danach melden Explorer und Raster-Tabs die Änderung sofort (Außen-Check ohne Fensterwechsel).
+  Es werden keine Tabs geschlossen.
+- **Datei seither geändert:** Ist eine Datei nicht mehr so, wie der Schritt sie hinterlassen hat, läuft der
+  Schritt nicht und **bleibt** im Verlauf. Die Meldung ist ein eigener Text (`file.contentsStepChanged`),
+  nicht der Text des `FileStep`, denn dieser sagt, der Schritt sei entfernt worden.
+- **Objekt-Tab nach Undo oder Redo:** Der Tab, von dem das Übernehmen kam, wird gewählt und neu gebaut,
+  wenn er noch offen ist und dasselbe Objekt zeigt; sonst bleibt die Auswahl, wie sie ist. Hat der Tab
+  inzwischen ungeübernommenen Text, wird dieser **nicht** verworfen: der Tab wird als veraltet markiert
+  (Aktualisieren fragt dann „Übernehmen, Verwerfen, Abbrechen“).
+- **Schließen des Objekt-Tabs** lässt seine Schritte im Verlauf (bestätigt, wie in 5.9 beschrieben).
 
 ## 6. Verworfene Alternativen
 

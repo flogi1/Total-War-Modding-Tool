@@ -346,6 +346,7 @@
   "file.furtherStepsRemoved": "Further steps of the history for the file {0} were removed as well, because they no longer match the folder. Removed steps: {1}.",
   "file.stepTrashFiles": "These files stay in the trash, and no step brings them back. The log lists them too:",
   "file.stepMoreTrashFiles": "Further files in the trash, listed in the log: {0}.",
+  "file.contentsStepChanged": "The file {0} was changed after this step left it, so the step did not run. It stays in the history; undo or redo it again once the file is as the step left it.",
   "file.stepDeferred": "The file is in use by another program, or the file system refused the change. Nothing was changed, and the step stays in the history. Close the other program or check your permissions, then try again.",
   "file.stepProjectUnreachable": "The project folder cannot be reached, so nothing was changed and the step stays in the history. If the folder is only disconnected (for example a network drive), reconnect it and try again. If it was moved or deleted, remove the project from the list: its steps then leave the history, and files it put into the trash stay there and are named in the log.",
   "file.newTable.title": "New table",

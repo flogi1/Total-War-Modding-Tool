@@ -491,4 +491,143 @@ public class ObjectApplyControllerTests
         Assert.EndsWith(setup.Texts.ObjectsApplyResultWarnings(1), tab.ResultLine);
         Assert.True(setup.History.CanUndo);
     }
+
+    // An applied label change of k1 with the object tab and the step in the history; returns the tab.
+    private static async Task<ObjectTabViewModel> AppliedAsync(Setup setup)
+    {
+        var tab = await ShowK1Async(setup);
+        Edit(tab, LabelLine, "  label = Changed");
+        await ApplyAsync(tab);
+        Assert.IsType<FileContentsStep>(setup.History.NextUndo);
+        return tab;
+    }
+
+    [Fact] public async Task Undo_of_an_apply_selects_and_rebuilds_the_tab_it_came_from()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await AppliedAsync(setup);
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        var builds = setup.Builds("k1");
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        Assert.Single(setup.RowsOf(ProjectFileA));
+        Assert.Same(tab, setup.Tabs.SelectedTab);
+        Assert.Equal(builds + 1, setup.Builds("k1"));
+        Assert.Equal(SourceKind.Vanilla, tab.Result!.View.Root!.Provenance.Source.Kind);
+
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        setup.Main.Documents.RedoCommand.Execute(null);
+
+        Assert.Equal(2, setup.RowsOf(ProjectFileA).Count);
+        Assert.Same(tab, setup.Tabs.SelectedTab);
+        Assert.Equal(builds + 2, setup.Builds("k1"));
+        Assert.Equal(SourceKind.Project, tab.Result!.View.Root!.Provenance.Source.Kind);
+    }
+
+    [Fact] public async Task Undo_of_an_apply_whose_tab_is_closed_runs_and_selects_nothing()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await AppliedAsync(setup);
+        setup.Tabs.CloseWithoutAsking(tab);
+        Assert.Empty(setup.Objects.ObjectTabs);
+        Assert.True(setup.History.CanUndo);
+        var selected = setup.Tabs.SelectedTab;
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        Assert.Single(setup.RowsOf(ProjectFileA));
+        Assert.Empty(setup.Objects.ObjectTabs);
+        Assert.Same(selected, setup.Tabs.SelectedTab);
+        Assert.False(setup.History.CanUndo);
+    }
+
+    [Fact] public async Task Undo_of_an_apply_whose_tab_moved_on_to_another_object_rebuilds_nothing()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await AppliedAsync(setup);
+        tab.NavigateTo(new ObjectId("x_tables", ["k2"]), newTab: false);
+        Assert.Equal(ObjectTabState.Ready, tab.State);
+        var builds = (setup.Builds("k1"), setup.Builds("k2"));
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        Assert.Single(setup.RowsOf(ProjectFileA));
+        Assert.Equal("k2", tab.Current.JoinedKey);
+        Assert.Equal(builds, (setup.Builds("k1"), setup.Builds("k2")));
+    }
+
+    [Fact] public async Task Undo_of_an_apply_keeps_text_typed_since_and_marks_the_tab_stale()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await AppliedAsync(setup);
+        Edit(tab, "  label = Changed", "  label = Typed after the apply");
+        var typed = tab.Text;
+        var builds = setup.Builds("k1");
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        Assert.Single(setup.RowsOf(ProjectFileA));
+        Assert.Equal(typed, tab.Text);
+        Assert.True(tab.IsStale);
+        Assert.Equal(builds, setup.Builds("k1"));
+    }
+
+    [Fact] public async Task Undo_of_an_apply_is_blocked_by_an_unsaved_grid_tab()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        await AppliedAsync(setup);
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        var grid = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        grid.Rows[0][1] = "Edited in the grid";
+        Assert.True(grid.IsModified);
+
+        // The edit of the grid sits on top of the apply in the history; leave only the apply there, as it is when that edit was discarded.
+        setup.History.RemoveWhere(step => step is DocumentEdit);
+        var applyStep = Assert.IsType<FileContentsStep>(setup.History.NextUndo);
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        var (_, message) = Assert.Single(setup.Main.EditDialogs!.Messages);
+        Assert.Equal(setup.Texts.FileTabUnsaved("db/x_tables/a.tsv"), message);
+        Assert.Same(applyStep, setup.History.NextUndo);
+        Assert.Equal(2, setup.RowsOf(ProjectFileA).Count);
+        Assert.Same(grid, setup.Tabs.SelectedTab);
+    }
+
+    [Fact] public async Task Undo_of_an_apply_marks_the_open_grid_tab_of_the_file_as_changed_outside()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        await AppliedAsync(setup);
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        var grid = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        Assert.False(grid.IsStaleOutside);
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        // The undo starts the check of the open files itself; it runs on a pool thread, so wait for its mark.
+        for (var i = 0; i < 100 && !grid.IsStaleOutside; i++)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.True(grid.IsStaleOutside);
+    }
+
+    [Fact] public async Task Undo_of_an_apply_whose_file_changed_since_keeps_the_step_and_names_the_file()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        await AppliedAsync(setup);
+        var foreign = File.ReadAllText(setup.ProjectFile(ProjectFileA)) + "# written by another program\n";
+        File.WriteAllText(setup.ProjectFile(ProjectFileA), foreign);
+        var step = setup.History.NextUndo;
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        var (_, message) = Assert.Single(setup.Main.EditDialogs!.Messages);
+        Assert.Contains(setup.Texts.FileContentsStepChanged(ProjectFileA), message);
+        Assert.Same(step, setup.History.NextUndo);
+        Assert.Equal(foreign, File.ReadAllText(setup.ProjectFile(ProjectFileA)));
+    }
 }

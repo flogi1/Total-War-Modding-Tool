@@ -346,6 +346,7 @@
   "file.furtherStepsRemoved": "Weitere Schritte des Verlaufs für die Datei {0} wurden ebenfalls entfernt, weil sie nicht mehr zum Ordner passen. Entfernte Schritte: {1}.",
   "file.stepTrashFiles": "Diese Dateien bleiben im Papierkorb, kein Schritt holt sie zurück. Das Log nennt sie ebenfalls:",
   "file.stepMoreTrashFiles": "Weitere Dateien im Papierkorb, die das Log nennt: {0}.",
+  "file.contentsStepChanged": "Die Datei {0} wurde geändert, nachdem dieser Schritt sie verlassen hat, deshalb lief der Schritt nicht. Er bleibt im Verlauf; mache ihn rückgängig oder stelle ihn wieder her, sobald die Datei so ist, wie der Schritt sie hinterlassen hat.",
   "file.stepDeferred": "Die Datei wird von einem anderen Programm benutzt, oder das Dateisystem hat die Änderung abgelehnt. Es wurde nichts geändert, und der Schritt bleibt im Verlauf. Schließe das andere Programm oder prüfe deine Berechtigungen und versuche es dann erneut.",
   "file.stepProjectUnreachable": "Der Projektordner ist nicht erreichbar, deshalb wurde nichts geändert, und der Schritt bleibt im Verlauf. Ist der Ordner nur getrennt (zum Beispiel ein Netzlaufwerk), verbinde ihn wieder und versuche es erneut. Wurde er verschoben oder gelöscht, entferne das Projekt aus der Liste: Seine Schritte verlassen dann den Verlauf, und Dateien, die es in den Papierkorb gelegt hat, bleiben dort und stehen im Log.",
   "file.newTable.title": "Neue Tabelle",

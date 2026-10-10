@@ -143,6 +143,11 @@ public sealed partial class AppTexts
     /// <param name="count">How many trash paths are not shown in the message.</param>
     public string FileStepMoreTrashFiles(int count) => F("file.stepMoreTrashFiles", "Further files in the trash, listed in the log: {0}.", count);
 
+    /// <param name="file">The file, escaped. Data, not a UI text.</param>
+    public string FileContentsStepChanged(string file) => F("file.contentsStepChanged",
+        "The file {0} was changed after this step left it, so the step did not run. It stays in the history; undo or redo it again once the file is as the step left it.",
+        file);
+
     public string FileStepDeferred => T("file.stepDeferred",
         "The file is in use by another program, or the file system refused the change. Nothing was changed, and the step stays in the history. Close the other program or check your permissions, then try again.");
 

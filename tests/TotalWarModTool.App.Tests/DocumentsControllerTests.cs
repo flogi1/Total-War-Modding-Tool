@@ -618,4 +618,25 @@ public class DocumentsControllerTests
             Assert.Equal(2, reopen.Count);
         }
     }
+
+    [Fact] public async Task A_file_contents_step_is_planned_like_a_file_step_and_raises_the_applied_events()
+    {
+        var text = TableText("db/x_tables/a", 42);
+        using var setup = await CreateAsync((@"db\x_tables\a.tsv", text));
+        var path = Path.Combine(setup.Project.Folder, "pack", "db", "x_tables", "a.tsv");
+        var entry = new FileContentsEntry(@"db\x_tables\a.tsv", "the text before", text, FileFingerprint.TryRead(path)!, []);
+        var step = new FileContentsStep(setup.Project.Id, setup.Project.Folder, "Apply: test", [entry], setup.Game.Root.File("trash"), TimeProvider.System);
+        setup.History.Record(step);
+        var applied = new List<Guid>();
+        var contents = new List<FileContentsStep>();
+        setup.Controller.FileStepApplied += (_, id) => applied.Add(id);
+        setup.Controller.FileContentsStepApplied += (_, ran) => contents.Add(ran);
+
+        setup.Controller.UndoCommand.Execute(null);
+
+        Assert.Equal([setup.Project.Id], applied);
+        Assert.Same(step, Assert.Single(contents));
+        Assert.Equal("the text before", File.ReadAllText(path));
+        Assert.False(setup.History.CanUndo);
+    }
 }

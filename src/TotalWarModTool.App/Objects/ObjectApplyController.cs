@@ -74,6 +74,7 @@ public sealed class ObjectApplyController
         _log = log;
         _texts = texts;
         _time = time;
+        documents.FileContentsStepApplied += OnContentsStepApplied;
     }
 
     /// <summary>Raised after an apply changed the files of the project (the explorer lists them again).</summary>
@@ -136,6 +137,25 @@ public sealed class ObjectApplyController
         return _origins.TryGetValue(step, out var origin) && _objects.ObjectTabs.Contains(origin.Tab) && origin.Tab.Current.Equals(origin.Object)
             ? origin.Tab
             : null;
+    }
+
+    // The undo or redo of an apply ran: the tab it came from (if it is still open and shows the same object) is selected and built again. Text
+    // typed since the apply is not thrown away: the tab keeps it and is marked as outdated instead.
+    private void OnContentsStepApplied(object? sender, FileContentsStep step)
+    {
+        if (TabOf(step) is not { } tab)
+        {
+            return;
+        }
+
+        _documents.Tabs.SelectedTab = tab;
+        if (tab.HasUnappliedText)
+        {
+            tab.MarkStale();
+            return;
+        }
+
+        tab.BuildHandler?.Invoke(tab);
     }
 
     /// <summary>The text of a failed write for the dialog: the kind and the file; for a failed rollback every file with its state.</summary>

@@ -129,8 +129,9 @@ internal sealed class TestGame : IDisposable
         var dialogs = new FakeProjectDialogs();
         var commands = new ProjectsViewModel(projects, dialogs, Texts);
         var history = new TotalWarModTool.UndoRedo.ActionHistory();
+        var editDialogs = new FakeEditDialogs();
         DocumentsController? documents = withDocuments || withFiles
-            ? new DocumentsController(new TabsViewModel(Texts), projects, history, runner ?? Runner, new FakeEditDialogs(), Log, Texts)
+            ? new DocumentsController(new TabsViewModel(Texts), projects, history, runner ?? Runner, editDialogs, Log, Texts)
             : null;
         if (documents is not null)
         {
@@ -150,7 +151,7 @@ internal sealed class TestGame : IDisposable
         }
 
         var main = new MainViewModel(Texts, Paths, _ => { }, runner ?? Runner, () => { }, workspace, null, projects, commands, documents, files);
-        return new MainSetup(main, projects, dialogs, documents, files, fileDialogs, history);
+        return new MainSetup(main, projects, dialogs, documents, files, fileDialogs, history, editDialogs);
     }
 
     /// <summary>Creates a project (it becomes the active one when it is the first) and writes the given files below its pack folder.</summary>
@@ -191,7 +192,7 @@ internal sealed class TestGame : IDisposable
 
 /// <summary>What <see cref="TestGame.NewMain"/> built.</summary>
 internal sealed record MainSetup(MainViewModel Main, ProjectsController Projects, FakeProjectDialogs Dialogs, DocumentsController? Documents = null,
-    ProjectFilesViewModel? Files = null, FakeFileDialogs? FileDialogs = null, TotalWarModTool.UndoRedo.ActionHistory? History = null);
+    ProjectFilesViewModel? Files = null, FakeFileDialogs? FileDialogs = null, TotalWarModTool.UndoRedo.ActionHistory? History = null, FakeEditDialogs? EditDialogs = null);
 
 /// <summary>A Steam source that finds no Steam installation.</summary>
 internal sealed class NoSteam : ISteamLocationSource
