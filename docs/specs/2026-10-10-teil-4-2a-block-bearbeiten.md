@@ -389,6 +389,19 @@ jeder Task im selben Commit ergänzt):
   Aufbaus sind Zeilen der Art `Annotation` ohne Text (im Text leere Zeilen).
 - Ein Abschnittskopf trägt `.feld`, wenn `ObjectView.Sections` dieselbe Tabelle mehr als einmal
   enthält, auch mit leeren Abschnitten, nicht nur wenn der Text sie zeigt.
+- Diagnosen haben `Kind` und `Detail` (kurzes technisches Englisch) statt einer Meldung; die App
+  übersetzt nach `Kind`. Der Parser kennt die Arten `UnknownLineForm`, `HeadChanged`, `UnknownField`,
+  `UnknownSection`, `HiddenSection`, `FieldWithoutRow`, `SentenceMismatch`, `FieldRepeated`,
+  `ControlCharacter`, `UnterminatedText` (Fehler) sowie `RootFieldMissing`, `EmptyText` (Warnungen).
+- Parser: Ein Abschnittskopf, der nicht aufgelöst werden kann (unbekannt, versteckt, Feld nötig),
+  überspringt seine Zeilen ohne Folgefehler. Ein zweiter Kopf derselben `(Tabelle, Feld)` ist
+  `UnknownSection` („section repeated“); seine Zeilen werden trotzdem gelesen.
+- Parser: Ein Wert mit den zwei Zeichen `\t` oder `\n` ist `ControlCharacter` (Regel 2). Echte Werte
+  mit diesen Zeichenfolgen würden dadurch beim Round-Trip abgelehnt; Task 6 misst, ob es sie gibt.
+- Parser: Satzzeilen werden gegen den Text ohne Entfernen der Leerzeichen am Ende gelesen, damit
+  `allows ` (Platzhalter leer) zum Muster passt; Platzhalterwerte werden getrimmt.
+- Der Kategorie-Loader lehnt ein Muster mit zwei Platzhaltern ohne Text dazwischen ab (Detail
+  „pattern has two placeholders without text between them.“).
 
 ### 5.4 Übernehmen: Zielregeln
 

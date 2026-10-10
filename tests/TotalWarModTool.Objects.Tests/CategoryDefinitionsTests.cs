@@ -55,6 +55,7 @@ public class CategoryDefinitionsTests
     [InlineData("bad_mode.json", """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "mode": "foo" } ] }""")]
     [InlineData("no_pattern.json", """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "mode": "sentence" } ] }""")]
     [InlineData("open_brace.json", """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "mode": "sentence", "pattern": "needs {tech" } ] }""")]
+    [InlineData("adjacent.json", """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "mode": "sentence", "pattern": "{a}{b}" } ] }""")]
     [InlineData("no_table.json", """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "mode": "list" } ] }""")]
     [InlineData("hidden_text.json", """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "hidden": "yes" } ] }""")]
     [InlineData("array_root.json", "[]")]
@@ -69,6 +70,30 @@ public class CategoryDefinitionsTests
         var problem = Assert.Single(result.Problems);
         Assert.Equal(name, problem.FileName);
         Assert.False(string.IsNullOrWhiteSpace(problem.Detail));
+    }
+
+    [Fact]
+    public void Adjacent_placeholders_are_rejected_with_a_detail()
+    {
+        using var tmp = new TempDir();
+
+        var result = Load(tmp, ("adjacent.json",
+            """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "mode": "sentence", "pattern": "needs {a}{b}" } ] }"""));
+
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("two placeholders without text between them", problem.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Placeholders_with_text_between_them_are_accepted()
+    {
+        using var tmp = new TempDir();
+
+        var result = Load(tmp, ("ok.json",
+            """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "mode": "sentence", "pattern": "{a} to {b}" } ] }"""));
+
+        Assert.Empty(result.Problems);
+        Assert.Single(result.ByRootTable);
     }
 
     [Fact]

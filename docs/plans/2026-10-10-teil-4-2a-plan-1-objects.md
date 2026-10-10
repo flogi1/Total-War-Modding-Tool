@@ -228,7 +228,7 @@ Festlegungen:
 - `ParsedObject.Id = baseline.Id`.
 - Kategorie-Loader: ein Muster, in dem zwei Platzhalter direkt aufeinander folgen (`{a}{b}`), ist ungültig: Detail `pattern has two placeholders without text between them.`
 
-- [ ] **Step 1: Failing Tests** in `ObjectTextParserTests.cs` (Baseline-View über die Helfer aus `BlockTextTests`; Graph aus `TestSchema.Build` mit `building_levels_tables` (Key `level_name`, Felder `chain` ref `building_chains_tables.key`, `create_cost` I32, `note`), `effects_tables` (`building` ref `building_levels_tables.level_name`, `effect` Key, `scope`, `value` F32), `units_tables` (`building` ref, `unit` ref `units_def_tables.key`, `xp` I32, kein Key), `upgrades_tables` (Junction: `from` ref, `to` ref), Kategorie mit Sentence `allows {unit}` für `units_tables`):
+- [x] **Step 1: Failing Tests** in `ObjectTextParserTests.cs` (Baseline-View über die Helfer aus `BlockTextTests`; Graph aus `TestSchema.Build` mit `building_levels_tables` (Key `level_name`, Felder `chain` ref `building_chains_tables.key`, `create_cost` I32, `note`), `effects_tables` (`building` ref `building_levels_tables.level_name`, `effect` Key, `scope`, `value` F32), `units_tables` (`building` ref, `unit` ref `units_def_tables.key`, `xp` I32, kein Key), `upgrades_tables` (Junction: `from` ref, `to` ref), Kategorie mit Sentence `allows {unit}` für `units_tables`):
 
 ```csharp
 [Fact] public void The_rendered_text_parses_without_diagnostics()  // Parse(RenderBlock(view).Text) hat 0 Diagnostics; Root-Felder, Sections und Rows zählen wie die View.
@@ -258,10 +258,12 @@ In `CategoryDefinitionsTests`: `[InlineData("adjacent.json", "... \"pattern\": \
 
 In `BlockTextTests`: `[Fact] public void Render_then_parse_gives_no_diagnostics_for_every_kind_of_row()` – eine View mit Listenzeile (zwei Schlüssel), keyless Zeile, Satzzeile, Junction-Zeile, Wurzeltext, Zeilentext, leerem Wurzelfeld, Wert mit ` = `: `Parse(RenderBlock(view).Text, view, category, graph).Diagnostics` ist leer. (Die Differenz-Freiheit prüft Task 3.)
 
-- [ ] **Step 2: RED** – Filter `FullyQualifiedName~ObjectTextParserTests` baut nicht.
-- [ ] **Step 3: Implementieren** – Zeilenweise Zustandsmaschine (Zustand: vor Kopf, Wurzel, Abschnitt mit aktueller Zeile). Muster rückwärts in einer privaten Funktion `TryMatchPattern(parts, text, out values)`. Der Loader prüft nach `TryParsePattern`, ob zwei `IsPlaceholder`-Teile aufeinander folgen.
-- [ ] **Step 4: GREEN** – `dotnet test tests/TotalWarModTool.Objects.Tests`, `dotnet build TotalWarModTool.slnx`.
-- [ ] **Step 5: Commit** – `git add` der vier Dateien plus Tests, `git commit -m "feat: parse the block text into a parsed object with diagnostics"`.
+- [x] **Step 2: RED** – Filter `FullyQualifiedName~ObjectTextParserTests` baut nicht.
+- [x] **Step 3: Implementieren** – Zeilenweise Zustandsmaschine (Zustand: vor Kopf, Wurzel, Abschnitt mit aktueller Zeile). Muster rückwärts in einer privaten Funktion `TryMatchPattern(parts, text, out values)`. Der Loader prüft nach `TryParsePattern`, ob zwei `IsPlaceholder`-Teile aufeinander folgen.
+- [x] **Step 4: GREEN** – `dotnet test tests/TotalWarModTool.Objects.Tests`, `dotnet build TotalWarModTool.slnx`.
+- [x] **Step 5: Commit** – `git add` der vier Dateien plus Tests, `git commit -m "feat: parse the block text into a parsed object with diagnostics"`.
+
+> **Status Task 2: erledigt (2026-10-10).** Objects-Tests 184 grün, 5 übersprungen; Build ohne Warnung. Test-Fixture `BlockFixture.cs` (Schema, Graph, Kategorie, Views) für Task 3 und 4. Risiko (Ruling, siehe Spec „Festlegungen aus Plan 1“): ein wörtliches `\t` oder `\n` im Wert ist `ControlCharacter`; Task 6 misst, ob echte Werte es enthalten.
 
 ---
 

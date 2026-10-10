@@ -203,10 +203,19 @@ public static class CategoryDefinitions
                 return null;
             }
 
-            if (!ObjectText.TryParsePattern(pattern, out _))
+            if (!ObjectText.TryParsePattern(pattern, out var parts))
             {
                 detail = where + "pattern has an unclosed or empty {placeholder}.";
                 return null;
+            }
+
+            for (var i = 1; i < parts.Count; i++)
+            {
+                if (parts[i].IsPlaceholder && parts[i - 1].IsPlaceholder)
+                {
+                    detail = where + "pattern has two placeholders without text between them.";
+                    return null;
+                }
             }
         }
 

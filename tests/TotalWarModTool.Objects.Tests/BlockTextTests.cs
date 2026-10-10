@@ -324,6 +324,21 @@ public class BlockTextTests
         Assert.Equal("note = a = b  c", Text(block.Lines[1]));
     }
 
+    [Fact]
+    public void Render_then_parse_gives_no_diagnostics_for_every_kind_of_row()
+    {
+        var view = BlockFixture.EveryKind();
+
+        var block = ObjectText.RenderBlock(view, BlockFixture.Category);
+        var parsed = ObjectTextParser.Parse(block.Text, view, BlockFixture.Category, BlockFixture.Graph);
+
+        Assert.Empty(parsed.Diagnostics);
+        // The category's rule order first (units), then the rest alphabetically.
+        Assert.Equal(["units_tables", "effects_tables", "notes_tables", "upgrades_tables", "variants_tables"], parsed.Sections.Select(s => s.SourceTable).ToArray());
+        Assert.Equal("a = b  c", parsed.Root.Single(f => f.Name == "note").Text);
+        Assert.Equal("He said \"hi\" \\ x", Assert.Single(parsed.Texts).Text);
+    }
+
     [Theory]
     [InlineData("He said \"hi\"", "\"He said \\\"hi\\\"\"")]
     [InlineData("a\\b", "\"a\\\\b\"")]
