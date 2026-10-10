@@ -567,5 +567,9 @@ public class ObjectsControllerTests
 
         Assert.Empty(tab.Diagnostics);
         Assert.Null(setup.Controller.Stores);
+
+        // The tab stops a check while its schema is stale; the controller must not make stores either when asked directly.
+        Assert.Null(tab.CheckHandler!(tab));
+        Assert.Null(setup.Controller.Stores);
     }
 }
