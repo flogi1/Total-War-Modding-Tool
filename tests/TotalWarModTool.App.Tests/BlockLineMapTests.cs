@@ -174,4 +174,52 @@ public class BlockLineMapTests
         Assert.Empty(resolved.Spans);
         Assert.Null(map.IntactLineAt(99));
     }
+
+    [Fact]
+    public void Create_aligns_an_edited_text_to_the_baseline()
+    {
+        var block = Block();
+        var lines = block.Text.Split('\n').ToList();
+        lines[1] = "  effect = w";
+        lines.Insert(3, "  extra = 1");
+        var document = new TextDocument(string.Join('\n', lines));
+
+        var map = BlockLineMap.Create(document, block);
+
+        Assert.False(map.Resolve(2).IsIntact);
+        Assert.Null(map.DocumentLineOf(1));
+        Assert.False(map.Resolve(4).IsIntact);
+        Assert.Same(block.Lines[0], map.IntactLineAt(1));
+        Assert.Same(block.Lines[2], map.IntactLineAt(3));
+        Assert.Equal(5, map.DocumentLineOf(3));
+        Assert.Equal(7, map.DocumentLineOf(5));
+        Assert.Equal(["  ", "chain", " = ", "chain1"], map.Resolve(3).Spans.Select(s => s.Text));
+    }
+
+    [Fact]
+    public void Create_of_an_unchanged_text_is_like_the_constructor()
+    {
+        var block = Block();
+        var map = BlockLineMap.Create(new TextDocument(block.Text), block);
+
+        for (var i = 0; i < block.Lines.Count; i++)
+        {
+            Assert.Equal(i + 1, map.DocumentLineOf(i));
+        }
+    }
+
+    [Fact]
+    public void Create_keeps_following_edits_through_its_anchors()
+    {
+        var block = Block();
+        var lines = block.Text.Split('\n').ToList();
+        lines[1] = "  effect = w";
+        var document = new TextDocument(string.Join('\n', lines));
+        var map = BlockLineMap.Create(document, block);
+
+        document.Insert(document.GetLineByNumber(3).Offset, "  new = 1\n");
+
+        Assert.Equal(4, map.DocumentLineOf(2));
+        Assert.False(map.Resolve(3).IsIntact);
+    }
 }

@@ -105,4 +105,20 @@ public class BlockFoldingTests
 
         Assert.Empty(BlockFolding.Compute(block, StartOffsets(block.Text), threshold: 1, preview: 3));
     }
+
+    [Fact]
+    public void Foldings_from_line_ends_skip_a_section_whose_lines_are_gone()
+    {
+        var block = Block(25, 1);
+        var starts = StartOffsets(block.Text);
+        int? EndOf(int line) => EndOfLine(block.Text, starts, line);
+
+        var folding = Assert.Single(BlockFolding.Compute(block, EndOf));
+        Assert.Equal(Assert.Single(BlockFolding.Compute(block, starts)), folding);
+
+        var last = block.Sections[0].LastLine;
+        Assert.Empty(BlockFolding.Compute(block, line => line == last ? null : EndOf(line)));
+        var fifth = block.Sections[0].Rows[4].LastLine;
+        Assert.Empty(BlockFolding.Compute(block, line => line == fifth ? null : EndOf(line)));
+    }
 }

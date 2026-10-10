@@ -238,13 +238,12 @@ public sealed partial class ObjectEditorView : UserControl
         SetReadOnlyHead();
     }
 
-    // The map belongs to the baseline block and exists only while the document still holds exactly its text; typing keeps it (anchors follow).
+    // The map belongs to the baseline block. A document with unapplied text (the tab is shown again) is matched to the block line by line;
+    // typing keeps the map (anchors follow).
     private void RebuildMap()
     {
         _map?.Dispose();
-        _map = _tab?.Block is { } block && string.Equals(Editor.Text, block.Text, StringComparison.Ordinal)
-            ? new BlockLineMap(Editor.Document, block)
-            : null;
+        _map = _tab?.Block is { } block ? BlockLineMap.Create(Editor.Document, block) : null;
         UpdateFoldings();
         Editor.TextArea.TextView.Redraw();
     }
@@ -256,14 +255,8 @@ public sealed partial class ObjectEditorView : UserControl
         if (_map is not null && _tab?.Block is { } block && Editor.Document.TextLength > 0)
         {
             var document = Editor.Document;
-            var starts = new int[document.LineCount + 1];
-            for (var i = 0; i < document.LineCount; i++)
-            {
-                starts[i] = document.GetLineByNumber(i + 1).Offset;
-            }
-
-            starts[^1] = document.TextLength;
-            foreach (var folding in BlockFolding.Compute(block, starts))
+            var map = _map;
+            foreach (var folding in BlockFolding.Compute(block, line => map.DocumentLineOf(line) is { } number ? document.GetLineByNumber(number).EndOffset : null))
             {
                 foldings.Add((folding, new NewFolding(folding.StartOffset, folding.EndOffset) { Name = _tab.Texts.ObjectsMoreRows(folding.HiddenRows) }));
             }

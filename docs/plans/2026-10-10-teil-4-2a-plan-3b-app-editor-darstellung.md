@@ -23,6 +23,7 @@
 - Task 7 erledigt (BlockFolding, `ExpandedSections`, Faltungen in der View; Faltungstitel „+ N weitere Zeilen“).
 - Task 8 erledigt (Strg+Klick, Umschalt, mittlere Taste, Handcursor über `TextView.Cursor`; Position über `GetPositionFloor`, damit die rechte Zeichenhälfte am Ende eines Links noch trifft).
 - Task 9 erledigt (Changelog, Backlog, Spec; Verifikation: Build ohne Warnung, alle Library-Testprojekte grün, die zwölf App-Testklassen dieses Plans einzeln grün; volle Suite und Abnahme stehen mit dem Nutzer aus). Hinweis zur Abnahme 4: Die Prüfung beim Tippen läuft ohne Referenzprüfung, die gelbe Linie für einen unbekannten Referenzschlüssel erscheint deshalb nicht beim Tippen, sondern die Warnung kommt beim Übernehmen.
+- Abschlussreview (Opus, ganzer Branch) erledigt: 2 Befunde behoben (Absturz beim Cursor in einer Zeile nur mit Anhängsel; Anzeige weg nach Tabwechsel mit ungeübernommenem Text), 3 Minor im Backlog.
 
 **Testregel** (mit dem Nutzer vereinbart): Subagenten starten nie `dotnet test TotalWarModTool.slnx` und nie das ganze App-Testprojekt. Library-Tests sind frei. Einzelne Testklassen der App über `--filter "FullyQualifiedName~<Klasse>"`, immer nur ein Lauf zur Zeit. Es arbeitet immer nur ein bauender Subagent; Reviewer bauen und testen nicht. Den vollen Lauf macht der Controller einmal am Ende, nach dem Okay des Nutzers.
 

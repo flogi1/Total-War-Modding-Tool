@@ -579,4 +579,79 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    // A build with a warning: the block has an empty annotation line under the head that holds only a trailing.
+    private static ObjectBuildResult WarningResult()
+    {
+        var order = new LoadOrder([Vanilla], null, []);
+        var view = new ObjectView(Id("a"), Row("v"), [], [], [new ObjectWarning(ObjectWarningKind.SourceProblem, null, "a source problem")], order, [Table]);
+        return new ObjectBuildResult(view, order, null, new Dictionary<string, string> { [Table] = "sig" }, "loc",
+            new LocTable(new Dictionary<string, LocText>(), []));
+    }
+
+    [Fact] public void The_caret_can_enter_and_leave_a_line_that_holds_only_a_trailing() => Sta.Run(() =>
+    {
+        var tab = Tab(WarningResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var area = view.Editor.TextArea;
+            var document = view.Editor.Document;
+            Assert.Equal(0, document.GetLineByNumber(2).Length);
+            Assert.Single(TrailingsOf(view, 2));
+
+            area.Caret.Offset = 0;
+            System.Windows.Documents.EditingCommands.MoveDownByLine.Execute(null, area);
+            Pump(window);
+            Assert.Equal(2, area.Caret.Line);
+
+            area.Caret.Position = new TextViewPosition(2, 1);
+            System.Windows.Documents.EditingCommands.MoveRightByCharacter.Execute(null, area);
+            Pump(window);
+            Assert.Equal(3, area.Caret.Line);
+
+            System.Windows.Documents.EditingCommands.MoveLeftByCharacter.Execute(null, area);
+            Pump(window);
+            Assert.Equal(2, area.Caret.Line);
+            System.Windows.Documents.EditingCommands.MoveUpByLine.Execute(null, area);
+            Pump(window);
+            Assert.Equal(1, area.Caret.Line);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void A_tab_with_unapplied_text_shows_colours_trailings_and_foldings_when_its_view_is_made_again() => Sta.Run(() =>
+    {
+        var tab = Tab(LongResult());
+        var number = 2;
+        var (first, firstWindow) = Create(tab);
+        try
+        {
+            var line = first.Editor.Document.GetLineByNumber(number);
+            first.Editor.Document.Replace(line.Offset, line.Length, "  effect = changed");
+        }
+        finally
+        {
+            firstWindow.Close();
+        }
+
+        Assert.True(tab.HasUnappliedText);
+        var (view, window) = Create(tab);
+        try
+        {
+            Assert.Equal(tab.Text, view.Editor.Text);
+            Assert.Single(TrailingsOf(view, 1));
+            Assert.Empty(TrailingsOf(view, number));
+            var folding = Assert.Single(view.Foldings.AllFoldings);
+            Assert.True(folding.IsFolded);
+            Assert.Single(TrailingsOf(view, 4));
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

@@ -15,8 +15,19 @@ public static class BlockFolding
     public static IReadOnlyList<SectionFolding> Compute(BlockText block, IReadOnlyList<int> lineStartOffsets,
         int threshold = ObjectText.DefaultCollapseThreshold, int preview = ObjectText.DefaultCollapsedPreview)
     {
-        ArgumentNullException.ThrowIfNull(block);
         ArgumentNullException.ThrowIfNull(lineStartOffsets);
+        return Compute(block, line => EndOfLine(lineStartOffsets, line), threshold, preview);
+    }
+
+    /// <summary>
+    /// Like the overload with line starts, with the end offset of a 0-based line of the block as a function; null when the line is not in the
+    /// document any more. A section whose first or last needed line is gone has no folding.
+    /// </summary>
+    public static IReadOnlyList<SectionFolding> Compute(BlockText block, Func<int, int?> endOfLine,
+        int threshold = ObjectText.DefaultCollapseThreshold, int preview = ObjectText.DefaultCollapsedPreview)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+        ArgumentNullException.ThrowIfNull(endOfLine);
         var result = new List<SectionFolding>();
         var shown = Math.Max(1, preview);
         foreach (var section in block.Sections)
@@ -27,9 +38,7 @@ public static class BlockFolding
                 continue;
             }
 
-            var start = EndOfLine(lineStartOffsets, section.Rows[shown - 1].LastLine);
-            var end = EndOfLine(lineStartOffsets, section.LastLine);
-            if (end > start)
+            if (endOfLine(section.Rows[shown - 1].LastLine) is { } start && endOfLine(section.LastLine) is { } end && end > start)
             {
                 result.Add(new SectionFolding(section.Section, start, end, hidden));
             }

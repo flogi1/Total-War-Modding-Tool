@@ -29,7 +29,11 @@ internal sealed class TrailingElement : FormattedTextElement
     // Without this the visual line adds an implicit caret stop behind the last element, which would be a stop inside the trailing.
     public override bool HandlesLineBorders => true;
 
-    public override int GetNextCaretPosition(int visualColumn, LogicalDirection direction, CaretPositioningMode mode) => -1;
+    // The only stop is the place in front of the trailing, so a line that holds nothing else still has a caret position; none lies inside it.
+    public override int GetNextCaretPosition(int visualColumn, LogicalDirection direction, CaretPositioningMode mode) =>
+        direction == LogicalDirection.Forward
+            ? visualColumn < VisualColumn ? VisualColumn : -1
+            : visualColumn > VisualColumn ? VisualColumn : -1;
 }
 
 /// <summary>

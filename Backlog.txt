@@ -368,8 +368,10 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Der Tooltip eines Links zeigt nur den Namen; eine Kurzbeschreibung gehört zum Backlog von 4.1
 - Der Faltzustand wird über `TextView.VisualLinesChanged` zurückgemeldet, weil der `FoldingManager` kein eigenes Ereignis hat; ein Ereignis wäre genauer
 - Der Vorschlagskatalog (4.2b) nutzt `TextArea.TextEntered`
+- Nach einem Tabwechsel mit ungeübernommenem Text und innerhalb von 300 ms nach dem Tippen läuft die Prüfung nicht neu; beim Wiederanzeigen `Check()` anstoßen, wenn Text da ist und kein Prüfergebnis
+- Eine Faltzeile hat einen zusätzlichen Cursor-Halt zwischen Anhängsel und Faltungstext (gleicher Dokument-Offset, ein Rechtsdruck springt nur optisch)
+- Englisch „1 errors in the text.“ bei genau einem Fehler (wie „1 warnings“); eine Pluralform braucht die Lokalisierung
 - Das Faltsymbol am linken Rand nutzt die Standardfarben von AvalonEdit; mit den Theme-Tokens färben, falls es im dunklen Theme stört
-- Eine Zeile, die nur ein Anhängsel hat (Warnung des Aufbaus, leere Zeile), hat für den Cursor keinen eigenen Halt am Zeilenanfang; in der Abnahme prüfen
 
 == Aus Teil 4.2a Plan 3a (App) zurückgestellt ==
 

@@ -768,6 +768,11 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   dem Text. Der Faltzustand liegt im Tab (`ExpandedSections`, Abschnittsindizes des Objekts); die View meldet eine
   Änderung über `TextView.VisualLinesChanged` zurück (der `FoldingManager` hat kein eigenes Ereignis). Er bleibt über
   `ApplyResult` und wird bei einem Objektwechsel geleert.
+- **Tab mit ungeübernommenem Text wird wieder angezeigt:** Die View ordnet die Zeilen der Baseline den Zeilen des Textes
+  der Reihe nach über gleichen Zeilentext zu (`BlockLineMap.Create`; größte gemeinsame Teilfolge, ab etwa vier Millionen
+  Zeilenpaaren nur Anfang und Ende). Gleiche Zeilen behalten Farben, Anhängsel und Links, eine Faltung gibt es, wenn ihre
+  beiden Randzeilen noch vorhanden sind. Der Cursor hat in einer Zeile, die nur ein Anhängsel hat (Warnung des Aufbaus),
+  genau einen Halt vor dem Anhängsel.
 - **Theme-Wechsel zur Laufzeit:** Der Editor färbt über `TryFindResource` beim Zeichnen; ein Wechsel wirkt beim
   nächsten Redraw (Scrollen, Tippen, neuer Block), siehe Backlog.
 - **Anhängsel im Editor:** gedämpft (`ObjectTrailing`); Herkunft, überschriebene Quellen, Duplikat- und
