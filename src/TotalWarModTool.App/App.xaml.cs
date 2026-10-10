@@ -220,7 +220,10 @@ public partial class App : Application
         // window closed again. That close is posted, because a window cannot be closed from inside its own Closing event.
         window.Closing += (_, closing) =>
         {
-            if (!documents.RequestAppClose(() => window.Dispatcher.BeginInvoke(window.Close)))
+            // First the object tabs with unapplied text, then the documents; a second Closing event after "apply" or "discard" finds no unapplied
+            // text any more and goes on to the documents.
+            Action post = () => window.Dispatcher.BeginInvoke(window.Close);
+            if (!objectApply.RequestAppClose(post) || !documents.RequestAppClose(post))
             {
                 closing.Cancel = true;
             }

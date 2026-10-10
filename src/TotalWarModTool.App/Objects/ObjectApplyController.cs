@@ -39,6 +39,11 @@ public sealed class ObjectApplyController
     // One apply at a time: the questions are modal, but the command may be asked again between two runs.
     private bool _applying;
 
+    // The object tabs whose close question is open, and the state of the question when the app is closed (like DocumentsController).
+    private readonly HashSet<ObjectTabViewModel> _closing = [];
+    private bool _closingApp;
+    private bool _appCloseConfirmed;
+
     private sealed record StepOrigin(ObjectTabViewModel Tab, ObjectRef Object);
 
     private abstract record CheckOutcome;
@@ -75,6 +80,11 @@ public sealed class ObjectApplyController
         _texts = texts;
         _time = time;
         documents.FileContentsStepApplied += OnContentsStepApplied;
+
+        // The close of an object tab with unapplied text asks first; every other tab goes on to the guard the documents set before.
+        var tabs = documents.Tabs;
+        var previous = tabs.CanClose;
+        tabs.CanClose = tab => tab is ObjectTabViewModel objectTab ? CanCloseObjectTab(objectTab, previous) : previous?.Invoke(tab) ?? true;
     }
 
     /// <summary>Raised after an apply changed the files of the project (the explorer lists them again).</summary>
@@ -130,6 +140,41 @@ public sealed class ObjectApplyController
         }
     }
 
+    /// <summary>
+    /// Like <c>DocumentsController.RequestAppClose</c>, for the object tabs with unapplied text: true when the window may close (no such tab, or the
+    /// question was answered with apply or discard before); false when an operation runs, a question is open, or the question is started now and
+    /// <paramref name="close"/> is called when it ended with "go on". The composition root asks this first, then the documents.
+    /// </summary>
+    public bool RequestAppClose(Action close)
+    {
+        ArgumentNullException.ThrowIfNull(close);
+        if (_runner.IsRunning)
+        {
+            // A confirmation that was given before this event and is not used now is void: the operation may change what is open.
+            _appCloseConfirmed = false;
+            return false;
+        }
+
+        if (_appCloseConfirmed)
+        {
+            _appCloseConfirmed = false;
+            return true;
+        }
+
+        if (!_objects.ObjectTabs.Any(tab => tab.HasUnappliedText))
+        {
+            return true;
+        }
+
+        if (!_closingApp)
+        {
+            _closingApp = true;
+            ConfirmAppCloseDetached(close);
+        }
+
+        return false;
+    }
+
     /// <summary>The tab a <see cref="FileContentsStep"/> came from, if it is still open and shows the same object; null otherwise.</summary>
     internal ObjectTabViewModel? TabOf(FileContentsStep step)
     {
@@ -137,6 +182,75 @@ public sealed class ObjectApplyController
         return _origins.TryGetValue(step, out var origin) && _objects.ObjectTabs.Contains(origin.Tab) && origin.Tab.Current.Equals(origin.Object)
             ? origin.Tab
             : null;
+    }
+
+    private bool CanCloseObjectTab(ObjectTabViewModel tab, Func<TabViewModel, bool>? previous)
+    {
+        if (!tab.HasUnappliedText)
+        {
+            return previous?.Invoke(tab) ?? true;
+        }
+
+        if (_closing.Add(tab))
+        {
+            ConfirmCloseDetached(tab);
+        }
+
+        return false;
+    }
+
+    // async void on purpose, as the guards of the documents: a close guard cannot be awaited, and what can go wrong at the edge is logged here.
+    private async void ConfirmCloseDetached(ObjectTabViewModel tab)
+    {
+        try
+        {
+            if (await LeaveAsync(tab))
+            {
+                _documents.Tabs.CloseWithoutAsking(tab);
+            }
+        }
+        catch (Exception ex) when (IsEdgeFailure(ex))
+        {
+            _log.Error("Closing an object tab with unapplied text failed unexpectedly.", ex);
+        }
+        finally
+        {
+            _closing.Remove(tab);
+        }
+    }
+
+    private async void ConfirmAppCloseDetached(Action close)
+    {
+        var goOn = false;
+        try
+        {
+            // One question per tab, in tab order; a "cancel" (or an apply that did not work) stops the close, nothing more is asked.
+            goOn = true;
+            foreach (var tab in _objects.ObjectTabs.Where(tab => tab.HasUnappliedText).ToList())
+            {
+                if (!await LeaveAsync(tab))
+                {
+                    goOn = false;
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (IsEdgeFailure(ex))
+        {
+            goOn = false;
+            _log.Error("Closing the app with unapplied object text failed unexpectedly.", ex);
+        }
+        finally
+        {
+            _closingApp = false;
+        }
+
+        if (goOn)
+        {
+            // Set before the window is closed again: that Closing event must not ask a second time.
+            _appCloseConfirmed = true;
+            close();
+        }
     }
 
     // The undo or redo of an apply ran: the tab it came from (if it is still open and shows the same object) is selected and built again. Text

@@ -649,6 +649,8 @@ und in `DocumentsControllerTests.cs`:
 
 ### Task 7: Guards für Schließen (Tab, App) mit ungeübernommenem Text
 
+**Status:** erledigt; `ObjectApplyControllerTests` 29/29 grün, Build ohne Warnung. `App.xaml.cs`: `Closing` fragt erst `objectApply.RequestAppClose`, dann die Dokumente.
+
 Spec 5.7 (Schließen und App-Schließen fragen), 5.9 (Session speichert keinen Text).
 
 **Files:**

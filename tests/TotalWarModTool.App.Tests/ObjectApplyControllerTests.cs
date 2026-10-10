@@ -630,4 +630,98 @@ public class ObjectApplyControllerTests
         Assert.Same(step, setup.History.NextUndo);
         Assert.Equal(foreign, File.ReadAllText(setup.ProjectFile(ProjectFileA)));
     }
+
+    [Fact] public async Task Closing_a_tab_with_unapplied_text_asks_first()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await ShowK1Async(setup);
+        Edit(tab, LabelLine, "  label = Changed");
+
+        setup.Dialogs.UnappliedAnswer = SaveChoice.Cancel;
+        setup.Tabs.Close(tab);
+        Assert.Contains(tab, setup.Tabs.Tabs);
+        Assert.Equal(["k1"], setup.Dialogs.UnappliedAsks);
+        Assert.True(tab.HasUnappliedText);
+
+        setup.Dialogs.UnappliedAnswer = SaveChoice.Discard;
+        setup.Tabs.Close(tab);
+        Assert.DoesNotContain(tab, setup.Tabs.Tabs);
+        Assert.Single(setup.RowsOf(ProjectFileA));
+        Assert.False(setup.History.CanUndo);
+
+        var again = await ShowK1Async(setup);
+        Edit(again, LabelLine, "  label = Changed");
+        setup.Dialogs.UnappliedAnswer = SaveChoice.Save;
+        setup.Tabs.Close(again);
+        Assert.DoesNotContain(again, setup.Tabs.Tabs);
+        Assert.Equal(2, setup.RowsOf(ProjectFileA).Count);
+        Assert.True(setup.History.CanUndo);
+        Assert.Equal(3, setup.Dialogs.UnappliedAsks.Count);
+    }
+
+    [Fact] public async Task Closing_a_tab_without_unapplied_text_and_a_grid_tab_do_not_ask_the_object_question()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await ShowK1Async(setup);
+        setup.Tabs.Close(tab);
+        Assert.DoesNotContain(tab, setup.Tabs.Tabs);
+
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        var grid = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        grid.Rows[0][1] = "Edited in the grid";
+
+        setup.Tabs.Close(grid);
+
+        Assert.Empty(setup.Dialogs.UnappliedAsks);
+        Assert.Single(setup.Main.EditDialogs!.UnsavedAsks);                     // the guard of the documents still answers for the grid
+        Assert.Contains(grid, setup.Tabs.Tabs);
+    }
+
+    [Fact] public async Task Closing_the_app_asks_for_unapplied_text_before_the_documents_do()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        var grid = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        grid.Rows[0][1] = "Edited in the grid";
+        var tab = await ShowK1Async(setup);
+        Edit(tab, LabelLine, "  label = Changed");
+        var closes = 0;
+
+        // Cancel: nothing is closed and the documents are not asked.
+        setup.Dialogs.UnappliedAnswer = SaveChoice.Cancel;
+        Assert.False(setup.Apply.RequestAppClose(() => closes++));
+        Assert.Equal((0, 1), (closes, setup.Dialogs.UnappliedAsks.Count));
+        Assert.Empty(setup.Main.EditDialogs!.UnsavedAsks);
+
+        // Discard: the close is asked for; the next request passes and the documents are asked next.
+        setup.Dialogs.UnappliedAnswer = SaveChoice.Discard;
+        Assert.False(setup.Apply.RequestAppClose(() => closes++));
+        Assert.Equal(1, closes);
+        Assert.Equal(tab.BaselineText, tab.Text);
+        Assert.True(setup.Apply.RequestAppClose(() => closes++));
+        Assert.False(setup.Main.Documents!.RequestAppClose(() => closes++));
+        Assert.Single(setup.Main.EditDialogs.UnsavedAsks);
+        Assert.Equal(2, setup.Dialogs.UnappliedAsks.Count);
+    }
+
+    [Fact] public async Task Closing_the_app_without_unapplied_text_passes_without_asking()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        await ShowK1Async(setup);
+
+        Assert.True(setup.Apply.RequestAppClose(() => { }));
+        Assert.Empty(setup.Dialogs.UnappliedAsks);
+    }
+
+    [Fact] public async Task Closing_the_app_while_an_operation_runs_is_refused_without_asking()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var tab = await ShowK1Async(setup);
+        Edit(tab, LabelLine, "  label = Changed");
+        setup.Runner.IsRunning = true;
+
+        Assert.False(setup.Apply.RequestAppClose(() => { }));
+
+        Assert.Empty(setup.Dialogs.UnappliedAsks);
+    }
 }
