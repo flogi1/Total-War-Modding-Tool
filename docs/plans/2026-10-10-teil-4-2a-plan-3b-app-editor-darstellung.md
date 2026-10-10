@@ -21,6 +21,7 @@
 - Task 5 erledigt (Check beim Tippen, Sperrgründe „N Fehler“ und „Nichts geändert“; die drei Apply-Tests mit Dialog für Parse-, Typ- und Leerzeichenfehler sind auf die Ablehnung durch die Prüfung umgestellt).
 - Task 6 erledigt (EditorHover, DiagnosticRenderer, `DisplayNameOf`; Test des Renderers prüft `Underlines()` und dass `Draw` etwas zeichnet, weil sich der Pen eines Zeichenvorgangs nicht auslesen lässt; `view.ToolTipAt(Point)` ist die testbare Hover-Schnittstelle).
 - Task 7 erledigt (BlockFolding, `ExpandedSections`, Faltungen in der View; Faltungstitel „+ N weitere Zeilen“).
+- Task 8 erledigt (Strg+Klick, Umschalt, mittlere Taste, Handcursor über `TextView.Cursor`; Position über `GetPositionFloor`, damit die rechte Zeichenhälfte am Ende eines Links noch trifft).
 
 **Testregel** (mit dem Nutzer vereinbart): Subagenten starten nie `dotnet test TotalWarModTool.slnx` und nie das ganze App-Testprojekt. Library-Tests sind frei. Einzelne Testklassen der App über `--filter "FullyQualifiedName~<Klasse>"`, immer nur ein Lauf zur Zeit. Es arbeitet immer nur ein bauender Subagent; Reviewer bauen und testen nicht. Den vollen Lauf macht der Controller einmal am Ende, nach dem Okay des Nutzers.
 

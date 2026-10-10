@@ -501,4 +501,82 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    private static Point PointOf(ObjectEditorView view, int line, int column)
+    {
+        var textView = view.Editor.TextArea.TextView;
+        var point = textView.GetVisualPosition(new TextViewPosition(line, column), VisualYPosition.LineMiddle) - textView.ScrollOffset;
+        return new Point(point.X + 1, point.Y);
+    }
+
+    [Fact] public void Ctrl_click_on_a_link_navigates_and_a_plain_click_does_not() => Sta.Run(() =>
+    {
+        var tab = Tab(LinkResult());
+        var builds = 0;
+        tab.BuildHandler = _ => builds++;
+        var (view, window) = Create(tab);
+        try
+        {
+            var number = LineOf(view, "chain = chain1");
+            var onName = PointOf(view, number, 4);
+            var onLink = PointOf(view, number, 13);
+
+            Assert.False(view.TryOpenLinkAt(onName, false));
+            Assert.Equal(0, tab.Position);
+
+            Assert.True(view.TryOpenLinkAt(onLink, false));
+            Assert.Equal((1, 1), (tab.Position, builds));
+            Assert.Equal(Chain, tab.Current.ToObjectId());
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void A_changed_line_is_not_a_link() => Sta.Run(() =>
+    {
+        var tab = Tab(LinkResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var number = LineOf(view, "chain = chain1");
+            var line = view.Editor.Document.GetLineByNumber(number);
+            view.Editor.Document.Replace(line.EndOffset - 1, 1, "2");
+            Pump(window);
+
+            Assert.False(view.TryOpenLinkAt(PointOf(view, number, 13), false));
+            Assert.Equal(0, tab.Position);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void Shift_or_middle_opens_a_new_tab() => Sta.Run(() =>
+    {
+        var tab = Tab(LinkResult());
+        var opened = new List<ObjectRef>();
+        tab.OpenHandler = (_, target, newTab) =>
+        {
+            Assert.True(newTab);
+            opened.Add(target);
+        };
+        var (view, window) = Create(tab);
+        try
+        {
+            var number = LineOf(view, "chain = chain1");
+
+            Assert.True(view.TryOpenLinkAt(PointOf(view, number, 13), true));
+
+            Assert.Equal(Chain, Assert.Single(opened).ToObjectId());
+            Assert.Equal(0, tab.Position);
+            Assert.Single(tab.History);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

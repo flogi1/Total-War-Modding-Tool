@@ -9,6 +9,7 @@ using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Folding;
 using ICSharpCode.AvalonEdit.Rendering;
+using TotalWarModTool.Objects;
 
 namespace TotalWarModTool.App;
 
@@ -55,6 +56,10 @@ public sealed partial class ObjectEditorView : UserControl
         Editor.TextArea.TextView.LineTransformers.Add(new BlockColorizer(() => _map, key => Editor.TryFindResource(key) as Brush));
         _diagnostics = new DiagnosticRenderer(() => _tab?.Diagnostics ?? [], key => Editor.TryFindResource(key) as Brush);
         Editor.TextArea.TextView.BackgroundRenderers.Add(_diagnostics);
+        Editor.TextArea.PreviewMouseDown += OnPreviewMouseDown;
+        Editor.TextArea.PreviewMouseMove += OnPreviewMouseMove;
+        Editor.TextArea.PreviewKeyUp += (_, _) => ShowLinkCursor(false);
+        Editor.TextArea.TextView.MouseLeave += (_, _) => ShowLinkCursor(false);
         Editor.TextArea.TextView.MouseHover += OnMouseHover;
         Editor.TextArea.TextView.MouseHoverStopped += (_, _) => _hoverToolTip.IsOpen = false;
         Editor.TextArea.TextView.ElementGenerators.Add(new TrailingGenerator(() => _map, () => _tab, key => Editor.TryFindResource(key) as Brush));
@@ -89,12 +94,67 @@ public sealed partial class ObjectEditorView : UserControl
     internal string? ToolTipAt(Point viewPoint)
     {
         var textView = Editor.TextArea.TextView;
-        if (_tab is null || textView.GetPosition(viewPoint + textView.ScrollOffset) is not { } position)
+        if (_tab is null || textView.GetPositionFloor(viewPoint + textView.ScrollOffset) is not { } position)
         {
             return null;
         }
 
         return EditorHover.ToolTipAt(_tab, _map, position.Line, position.Column - 1, _tab.Texts);
+    }
+
+    /// <summary>
+    /// Opens the target of the Link span under the point (view coordinates of the text view) in the tab, or in a new tab; false when the point is not
+    /// on a link of an intact line.
+    /// </summary>
+    internal bool TryOpenLinkAt(Point viewPoint, bool newTab)
+    {
+        if (LinkAt(viewPoint) is not { Target: { } target })
+        {
+            return false;
+        }
+
+        _tab!.NavigateTo(target, newTab);
+        return true;
+    }
+
+    private TextSpan? LinkAt(Point viewPoint)
+    {
+        var textView = Editor.TextArea.TextView;
+        return _tab is not null && textView.GetPositionFloor(viewPoint + textView.ScrollOffset) is { } position
+            ? EditorHover.LinkAt(_map, position.Line, position.Column - 1)
+            : null;
+    }
+
+    // Ctrl+click follows a link (Shift: in a new tab), the middle button opens it in a new tab; a click without Ctrl only places the caret.
+    private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        var point = e.GetPosition(Editor.TextArea.TextView);
+        var open = e.ChangedButton switch
+        {
+            MouseButton.Left when Keyboard.Modifiers.HasFlag(ModifierKeys.Control) => TryOpenLinkAt(point, Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)),
+            MouseButton.Middle => TryOpenLinkAt(point, true),
+            _ => false,
+        };
+        if (open)
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnPreviewMouseMove(object sender, MouseEventArgs e) =>
+        ShowLinkCursor(Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && LinkAt(e.GetPosition(Editor.TextArea.TextView)) is not null);
+
+    // The cursor of the text view wins over the one the text area sets, so the hand stays while Ctrl is held over a link.
+    private void ShowLinkCursor(bool show)
+    {
+        if (show)
+        {
+            Editor.TextArea.TextView.Cursor = Cursors.Hand;
+        }
+        else
+        {
+            Editor.TextArea.TextView.ClearValue(CursorProperty);
+        }
     }
 
     private void OnMouseHover(object? sender, MouseEventArgs e)
