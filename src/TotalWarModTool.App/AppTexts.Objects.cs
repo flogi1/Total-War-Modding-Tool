@@ -75,4 +75,24 @@ public sealed partial class AppTexts
 
     /// <param name="key">The joined key of the object (data, escaped by the caller).</param>
     public string ObjectsBuilding(string key) => F("objects.building", "Building object {0}", key);
+
+    // Titles of the shipped category files. The object tab translates the keys of the category data at run time;
+    // the properties make the locale check see the keys as used.
+    public string ObjectsCategoryBuilding => T("objects.category.building", "Building");
+
+    public string ObjectsSectionNames => T("objects.section.names", "Names and descriptions");
+
+    public string ObjectsSectionEffects => T("objects.section.effects", "Effects");
+
+    public string ObjectsSectionUnits => T("objects.section.units", "Units");
+
+    public string ObjectsSectionUpgradesTo => T("objects.section.upgradesTo", "Upgrades to");
+
+    public string ObjectsSectionUpgradesFrom => T("objects.section.upgradesFrom", "Upgrades from");
+
+    public string ObjectsSectionRequirements => T("objects.section.requirements", "Requirements");
+
+    public string ObjectsSectionRequiredBuildings => T("objects.section.requiredBuildings", "Required buildings");
+
+    public string ObjectsSectionDowngrades => T("objects.section.downgrades", "Downgrades");
 }

@@ -396,5 +396,14 @@
   "objects.targetUnknown": "Target unknown: no row and no text for this value.",
   "objects.reason.noGame": "The game folder was not found, so the game data cannot be read.",
   "objects.reason.noSchema": "No schema is loaded, so the tables cannot be decoded.",
-  "objects.building": "Building object {0}"
+  "objects.building": "Building object {0}",
+  "objects.category.building": "Building",
+  "objects.section.names": "Names and descriptions",
+  "objects.section.effects": "Effects",
+  "objects.section.units": "Units",
+  "objects.section.upgradesTo": "Upgrades to",
+  "objects.section.upgradesFrom": "Upgrades from",
+  "objects.section.requirements": "Requirements",
+  "objects.section.requiredBuildings": "Required buildings",
+  "objects.section.downgrades": "Downgrades"
 }

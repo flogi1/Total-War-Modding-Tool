@@ -26,5 +26,9 @@ public static class ThemePalette
         new("InactiveSelection", "#E0E0E0", "#3A3D41"),
         new("Separator", "#A0A0A0", "#4A4D50"),
         new("Warning", "#B45309", "#E0A040"),
+        new("ObjectVanilla", "#2E7D32", "#7CC47F"),
+        new("ObjectMod", "#1565C0", "#6FA8DC"),
+        new("ObjectProject", "#AD1457", "#E57FB3"),
+        new("ObjectLocText", "#5D4037", "#C9A27E"),
     ];
 }

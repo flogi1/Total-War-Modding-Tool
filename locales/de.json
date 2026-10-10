@@ -396,5 +396,14 @@
   "objects.targetUnknown": "Ziel unbekannt: keine Zeile und kein Text für diesen Wert.",
   "objects.reason.noGame": "Der Spielordner wurde nicht gefunden, daher lassen sich die Spieldaten nicht lesen.",
   "objects.reason.noSchema": "Es ist kein Schema geladen, daher lassen sich die Tabellen nicht dekodieren.",
-  "objects.building": "Objekt {0} wird aufgebaut"
+  "objects.building": "Objekt {0} wird aufgebaut",
+  "objects.category.building": "Gebäude",
+  "objects.section.names": "Namen und Beschreibungen",
+  "objects.section.effects": "Effekte",
+  "objects.section.units": "Einheiten",
+  "objects.section.upgradesTo": "Ausbau zu",
+  "objects.section.upgradesFrom": "Ausbau von",
+  "objects.section.requirements": "Voraussetzungen",
+  "objects.section.requiredBuildings": "Benötigte Gebäude",
+  "objects.section.downgrades": "Rückbau"
 }

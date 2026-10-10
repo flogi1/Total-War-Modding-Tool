@@ -5,6 +5,7 @@ public class AppOutputTests
     // The content of the app project flows into the output folder of this test project.
     [Theory]
     [InlineData(@"profiles\warhammer_3.json")]
+    [InlineData(@"profiles\warhammer_3\objects\building_levels_tables.json")]
     [InlineData(@"schemas\schema_wh3.ron")]
     [InlineData(@"schemas\LICENSE")]
     [InlineData(@"schemas\README.md")]
