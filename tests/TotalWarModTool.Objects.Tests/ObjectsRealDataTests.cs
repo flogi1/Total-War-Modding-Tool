@@ -322,6 +322,10 @@ public class ObjectsRealDataTests
         Assert.All(copiedUnits.Rows, r => Assert.DoesNotContain(r.Fields.First(f => f.Name == "key").Text, sourceKeys));
         Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
         Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+
+        var copyChanges = ObjectCopy.Changes(result, context.Order, CategoryOf, context.Graph, null);
+        Assert.Equal(changes.Rows.Count, copyChanges.Rows.Count);
+        Assert.Empty(ObjectCopy.TakenKeys(copyChanges, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
     }
 
     [RealDataFact] public void Copying_a_trait_copies_its_levels_as_sub_objects()
@@ -355,6 +359,11 @@ public class ObjectsRealDataTests
             Assert.Equal("character_trait_levels_tables", sub.Id.Table);
             Assert.StartsWith(newId.KeyValues[0] + "_", sub.Id.KeyValues[0], StringComparison.Ordinal);
         });
+
+        var changes = ObjectCopy.Changes(result, context.Order, CategoryOf, context.Graph, null);
+        Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(ObjectCopy.TakenKeys(changes, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
     }
 
     [RealDataFact] public void No_value_holds_a_control_character_or_the_dialect_escape()

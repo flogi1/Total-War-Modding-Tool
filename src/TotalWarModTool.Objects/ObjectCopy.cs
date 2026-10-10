@@ -21,11 +21,16 @@ public sealed record CopyResult(IReadOnlyList<ParsedObject> Objects, IReadOnlyLi
 /// <summary>A new value for an integer key field of a copied row (table with suffix, field name). Returns the value as text.</summary>
 public delegate string NewIntegerKey(string table, string field);
 
+/// <summary>A key an insert of a copy would write although the load order or another row of the same copy has it. Table with suffix; KeyValues in key field order.</summary>
+public sealed record TakenKey(string Table, IReadOnlyList<string> KeyValues);
+
 /// <summary>"Copy as": an object written under a new key (spec 5.8). A pure function apart from the <c>build</c> callback.</summary>
 public static class ObjectCopy
 {
     /// <summary>A sub-object is a row of the root's sections that has a key of its own; depth 1 is the root, depth 2 its sub-objects.</summary>
     private const int MaxDepth = 1;
+
+    private const char KeySeparator = '\u0001';
 
     /// <summary>
     /// newId has the table of source.Id and the same number of key values. build gives the view of a sub-object (called for prefix rows
@@ -108,6 +113,90 @@ public static class ObjectCopy
 
         var root = new ParsedObject(newId, RootFields(source, newId), RootTexts(source), sections, []);
         return new CopyResult([root, .. subObjects], notes);
+    }
+
+    /// <summary>
+    /// Every object of the copy diffed against a view without root (new ObjectView(object.Id, null, [], [], [], order, [])) with categoryOf(object.Id.Table),
+    /// concatenated in object order: Rows, Texts, Diagnostics. Pure.
+    /// </summary>
+    public static ObjectChanges Changes(CopyResult copy, LoadOrder order, Func<string, CategoryDefinition?> categoryOf, ReferenceGraph graph,
+        ReferenceExists? referenceExists)
+    {
+        ArgumentNullException.ThrowIfNull(copy);
+        ArgumentNullException.ThrowIfNull(order);
+        ArgumentNullException.ThrowIfNull(categoryOf);
+        ArgumentNullException.ThrowIfNull(graph);
+        var rows = new List<RowChange>();
+        var texts = new List<TextChange>();
+        var diagnostics = new List<BlockDiagnostic>();
+        foreach (var parsed in copy.Objects)
+        {
+            var empty = new ObjectView(parsed.Id, null, [], [], [], order, []);
+            var changes = ObjectDiff.Compute(empty, parsed, categoryOf(parsed.Id.Table), graph, referenceExists);
+            rows.AddRange(changes.Rows);
+            texts.AddRange(changes.Texts);
+            diagnostics.AddRange(changes.Diagnostics);
+        }
+
+        return new ObjectChanges(rows, texts, diagnostics);
+    }
+
+    /// <summary>
+    /// The inserts whose key (cells at graph.KeyFields(table)) keyExists(table, keyValues) reports, or that an earlier insert of the same table in
+    /// changes already has. Tables without key fields are skipped. Each (table, key) once, in order of first appearance.
+    /// </summary>
+    public static IReadOnlyList<TakenKey> TakenKeys(ObjectChanges changes, ReferenceGraph graph, Func<string, IReadOnlyList<string>, bool> keyExists)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(keyExists);
+        var taken = new List<TakenKey>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in changes.Rows)
+        {
+            if (row.Kind != RowChangeKind.Insert)
+            {
+                continue;
+            }
+
+            var keyFields = graph.KeyFields(row.Table);
+            if (keyFields.Count == 0)
+            {
+                continue;
+            }
+
+            var values = keyFields.Select(i => row.Cells[i]).ToList();
+            var identity = row.Table.ToLowerInvariant() + KeySeparator + string.Join(KeySeparator, values);
+            var again = !seen.Add(identity);
+            if ((again || keyExists(row.Table, values)) && reported.Add(identity))
+            {
+                taken.Add(new TakenKey(row.Table, values));
+            }
+        }
+
+        return taken;
+    }
+
+    /// <summary>The copy with suffix appended to every text of the column: root texts of objects of the table and texts of rows of its sections.</summary>
+    public static CopyResult AppendToTexts(CopyResult copy, string table, string column, string suffix)
+    {
+        ArgumentNullException.ThrowIfNull(copy);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(column);
+        ArgumentNullException.ThrowIfNull(suffix);
+
+        ParsedText Append(ParsedText text) =>
+            string.Equals(text.Column, column, StringComparison.OrdinalIgnoreCase) ? text with { Text = text.Text + suffix } : text;
+
+        var objects = copy.Objects.Select(o => o with
+        {
+            Texts = string.Equals(o.Id.Table, table, StringComparison.OrdinalIgnoreCase) ? o.Texts.Select(Append).ToList() : o.Texts,
+            Sections = o.Sections.Select(s => string.Equals(s.SourceTable, table, StringComparison.OrdinalIgnoreCase)
+                ? s with { Rows = s.Rows.Select(r => r with { Texts = r.Texts.Select(Append).ToList() }).ToList() }
+                : s).ToList(),
+        }).ToList();
+        return copy with { Objects = objects };
     }
 
     private enum RowClass

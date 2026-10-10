@@ -82,13 +82,15 @@ public class ObjectCopyTests
         [Val("key", key, key: true), Val("trait", "t1", refTable: "traits_tables"), Val("rank", "1", FieldType.I32)],
         From(Vanilla), Id("trait_levels_tables", key), null);
 
-    private static ObjectView TraitView(params string[] levels) => new(Id("traits_tables", "t1"),
+    private static ObjectView TraitView(params string[] levels) => TraitViewWithTexts([], levels);
+
+    private static ObjectView TraitViewWithTexts(IReadOnlyList<LocEntry> texts, params string[] levels) => new(Id("traits_tables", "t1"),
         new ObjectRow([Val("key", "t1", key: true)], From(Vanilla), Id("traits_tables", "t1"), null),
-        [],
+        texts,
         [Section("trait_levels_tables", "trait", false, levels.Select(LevelRow).ToArray())],
         [], Order, ["traits_tables"]);
 
-    private static ObjectView StageView(string key, bool withNote = false)
+    private static ObjectView StageView(string key, bool withNote = false, bool withTexts = false)
     {
         var effect = new ObjectRow([Val("level", key, key: true, refTable: "trait_levels_tables"), Val("effect", "eff_" + key, key: true)], From(Vanilla),
             new ObjectId("level_effects_tables", [key, "eff_" + key]), null);
@@ -100,7 +102,14 @@ public class ObjectCopyTests
             sections.Add(Section("level_notes_tables", "level", false, note));
         }
 
-        return new ObjectView(Id("trait_levels_tables", key), LevelRow(key), [], sections, [], Order, ["trait_levels_tables"]);
+        IReadOnlyList<LocEntry> texts = withTexts
+            ?
+            [
+                new LocEntry("trait_levels", "onscreen_name", "trait_levels_onscreen_name_" + key, "Brave", Vanilla, Id("trait_levels_tables", key)),
+                new LocEntry("trait_levels", "description", "trait_levels_description_" + key, "Fearless", Vanilla, Id("trait_levels_tables", key)),
+            ]
+            : [];
+        return new ObjectView(Id("trait_levels_tables", key), LevelRow(key), texts, sections, [], Order, ["trait_levels_tables"]);
     }
 
     [Fact]
@@ -259,5 +268,126 @@ public class ObjectCopyTests
         Assert.Equal(["b9", "emp", "x", "5", ""], changes.Rows[1].Cells);
         Assert.Equal(["building_levels_onscreen_name_b9", "bonus_label_b9empx"], changes.Texts.Select(t => t.Key).ToArray());
         Assert.All(changes.Texts, t => Assert.Equal(TextChangeKind.Insert, t.Kind));
+    }
+
+    // ---- changes and taken keys of a copy ----
+
+    private static readonly ReferenceGraph TraitGraph = ReferenceGraph.Build(TestSchema.Build(
+        ("traits_tables", 1, [TestSchema.Field("key", key: true)]),
+        ("trait_levels_tables", 1,
+        [
+            TestSchema.Field("key", key: true),
+            TestSchema.Field("trait", reference: ("traits_tables", "key")),
+            TestSchema.Field("rank", FieldType.I32),
+        ]),
+        ("level_effects_tables", 1,
+        [
+            TestSchema.Field("level", key: true, reference: ("trait_levels_tables", "key")),
+            TestSchema.Field("effect", key: true),
+        ])));
+
+    private static CopyResult TraitCopy(bool withTexts = false, bool rootText = false) => ObjectCopy.Rename(
+        TraitViewWithTexts(rootText ? [new LocEntry("traits", "name", "traits_name_t1", "Trait", Vanilla, Id("traits_tables", "t1"))] : [], "t1_1", "t1_2"),
+        Id("traits_tables", "t9"), id => StageView(id.KeyValues[0], withTexts: withTexts), _ => null, TraitGraph, NoIntegerKey);
+
+    private static ObjectChanges InsertsOf(params (string Table, string[] Cells)[] rows) => new(
+        rows.Select(r => new RowChange(RowChangeKind.Insert, r.Table, null, null, r.Cells, [], null, 1)).ToList(), [], []);
+
+    [Fact]
+    public void Changes_of_a_copy_insert_every_object_in_order()
+    {
+        var changes = ObjectCopy.Changes(TraitCopy(), Order, _ => null, TraitGraph, null);
+
+        Assert.Empty(changes.Diagnostics);
+        Assert.False(changes.HasErrors);
+        Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
+        Assert.Equal(
+            [("traits_tables", "t9"), ("trait_levels_tables", "t9_1"), ("level_effects_tables", "t9_1"), ("trait_levels_tables", "t9_2"), ("level_effects_tables", "t9_2")],
+            changes.Rows.Select(r => (r.Table, r.Cells[0])).ToArray());
+        Assert.Equal(["t9_1", "t9", "1"], changes.Rows[1].Cells);
+    }
+
+    [Fact]
+    public void Changes_of_a_copy_carry_the_texts_of_the_sub_objects()
+    {
+        var changes = ObjectCopy.Changes(TraitCopy(withTexts: true, rootText: true), Order, _ => null, TraitGraph, null);
+
+        Assert.Equal(
+            ["traits_name_t9", "trait_levels_onscreen_name_t9_1", "trait_levels_description_t9_1", "trait_levels_onscreen_name_t9_2", "trait_levels_description_t9_2"],
+            changes.Texts.Select(t => t.Key).ToArray());
+        Assert.All(changes.Texts, t => Assert.Equal(TextChangeKind.Insert, t.Kind));
+        Assert.Empty(changes.Diagnostics);
+    }
+
+    [Fact]
+    public void A_key_that_exists_in_the_load_order_is_taken()
+    {
+        var changes = ObjectCopy.Changes(TraitCopy(), Order, _ => null, TraitGraph, null);
+        var asked = new List<string>();
+
+        var taken = ObjectCopy.TakenKeys(changes, TraitGraph, (table, key) =>
+        {
+            asked.Add(table + ":" + string.Join("|", key));
+            return table == "traits_tables" && key[0] == "t9";
+        });
+
+        var single = Assert.Single(taken);
+        Assert.Equal("traits_tables", single.Table);
+        Assert.Equal(["t9"], single.KeyValues);
+        Assert.Contains("level_effects_tables:t9_1|eff_t1_1", asked);
+    }
+
+    [Fact]
+    public void Two_inserts_with_the_same_key_are_taken_once()
+    {
+        var changes = InsertsOf(("traits_tables", ["t9"]), ("trait_levels_tables", ["a", "t9", "1"]), ("traits_tables", ["t9"]), ("traits_tables", ["t9"]));
+
+        var taken = ObjectCopy.TakenKeys(changes, TraitGraph, (_, _) => false);
+
+        var single = Assert.Single(taken);
+        Assert.Equal("traits_tables", single.Table);
+        Assert.Equal(["t9"], single.KeyValues);
+    }
+
+    [Fact]
+    public void Inserts_of_a_table_without_key_fields_are_never_taken()
+    {
+        var changes = InsertsOf(("notes_tables", ["b1", "x", "y"]), ("notes_tables", ["b1", "x", "y"]));
+
+        var taken = ObjectCopy.TakenKeys(changes, Graph, (_, _) => true);
+
+        Assert.Empty(taken);
+    }
+
+    [Fact]
+    public void A_suffix_is_appended_to_the_texts_of_the_column()
+    {
+        var copy = TraitCopy(withTexts: true, rootText: true);
+
+        var result = ObjectCopy.AppendToTexts(copy, "trait_levels_tables", "onscreen_name", " (copy)");
+
+        Assert.Equal(copy.Objects.Count, result.Objects.Count);
+        Assert.Equal(["Trait"], result.Objects[0].Texts.Select(t => t.Text).ToArray());
+        foreach (var stage in result.Objects.Skip(1))
+        {
+            Assert.Equal([("onscreen_name", "Brave (copy)"), ("description", "Fearless")], stage.Texts.Select(t => (t.Column, t.Text)).ToArray());
+        }
+
+        Assert.Equal("Brave", copy.Objects[1].Texts[0].Text);
+    }
+
+    [Fact]
+    public void A_suffix_is_appended_to_the_texts_of_the_rows_of_the_sections()
+    {
+        var bonus = BonusRow("b1", "emp", "x");
+        var source = Source([Section("bonus_tables", "building", false, bonus)],
+            [new LocEntry("bonus", "label", "bonus_label_b1empx", "Label", Vanilla, bonus.RowId!),
+                new LocEntry("building_levels", "label", "building_levels_label_b1", "Root", Vanilla, Id(Root, "b1"))]);
+
+        var result = ObjectCopy.AppendToTexts(Rename(source), "bonus_tables", "label", " (copy)");
+
+        var copy = Assert.Single(result.Objects);
+        Assert.Equal("Label (copy)", Assert.Single(Assert.Single(Assert.Single(copy.Sections).Rows).Texts).Text);
+        Assert.Equal("Root", Assert.Single(copy.Texts).Text);
     }
 }

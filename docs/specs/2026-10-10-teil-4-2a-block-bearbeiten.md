@@ -688,6 +688,15 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Hinweis.
 - **Echtdaten (kopierte Kaserne):** `building_units_allowed` (4 Zeilen) wird kopiert, jede Zeile mit
   neuem `key`; es entsteht kein Hinweis für diese Tabelle.
+- **Änderungen und belegte Schlüssel einer Kopie:** `ObjectCopy.Changes` rechnet jedes Objekt der
+  Kopie mit `ObjectDiff.Compute` gegen eine Sicht ohne Wurzel (Kategorie nach der Tabelle des Objekts)
+  und hängt Zeilen, Texte und Diagnosen in Objektreihenfolge aneinander. `ObjectCopy.TakenKeys`
+  meldet jeden Insert, dessen Schlüssel (Zellen an `KeyFields`) `keyExists` kennt oder den ein
+  früherer Insert derselben Tabelle schon trägt, je (Tabelle, Schlüssel) einmal; Tabellen ohne
+  Schlüsselfelder werden übersprungen (Tabellenname ohne Beachtung der Groß-/Kleinschreibung, Werte
+  ordinal). `ObjectCopy.AppendToTexts` hängt einen Zusatz an die Texte einer Spalte: Wurzeltexte der
+  Objekte der Tabelle und Texte der Zeilen ihrer Abschnitte (Spaltenname ohne Beachtung der
+  Groß-/Kleinschreibung).
 
 ### 5.9 App
 
