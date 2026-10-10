@@ -230,7 +230,7 @@ public sealed class ObjectBuilder
                 var field = definition.Fields[i];
                 var text = CellText.Format(field.Type, row.Cells[i]);
                 fields.Add(field.Reference is null
-                    ? new FieldValue(field.Name, field.Type, text, null, ReferenceResolution.None, null, null)
+                    ? new FieldValue(field.Name, field.Type, text, null, ReferenceResolution.None, null, null, field.IsKey)
                     : SectionReference(run, field, field.Reference, text));
             }
 
@@ -250,10 +250,10 @@ public sealed class ObjectBuilder
         if (text.Length > 0 && _graph.Latest(_graph.ResolveTableName(reference.Table)) is null
             && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
         {
-            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText);
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText, field.IsKey);
         }
 
-        return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Unchecked, UncheckedTarget(reference, text), null);
+        return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Unchecked, UncheckedTarget(reference, text), null, field.IsKey);
     }
 
     /// <summary>The target of an unchecked reference: only when the table has exactly one key field and the reference points at that field.</summary>
@@ -280,7 +280,7 @@ public sealed class ObjectBuilder
         var reference = field.Reference;
         if (reference is null || text.Length == 0)
         {
-            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.None, null, null);
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.None, null, null, field.IsKey);
         }
 
         var targetTable = _graph.ResolveTableName(reference.Table);
@@ -290,15 +290,15 @@ public sealed class ObjectBuilder
         {
             var target = RowIdOf(merged, hits[0]);
             var name = target is null ? null : DisplayName(run.Loc!, target);
-            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Found, target, name);
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Found, target, name, field.IsKey);
         }
 
         if (_graph.Latest(targetTable) is null && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
         {
-            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText);
+            return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText, field.IsKey);
         }
 
-        return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.NotFound, null, null);
+        return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.NotFound, null, null, field.IsKey);
     }
 
     /// <summary>

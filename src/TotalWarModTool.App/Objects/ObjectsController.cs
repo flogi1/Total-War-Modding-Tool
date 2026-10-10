@@ -128,7 +128,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
         OperationOutcome<ObjectBuildResult>? outcome = null;
         try
         {
-            outcome = await _runner.RunAsync(_texts.ObjectsBuilding(MessageText.EscapeControlCharacters(started.JoinedKey)),
+            outcome = await _runner.RunAsync(_texts.ObjectsBuilding(MessageText.EscapeControlCharacters(started.DisplayKey)),
                 (progress, ct) => Build(stores, context, started, category, progress, ct));
         }
         catch (Exception ex) when (IsEdgeFailure(ex))

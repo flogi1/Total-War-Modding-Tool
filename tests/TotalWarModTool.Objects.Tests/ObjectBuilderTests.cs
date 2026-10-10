@@ -220,6 +220,23 @@ public class ObjectBuilderTests
     }
 
     [Fact]
+    public void Fields_tell_whether_they_are_key_fields_of_their_table()
+    {
+        using var tmp = new TempDir();
+        var order = Single(tmp, null,
+            T("building_levels_tables", R("b1", "chain1", 1, "")),
+            T("building_chains_tables", R("chain1", "Chain One")),
+            T("building_culture_variants_tables", R("b1", "c1", "sd1")));
+
+        var view = NewBuilder().Build(Level("b1"), order, null, None);
+
+        Assert.NotNull(view.Root);
+        Assert.Equal([true, false, false, false], view.Root.Fields.Select(f => f.IsKey));
+        var variants = Assert.Single(view.Sections, s => s.SourceTable == "building_culture_variants_tables");
+        Assert.Equal([true, true, false], Assert.Single(variants.Rows).Fields.Select(f => f.IsKey));
+    }
+
+    [Fact]
     public void A_reference_to_a_non_key_column_gives_no_section()
     {
         using var tmp = new TempDir();
@@ -501,6 +518,18 @@ public class ObjectBuilderTests
         Assert.NotEqual(a, new ObjectId("pairs_tables", ["x"]));
         Assert.Equal("Pairs_Tables:x|y", a.ToString());
         Assert.Equal("xy", a.JoinedKey);
+    }
+
+    [Fact]
+    public void ObjectId_DisplayKey_joins_the_values_with_a_separator_and_JoinedKey_stays_concatenated()
+    {
+        var pair = new ObjectId("pairs_tables", ["x", "y"]);
+        var single = new ObjectId("building_levels_tables", ["b1"]);
+
+        Assert.Equal("x | y", pair.DisplayKey);
+        Assert.Equal("xy", pair.JoinedKey);
+        Assert.Equal("b1", single.DisplayKey);
+        Assert.Equal("b1", single.JoinedKey);
     }
 
     [Fact]

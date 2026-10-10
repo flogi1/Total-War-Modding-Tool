@@ -34,7 +34,9 @@ public sealed record RenderOptions(IReadOnlySet<int> ExpandedSections, int Colla
 
 /// <summary>
 /// Turns an <see cref="ObjectView"/> into lines of typed spans, a pure and deterministic function. The App colours and links the spans.
-/// Rows of a list section show every field except the field that points at the root (the section's FieldName); a category rule cannot hide more yet.
+/// A row of a list section is a block: a head line with its key fields (without a key: its first non-empty field) and the provenance, then
+/// one line per other non-empty field, an empty line between two blocks. The field that points at the root (the section's FieldName) is
+/// never shown; a category rule cannot hide more yet. Sentence rows and junction rows stay one line.
 /// </summary>
 public static class ObjectText
 {
@@ -64,9 +66,7 @@ public static class ObjectText
         {
             foreach (var field in view.Root.Fields)
             {
-                var spans = new List<TextSpan> { new(field.Name, SpanKind.FieldName), new(" = ", SpanKind.Normal) };
-                spans.AddRange(ValueSpans(field));
-                lines.Add(new TextLine(spans, 1));
+                lines.Add(new TextLine(FieldSpans(field), 1));
             }
         }
 
@@ -82,7 +82,7 @@ public static class ObjectText
             if (!entry.Owner.Equals(view.Id))
             {
                 spans.Add(new TextSpan(Gap, SpanKind.Normal));
-                spans.Add(new TextSpan(entry.Owner.JoinedKey, SpanKind.Link, entry.Owner));
+                spans.Add(new TextSpan(entry.Owner.DisplayKey, SpanKind.Link, entry.Owner));
             }
 
             spans.Add(new TextSpan(Gap, SpanKind.Normal));
@@ -148,7 +148,7 @@ public static class ObjectText
         {
             new(ShortTableName(view.Id.Table), SpanKind.TableName),
             new(Gap, SpanKind.Normal),
-            new(view.Id.JoinedKey, SpanKind.Key),
+            new(view.Id.DisplayKey, SpanKind.Key),
         };
 
         if (view.Root is not null)
@@ -190,9 +190,29 @@ public static class ObjectText
         var preview = Math.Clamp(options.CollapsedPreview, 0, threshold);
         var collapse = section.Rows.Count > threshold && !options.ExpandedSections.Contains(index);
         var shown = collapse ? preview : section.Rows.Count;
+        IReadOnlyList<PatternPart>? pattern = rule is { Mode: SectionMode.Sentence, Pattern: { } text } && TryParsePattern(text, out var parts)
+            ? parts
+            : null;
+        var previousWasBlock = false;
         for (var i = 0; i < shown; i++)
         {
-            lines.Add(new TextLine(RowSpans(section, section.Rows[i], rule), 1));
+            var row = section.Rows[i];
+            if (pattern is null && !(section.IsJunction && row.OtherEnd is not null))
+            {
+                if (previousWasBlock)
+                {
+                    lines.Add(new TextLine([], 1));
+                }
+
+                AddBlock(lines, section, row);
+                previousWasBlock = true;
+                continue;
+            }
+
+            var spans = pattern is not null ? SentenceSpans(row, pattern) : ValueSpans(row.OtherEnd!);
+            AddRowProvenance(spans, row);
+            lines.Add(new TextLine(spans, 1));
+            previousWasBlock = false;
         }
 
         var hidden = section.Rows.Count - shown;
@@ -202,54 +222,82 @@ public static class ObjectText
         }
     }
 
-    private static List<TextSpan> RowSpans(ObjectSection section, ObjectRow row, SectionRule? rule)
+    /// <summary>
+    /// A list row as a block: the head line holds the key fields (without one besides the field that points at the root: the first non-empty
+    /// field) and the provenance, then one line per other non-empty field.
+    /// </summary>
+    private static void AddBlock(List<TextLine> lines, ObjectSection section, ObjectRow row)
     {
-        var spans = new List<TextSpan>();
-        if (rule is { Mode: SectionMode.Sentence, Pattern: { } pattern } && TryParsePattern(pattern, out var parts))
-        {
-            foreach (var part in parts)
-            {
-                if (!part.IsPlaceholder)
-                {
-                    spans.Add(new TextSpan(part.Text, SpanKind.Normal));
-                    continue;
-                }
+        var fields = row.Fields.Where(field => !string.Equals(field.Name, section.FieldName, StringComparison.OrdinalIgnoreCase)).ToList();
+        var hasKey = fields.Any(field => field.IsKey);
+        var fallback = hasKey ? null : fields.FirstOrDefault(field => field.Text.Length > 0);
 
-                var field = FindField(row, part.Text);
-                if (field is null)
-                {
-                    spans.Add(new TextSpan("{" + part.Text + "}", SpanKind.Warning));
-                }
-                else
-                {
-                    spans.AddRange(ValueSpans(field));
-                }
+        var head = new List<TextSpan>();
+        foreach (var field in fields)
+        {
+            if (!InHead(field))
+            {
+                continue;
+            }
+
+            if (head.Count > 0)
+            {
+                head.Add(new TextSpan(Gap, SpanKind.Normal));
+            }
+
+            head.AddRange(FieldSpans(field));
+        }
+
+        AddRowProvenance(head, row);
+        lines.Add(new TextLine(head, 1));
+
+        foreach (var field in fields)
+        {
+            if (!InHead(field) && field.Text.Length > 0)
+            {
+                lines.Add(new TextLine(FieldSpans(field), 2));
             }
         }
-        else if (section.IsJunction && row.OtherEnd is not null)
+
+        bool InHead(FieldValue field) => hasKey ? field.IsKey : ReferenceEquals(field, fallback);
+    }
+
+    private static List<TextSpan> SentenceSpans(ObjectRow row, IReadOnlyList<PatternPart> parts)
+    {
+        var spans = new List<TextSpan>();
+        foreach (var part in parts)
         {
-            spans.AddRange(ValueSpans(row.OtherEnd));
-        }
-        else
-        {
-            foreach (var field in row.Fields)
+            if (!part.IsPlaceholder)
             {
-                if (string.Equals(field.Name, section.FieldName, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
+                spans.Add(new TextSpan(part.Text, SpanKind.Normal));
+                continue;
+            }
 
-                if (spans.Count > 0)
-                {
-                    spans.Add(new TextSpan(Gap, SpanKind.Normal));
-                }
-
-                spans.Add(new TextSpan(field.Name, SpanKind.FieldName));
-                spans.Add(new TextSpan("=", SpanKind.Normal));
+            var field = FindField(row, part.Text);
+            if (field is null)
+            {
+                spans.Add(new TextSpan("{" + part.Text + "}", SpanKind.Warning));
+            }
+            else
+            {
                 spans.AddRange(ValueSpans(field));
             }
         }
 
+        return spans;
+    }
+
+    /// <summary>"name = value" with the value spans.</summary>
+    private static List<TextSpan> FieldSpans(FieldValue field)
+    {
+        var spans = new List<TextSpan> { new(field.Name, SpanKind.FieldName), new(" = ", SpanKind.Normal) };
+        spans.AddRange(ValueSpans(field));
+        return spans;
+    }
+
+    /// <summary>The source of the row, the sources it overrides and its duplicate and older-layout marks.</summary>
+    private static void AddRowProvenance(List<TextSpan> spans, ObjectRow row)
+    {
         if (spans.Count > 0)
         {
             spans.Add(new TextSpan(Gap, SpanKind.Normal));
@@ -273,8 +321,6 @@ public static class ObjectText
             spans.Add(new TextSpan(" ", SpanKind.Normal));
             spans.Add(new TextSpan("older layout", SpanKind.OlderLayout));
         }
-
-        return spans;
     }
 
     private static FieldValue? FindField(ObjectRow row, string name)
@@ -377,7 +423,8 @@ public static class ObjectText
 
     private static string Bracketed(TableSource source) => "[" + source.Name + "]";
 
-    private static string Quote(string text) => "\"" + text + "\"";
+    /// <summary>A line break inside a loc text becomes one space, so a text never breaks the line it stands in.</summary>
+    private static string Quote(string text) => "\"" + text.Replace("\r\n", " ", StringComparison.Ordinal).Replace('\n', ' ').Replace('\r', ' ') + "\"";
 
     private static TextLine Line(int indent, params TextSpan[] spans) => new(spans, indent);
 }

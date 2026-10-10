@@ -55,6 +55,15 @@ public class ObjectTabViewModelTests
 
     private static string Joined(params string[] lines) => string.Join(Environment.NewLine, lines);
 
+    [Fact] public void A_composite_key_title_separates_the_values_and_the_entry_path_stays()
+    {
+        var tab = Tab(history: [new ObjectRef("pairs_tables", ["x", "y\n"], null)]);
+        Assert.Equal(@"x | y\u000A", tab.Title);
+        Assert.Equal(@"pairs: x | y\u000A", tab.ToolTip);
+        Assert.Equal("pairs_tables:x|y\n", tab.EntryPath);
+        Assert.Equal("xy\n", tab.Current.JoinedKey);
+    }
+
     [Fact] public void A_new_tab_is_idle_with_the_idle_notice_and_the_key_as_title()
     {
         var tab = Tab(history: [Ref("a\nb"), Ref("c")]);

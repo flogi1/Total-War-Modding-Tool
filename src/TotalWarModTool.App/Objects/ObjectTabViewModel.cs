@@ -306,7 +306,7 @@ public sealed class ObjectTabViewModel : TabViewModel
 
     private void ShowCurrent()
     {
-        var key = MessageText.EscapeControlCharacters(Current.JoinedKey);
+        var key = MessageText.EscapeControlCharacters(Current.DisplayKey);
         Title = key;
         ToolTip = MessageText.EscapeControlCharacters(ObjectText.ShortTableName(Current.Table)) + ": " + key;
     }

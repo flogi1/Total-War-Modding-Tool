@@ -19,6 +19,7 @@ public sealed class ObjectId : IEquatable<ObjectId>
         Table = table;
         KeyValues = values;
         JoinedKey = string.Concat(KeyValues);
+        DisplayKey = string.Join(" | ", KeyValues);
     }
 
     public string Table { get; }
@@ -27,6 +28,9 @@ public sealed class ObjectId : IEquatable<ObjectId>
 
     /// <summary>The values joined with "" — the form loc keys use.</summary>
     public string JoinedKey { get; }
+
+    /// <summary>The values joined with " | " — the form the head, links and tab titles show. JoinedKey stays the form for loc lookups.</summary>
+    public string DisplayKey { get; }
 
     public bool Equals(ObjectId? other)
     {
@@ -77,8 +81,9 @@ public enum ReferenceResolution
     Unchecked,
 }
 
-/// <summary>Target is set for Found, and for Unchecked when the target table has exactly one key field and the referenced column is that key field. LocOnly is a reference whose target table is unknown to the schema but whose loc text exists (also in section rows, which never ask the table store). LocText is the loc text for LocOnly and the display name for Found when one exists.</summary>
-public sealed record FieldValue(string Name, FieldType Type, string Text, TableReference? Reference, ReferenceResolution Resolution, ObjectId? Target, string? LocText);
+/// <summary>Target is set for Found, and for Unchecked when the target table has exactly one key field and the referenced column is that key field. LocOnly is a reference whose target table is unknown to the schema but whose loc text exists (also in section rows, which never ask the table store). LocText is the loc text for LocOnly and the display name for Found when one exists. IsKey tells that the field is a key field of its table.</summary>
+public sealed record FieldValue(string Name, FieldType Type, string Text, TableReference? Reference, ReferenceResolution Resolution, ObjectId? Target, string? LocText,
+    bool IsKey = false);
 
 /// <summary>RowId is null for tables without key. OtherEnd is set for rows of junction sections.</summary>
 public sealed record ObjectRow(IReadOnlyList<FieldValue> Fields, RowProvenance Provenance, ObjectId? RowId, FieldValue? OtherEnd);

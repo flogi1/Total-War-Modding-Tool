@@ -20,6 +20,9 @@ public class ObjectTextTests
     private static FieldValue Plain(string name, string text) =>
         new(name, FieldType.StringU8, text, null, ReferenceResolution.None, null, null);
 
+    private static FieldValue Key(string name, string text) =>
+        new(name, FieldType.StringU8, text, null, ReferenceResolution.None, null, null, IsKey: true);
+
     private static FieldValue Reference(string name, string text, ReferenceResolution resolution, ObjectId? target, string? loc) =>
         new(name, FieldType.StringU8, text, new TableReference("x_tables", "key"), resolution, target, loc);
 
@@ -128,12 +131,151 @@ public class ObjectTextTests
 
         var lines = ObjectText.Render(view, null, NoExpansion);
 
-        var line = lines.Single(l => Text(l).StartsWith("effect=", StringComparison.Ordinal));
-        Assert.Equal("effect=eff1  effect_scope=province  value=5  [db.pack]", Text(line));
+        var start = lines.ToList().FindIndex(l => Text(l).StartsWith("effect = ", StringComparison.Ordinal));
+        var line = lines[start];
+        Assert.Equal("effect = eff1  [db.pack]", Text(line));
         Assert.Equal(SpanKind.Link, line.Spans[2].Kind);
         Assert.Equal(eff1, line.Spans[2].Target);
         Assert.Equal(SpanKind.ProvenanceVanilla, line.Spans[^1].Kind);
         Assert.Equal(1, line.Indent);
+        Assert.Equal(["effect_scope = province", "value = 5"], lines.Skip(start + 1).Select(Text).ToArray());
+        Assert.DoesNotContain(lines, l => Text(l).StartsWith("building", StringComparison.Ordinal) && l.Indent > 0);
+    }
+
+    [Fact]
+    public void A_list_row_is_a_block_with_the_key_line_first_and_one_field_per_line()
+    {
+        var row = Row(From(Mod, Vanilla),
+            Key("building", "b1"),
+            Key("culture", "c1"),
+            Key("variant", "v1"),
+            Reference("short_description", "sd1", ReferenceResolution.LocOnly, null, "Short"),
+            Reference("missing", "zzz", ReferenceResolution.NotFound, null, null),
+            Plain("value", "5"));
+        var view = View(Row(From(Vanilla), Plain("key", "b1")), [Section("building_culture_variants_tables", "building", false, row)]);
+
+        var lines = ObjectText.Render(view, null, NoExpansion);
+
+        var start = lines.ToList().FindIndex(l => Text(l).StartsWith("culture = ", StringComparison.Ordinal));
+        var block = lines.Skip(start).ToList();
+        Assert.Equal(4, block.Count);
+        Assert.Equal("culture = c1  variant = v1  [mod.pack] [db.pack]", Text(block[0]));
+        Assert.Equal([SpanKind.FieldName, SpanKind.Normal, SpanKind.Value, SpanKind.Normal, SpanKind.FieldName, SpanKind.Normal, SpanKind.Value,
+            SpanKind.Normal, SpanKind.ProvenanceMod, SpanKind.Normal, SpanKind.Overridden], Kinds(block[0]));
+        Assert.Equal(1, block[0].Indent);
+        Assert.Equal("short_description = sd1  \"Short\"", Text(block[1]));
+        Assert.Equal([SpanKind.FieldName, SpanKind.Normal, SpanKind.Value, SpanKind.Normal, SpanKind.LocText], Kinds(block[1]));
+        Assert.Equal("missing = zzz", Text(block[2]));
+        Assert.Equal(SpanKind.Warning, block[2].Spans[2].Kind);
+        Assert.Equal("value = 5", Text(block[3]));
+        Assert.All(block.Skip(1), l => Assert.Equal(2, l.Indent));
+    }
+
+    [Fact]
+    public void Empty_fields_are_omitted_in_a_list_block()
+    {
+        var row = Row(From(Vanilla), Key("building", "b1"), Key("culture", "c1"), Plain("a", ""), Plain("b", "x"), Plain("c", ""));
+        var view = View(Row(From(Vanilla), Plain("key", "b1"), Plain("empty", "")), [Section("t", "building", false, row)]);
+
+        var lines = ObjectText.Render(view, null, NoExpansion);
+
+        // Root fields stay as they are, empty ones included.
+        Assert.Equal("empty = ", Text(lines[2]));
+        var start = lines.ToList().FindIndex(l => Text(l).StartsWith("culture = ", StringComparison.Ordinal));
+        Assert.Equal(["culture = c1  [db.pack]", "b = x"], lines.Skip(start).Select(Text).ToArray());
+    }
+
+    [Fact]
+    public void A_table_without_key_uses_its_first_field_as_the_block_head()
+    {
+        var eff1 = Id("effects_tables", "eff1");
+        var keyless = Row(From(Vanilla),
+            Plain("building", "b1"),
+            Plain("note", ""),
+            Reference("effect", "eff1", ReferenceResolution.Unchecked, eff1, null),
+            Plain("value", "5"));
+        // A key that is only the field pointing at the root leaves no key for the head: the first other field takes its place.
+        var backKey = Row(From(Vanilla), Key("building", "b1"), Plain("effect", "e2"), Plain("value", "6"));
+        var backOnly = Row(From(Vanilla), Key("building", "b1"), Plain("note", ""));
+        var view = View(Row(From(Vanilla), Plain("key", "b1")), [Section("t", "building", false, keyless, backKey, backOnly)]);
+
+        var lines = ObjectText.Render(view, null, NoExpansion);
+
+        var title = lines.ToList().FindIndex(l => Text(l).StartsWith("t  (3)", StringComparison.Ordinal));
+        Assert.Equal(["effect = eff1  [db.pack]", "value = 5", "", "effect = e2  [db.pack]", "value = 6", "", "[db.pack]"],
+            lines.Skip(title + 1).Select(Text).ToArray());
+        Assert.Equal(SpanKind.Link, lines[title + 1].Spans[2].Kind);
+        Assert.Equal(eff1, lines[title + 1].Spans[2].Target);
+        Assert.Equal([SpanKind.ProvenanceVanilla], Kinds(lines[title + 7]));
+    }
+
+    [Fact]
+    public void Row_blocks_are_separated_by_an_empty_line_and_the_collapse_counts_rows()
+    {
+        var rows = Enumerable.Range(0, 25)
+            .Select(i => Row(From(Vanilla), Plain("building", "b1"), Key("key", "k" + i), Plain("value", i.ToString()))).ToArray();
+        var view = View(Row(From(Vanilla), Plain("key", "b1")), [Section("t", "building", false, rows)]);
+
+        var collapsed = ObjectText.Render(view, null, NoExpansion);
+
+        var title = collapsed.ToList().FindIndex(l => Text(l).StartsWith("t  (25)", StringComparison.Ordinal));
+        var body = collapsed.Skip(title + 1).ToList();
+        // Five row blocks of two lines, an empty line between two blocks, then the collapsed line.
+        Assert.Equal(5 * 2 + 4 + 1, body.Count);
+        for (var block = 0; block < 5; block++)
+        {
+            Assert.Equal("key = k" + block + "  [db.pack]", Text(body[block * 3]));
+            Assert.Equal("value = " + block, Text(body[block * 3 + 1]));
+            if (block < 4)
+            {
+                Assert.Empty(body[block * 3 + 2].Spans);
+                Assert.Equal(1, body[block * 3 + 2].Indent);
+            }
+        }
+
+        var more = body[^1];
+        Assert.Equal("+20", Text(more));
+        Assert.Equal(20, more.Spans[0].Count);
+        Assert.Equal(1, more.Indent);
+
+        var expanded = ObjectText.Render(view, null, new RenderOptions(new HashSet<int> { 0 }));
+
+        var expandedBody = expanded.Skip(title + 1).ToList();
+        Assert.Equal(25 * 2 + 24, expandedBody.Count);
+        Assert.Equal(24, expandedBody.Count(l => l.Spans.Count == 0));
+        Assert.Equal("key = k24  [db.pack]", Text(expandedBody[^2]));
+    }
+
+    [Fact]
+    public void Line_breaks_in_loc_texts_are_shown_as_spaces()
+    {
+        var target = Id("building_chains_tables", "chain1");
+        var root = Row(From(Vanilla), Reference("chain", "chain1", ReferenceResolution.Found, target, "Chain\r\nOne"));
+        var texts = new[] { new LocEntry("building_levels", "name", "k1", "Line one\r\nLine two\nthree\rfour", Mod, Id("building_levels_tables", "b1")) };
+        var row = Row(From(Vanilla), Plain("building", "b1"), Reference("commodity", "gold", ReferenceResolution.LocOnly, null, "Pure\ngold"));
+
+        var lines = ObjectText.Render(View(root, [Section("t", "building", false, row)], texts: texts), null, NoExpansion);
+
+        Assert.Equal("chain = chain1  \"Chain One\"", Text(lines[1]));
+        Assert.Equal("building_levels.name  \"Line one Line two three four\"  [mod.pack]", Text(lines[2]));
+        Assert.Contains(lines, l => Text(l) == "commodity = gold  \"Pure gold\"  [db.pack]");
+    }
+
+    [Fact]
+    public void A_composite_key_is_shown_with_a_separator_in_the_head_and_the_owner_link()
+    {
+        var id = new ObjectId("pairs_tables", ["x", "y"]);
+        var owner = new ObjectId("pair_uses_tables", ["p", "q"]);
+        var texts = new[] { new LocEntry("pair_uses", "name", "pair_uses_name_pq", "Use", Vanilla, owner) };
+        var view = new ObjectView(id, Row(From(Vanilla), Key("a", "x"), Key("b", "y")), texts, [], [], Order, ["pairs_tables"]);
+
+        var lines = ObjectText.Render(view, null, NoExpansion);
+
+        Assert.Equal("pairs  x | y  [db.pack]", Text(lines[0]));
+        Assert.Equal(SpanKind.Key, lines[0].Spans[2].Kind);
+        var loc = lines.Single(l => Text(l).StartsWith("pair_uses.name", StringComparison.Ordinal));
+        Assert.Equal("pair_uses.name  \"Use\"  p | q  [db.pack]", Text(loc));
+        Assert.Equal(owner, loc.Spans[4].Target);
     }
 
     [Fact]
@@ -182,7 +324,7 @@ public class ObjectTextTests
 
         var collapsed = ObjectText.Render(view, null, NoExpansion);
 
-        Assert.Equal(5, collapsed.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
+        Assert.Equal(5, collapsed.Count(l => Text(l).StartsWith("value = ", StringComparison.Ordinal)));
         var more = collapsed.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed));
         Assert.Equal("+20", Text(more));
         Assert.Equal(0, more.Spans[0].Section);
@@ -190,7 +332,7 @@ public class ObjectTextTests
 
         var expanded = ObjectText.Render(view, null, new RenderOptions(new HashSet<int> { 0 }));
 
-        Assert.Equal(25, expanded.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
+        Assert.Equal(25, expanded.Count(l => Text(l).StartsWith("value = ", StringComparison.Ordinal)));
         Assert.DoesNotContain(expanded, l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed));
     }
 
@@ -271,8 +413,8 @@ public class ObjectTextTests
 
         var lines = ObjectText.Render(view, null, NoExpansion);
 
-        var line = lines.Single(l => Text(l).StartsWith("value=", StringComparison.Ordinal));
-        Assert.Equal("value=1  [mod.pack] [db.pack] duplicate older layout", Text(line));
+        var line = lines.Single(l => Text(l).StartsWith("value = ", StringComparison.Ordinal));
+        Assert.Equal("value = 1  [mod.pack] [db.pack] duplicate older layout", Text(line));
         Assert.Contains(line.Spans, s => s.Kind == SpanKind.Overridden && s.Text == "[db.pack]");
         // The kind carries the meaning; the text is only a fallback the App replaces.
         Assert.Equal("duplicate", Assert.Single(line.Spans, s => s.Kind == SpanKind.Duplicate).Text);
@@ -344,12 +486,12 @@ public class ObjectTextTests
 
         var lines = ObjectText.Render(view, null, new RenderOptions(new HashSet<int>(), CollapseThreshold: 3, CollapsedPreview: 10));
 
-        Assert.Equal(3, lines.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
+        Assert.Equal(3, lines.Count(l => Text(l).StartsWith("value = ", StringComparison.Ordinal)));
         Assert.Equal("+2", Text(lines.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed))));
 
         var negative = ObjectText.Render(view, null, new RenderOptions(new HashSet<int>(), CollapseThreshold: 3, CollapsedPreview: -4));
 
-        Assert.Equal(0, negative.Count(l => Text(l).StartsWith("value=", StringComparison.Ordinal)));
+        Assert.Equal(0, negative.Count(l => Text(l).StartsWith("value = ", StringComparison.Ordinal)));
         var hidden = negative.Single(l => l.Spans.Any(s => s.Kind == SpanKind.Collapsed)).Spans[0];
         Assert.Equal("+5", hidden.Text);
         Assert.Equal(5, hidden.Count);

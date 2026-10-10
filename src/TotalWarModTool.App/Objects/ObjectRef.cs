@@ -9,8 +9,11 @@ namespace TotalWarModTool.App;
 /// </summary>
 public sealed record ObjectRef(string Table, IReadOnlyList<string> KeyValues, string? RootPackPath)
 {
-    /// <summary>The key values joined with "", the form loc keys and the title use.</summary>
+    /// <summary>The key values joined with "", the form loc keys use.</summary>
     public string JoinedKey => string.Concat(KeyValues);
+
+    /// <summary>The key values as <see cref="ObjectId.DisplayKey"/> joins them, the form the tab title and the progress title show.</summary>
+    public string DisplayKey => ToObjectId().DisplayKey;
 
     public ObjectId ToObjectId() => new(Table, KeyValues);
 
