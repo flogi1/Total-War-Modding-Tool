@@ -367,7 +367,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Frage nach der Zieldatei mit mehr als etwa 6 Kandidaten braucht eine Liste statt Knöpfen
 - Reine Leerzeichen-Änderungen: Plan 3a meldet „Nichts zu schreiben“ erst nach dem Klick; Plan 3b könnte den Knopf sperren, solange die Differenz leer ist
 - Text-Undo im Editor (zwei Stapel, Spec 6); bis dahin gilt Strg+Z nur für die globale History
-- Speicher der History mit den Messwerten aus der Abnahme von Plan 3a (Annahme 5): braucht `Previous` ein Auslagern in den Papierkorb?
 - Die Schlüsselform von `FileCopyQuestion.DeletedKeys` (Plan 2) ist jetzt in der Kopie-Frage sichtbar; in der Abnahme prüfen, ob sie lesbar ist
 - Die zweite Berechnung des Plans (mit den Antworten) läuft auf dem UI-Thread; bei der Kopie einer sehr großen Tabelle kann das kurz einfrieren. Dann in einen eigenen Runner-Lauf oder in Lauf B verlegen
 - Ein fehlgeschlagener Rollback (`RollbackFailed`) ist in der App nur über den Meldungstext getestet, weil `ProjectWriter` keinen Haken zum Erzwingen bietet; ein Test mit einer Datei, die nach dem Schreiben gesperrt wird, wäre möglich, wenn `ProjectWriter` einen Test-Haken bekommt
