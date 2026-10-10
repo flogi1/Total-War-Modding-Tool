@@ -1,10 +1,13 @@
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Markup;
+using System.Windows.Media;
 using System.Windows.Threading;
+using ICSharpCode.AvalonEdit.Rendering;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Objects;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Settings;
 
 namespace TotalWarModTool.App.Tests;
 
@@ -29,6 +32,21 @@ public class ObjectEditorViewTests
         View(key, value), new LoadOrder([Vanilla], null, []), null, new Dictionary<string, string> { [Table] = "sig" }, "loc",
         new LocTable(new Dictionary<string, LocText>(), []));
 
+    private static readonly ObjectId Chain = new("building_chains_tables", ["chain1"]);
+
+    // The root has a reference field that resolves, so its line carries a Link span.
+    private static ObjectBuildResult LinkResult()
+    {
+        var link = new FieldValue("chain", FieldType.StringU8, "chain1", new TableReference("building_chains_tables", "key"),
+            ReferenceResolution.Found, Chain, null);
+        var root = new ObjectRow([Plain("effect", "v"), link], new RowProvenance(Vanilla, [], false, false), null, null);
+        var view = new ObjectView(Id("a"), root, [], [], [], new LoadOrder([Vanilla], null, []), [Table]);
+        return new ObjectBuildResult(view, new LoadOrder([Vanilla], null, []), null, new Dictionary<string, string> { [Table] = "sig" }, "loc",
+            new LocTable(new Dictionary<string, LocText>(), []));
+    }
+
+    private sealed class FakeSystemTheme : ISystemThemeSource { public bool IsDark() => false; }
+
     private static ObjectTabViewModel Tab(ObjectBuildResult? result = null)
     {
         var tab = new ObjectTabViewModel(Texts, _ => { }, [new ObjectRef(Table, ["a"], null)], 0, key => key);
@@ -40,6 +58,9 @@ public class ObjectEditorViewTests
     private static (ObjectEditorView View, Window Window) Create(ObjectTabViewModel tab)
     {
         var view = new ObjectEditorView { DataContext = tab };
+        var theme = new ResourceDictionary();
+        new ThemeManager(theme, new FakeSystemTheme()).Apply(ThemeChoice.Light);
+        view.Resources.MergedDictionaries.Add(theme);
         view.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(File.ReadAllText(
             Path.Combine(RepoRoot.Find(), "src", "TotalWarModTool.App", "Themes", "Controls.xaml"))));
         var window = new Window { Width = 600, Height = 400, Content = view };
@@ -207,6 +228,51 @@ public class ObjectEditorViewTests
         try
         {
             Assert.True(view.Editor.TextArea.IsKeyboardFocusWithin || ReferenceEquals(FocusManager.GetFocusedElement(window), view.Editor.TextArea));
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    // The colour of every text run of a document line, as the editor draws it.
+    private static List<(string Text, Brush? Brush)> Runs(ObjectEditorView view, int number)
+    {
+        var document = view.Editor.Document;
+        var line = document.GetLineByNumber(number);
+        var visual = view.Editor.TextArea.TextView.GetOrConstructVisualLine(line);
+        return visual.Elements.OfType<VisualLineText>()
+            .Select(e => (Text: document.GetText(line.Offset + e.RelativeTextOffset, e.DocumentLength), Brush: (Brush?)e.TextRunProperties.ForegroundBrush))
+            .ToList();
+    }
+
+    private static int LineOf(ObjectEditorView view, string text)
+    {
+        var document = view.Editor.Document;
+        return document.Lines.First(l => document.GetText(l).Contains(text, StringComparison.Ordinal)).LineNumber;
+    }
+
+    [Fact] public void Intact_lines_are_coloured_from_the_baseline_and_changed_lines_from_their_syntax() => Sta.Run(() =>
+    {
+        var tab = Tab(LinkResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var accent = (Brush)view.FindResource("Theme.Accent");
+            var muted = (Brush)view.FindResource("Theme.TextMuted");
+            var number = LineOf(view, "chain = chain1");
+
+            var intact = Runs(view, number);
+            Assert.Contains(intact, run => run.Text == "chain1" && ReferenceEquals(run.Brush, accent));
+            Assert.Contains(intact, run => run.Text == "chain" && ReferenceEquals(run.Brush, muted));
+
+            var line = view.Editor.Document.GetLineByNumber(number);
+            view.Editor.Document.Replace(line.EndOffset - 1, 1, "2");
+            Pump(window);
+
+            var changed = Runs(view, number);
+            Assert.DoesNotContain(changed, run => ReferenceEquals(run.Brush, accent));
+            Assert.Contains(changed, run => run.Text == "chain" && ReferenceEquals(run.Brush, muted));
         }
         finally
         {

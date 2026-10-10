@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
@@ -16,6 +17,7 @@ public sealed partial class ObjectEditorView : UserControl
 {
     private readonly TextSegmentCollection<TextSegment> _readOnlySegments;
     private ObjectTabViewModel? _tab;
+    private BlockLineMap? _map;
     private bool _settingText;
 
     public ObjectEditorView()
@@ -38,6 +40,8 @@ public sealed partial class ObjectEditorView : UserControl
         {
             Editor.TextArea.InputBindings.Remove(binding);
         }
+
+        Editor.TextArea.TextView.LineTransformers.Add(new BlockColorizer(() => _map, key => Editor.TryFindResource(key) as Brush));
 
         Editor.TextChanged += OnEditorTextChanged;
         DataContextChanged += OnDataContextChanged;
@@ -63,6 +67,7 @@ public sealed partial class ObjectEditorView : UserControl
         }
 
         ShowTabText();
+        RebuildMap();
     }
 
     private void OnTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -70,6 +75,10 @@ public sealed partial class ObjectEditorView : UserControl
         if (e.PropertyName == nameof(ObjectTabViewModel.Text))
         {
             ShowTabText();
+        }
+        else if (e.PropertyName == nameof(ObjectTabViewModel.Block))
+        {
+            RebuildMap();
         }
         else if (e.PropertyName == nameof(ObjectTabViewModel.HeadLineLength))
         {
@@ -99,9 +108,21 @@ public sealed partial class ObjectEditorView : UserControl
             {
                 _settingText = false;
             }
+
+            RebuildMap();
         }
 
         SetReadOnlyHead();
+    }
+
+    // The map belongs to the baseline block and exists only while the document still holds exactly its text; typing keeps it (anchors follow).
+    private void RebuildMap()
+    {
+        _map?.Dispose();
+        _map = _tab?.Block is { } block && string.Equals(Editor.Text, block.Text, StringComparison.Ordinal)
+            ? new BlockLineMap(Editor.Document, block)
+            : null;
+        Editor.TextArea.TextView.Redraw();
     }
 
     // The head line [0, HeadLineLength] cannot be edited inside; inserting at its end stays allowed so that the user can begin a new line there.

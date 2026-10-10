@@ -744,6 +744,13 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 - **Geänderte Zeilen** werden rein syntaktisch gefärbt (`LineSyntax`), ohne Links und ohne Anhängsel.
 - `ObjectText.Render`, `TextLine`, `RenderOptions` und `SpanKind.Collapsed` sind aus `Objects` entfernt; die
   Anzeige läuft nur noch über `BlockText`.
+- **Intakte Zeilen (`BlockLineMap`):** Eine Baseline-Zeile ist intakt, wenn ihr Anker nicht gelöscht ist und die
+  Dokumentzeile am Anker denselben Text hat wie die Baseline (Einrückung eingeschlossen). Die Anker bewegen
+  sich mit `AfterInsertion` (nicht `BeforeInsertion`): Fügt der Nutzer am Anfang einer Zeile eine neue Zeile
+  ein, rückt die alte Zeile mit ihrem Anker nach unten und bleibt intakt. Eine neu getippte Zeile ohne Anker
+  ist nie intakt, auch wenn ihr Text dem einer gelöschten Zeile gleicht.
+- **Theme-Wechsel zur Laufzeit:** Der Editor färbt über `TryFindResource` beim Zeichnen; ein Wechsel wirkt beim
+  nächsten Redraw (Scrollen, Tippen, neuer Block), siehe Backlog.
 
 ## 6. Verworfene Alternativen
 
