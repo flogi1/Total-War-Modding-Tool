@@ -778,6 +778,17 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 - **Neues Gebäude öffnet in neuem Tab:** Anders als „Kopieren als“ (gleicher Tab, Verlauf wächst) öffnet der Assistent die neue Stufe in
   einem neuen Objekt-Tab und wählt ihn. Die Ergebniszeile nennt die angelegten Dateien und die Hinweise der Kopie; Undo wählt diesen Tab
   und baut ihn neu.
+- **Assistent „Neuer Trait“ (Plan 4, Task 7):** Menü Werkzeuge, unter „Neues Gebäude“, mit denselben Sperrgründen in derselben Reihenfolge
+  (Abschnitt `trait` statt `building`, Meldungen `objects.wizard.missing` und `objects.wizard.schemaMismatch` mit `MissingIn` der
+  Trait-Definition). Lauf „Vorlagen werden geladen“ liest `TraitWizard.Templates`; der Dialog (Filter, Vorlagenliste, Schlüssel) hat weder
+  Volk noch Kette. Vorlagen sind alle Zeilen der Trait-Tabelle (jeder Schlüssel einmal); der Name ist der Spieltext des ersten Schlüssels
+  (ordinal) mit dem Präfix `<Tabelle von nameText ohne _tables>_<Spalte>_<Trait>_` (bei `warhammer_3`
+  `character_trait_levels_onscreen_name_<trait>_`), ohne Text `null`. Schlüsselprüfung im Dialog: leer, Leerraum, oder der Schlüssel ist schon ein
+  Trait (Meldung nennt die Trait-Tabelle ohne `_tables`); Stufen und Effekte fängt `TakenKeys` in Lauf A. Die Kopie ist `ObjectCopy.Rename` des
+  Traits (Regel 3: Stufen mit Präfix werden Unterobjekte, ihre Effekte hängen an der Stufe), dann `TraitWizard.Compose`, das den Zusatz
+  `nameSuffix` an die Texte der Spalte `nameText` hängt. Beschreibung „New trait: <Schlüssel>“; der neue Trait öffnet in einem neuen Tab.
+  Echtdaten: `wh2_dlc09_trait_settra_title` ergibt 4 Objekte (Trait und 3 Stufen), 14 Zeilen und 9 Texte ohne belegten Schlüssel;
+  von 790 Traits haben 169 einen Spieltext.
 
 ### 5.9 App
 

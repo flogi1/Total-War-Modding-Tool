@@ -171,10 +171,25 @@ public sealed partial class ObjectApplyController
         // The copy opens in the same tab (the history grows) and is built through the build handler. The origin is the entry after the navigation,
         // with its root pack, so that an undo finds the tab again.
         tab.NavigateTo(newId, newTab: false);
-        RememberOrigin(done.Step, tab, tab.Current);
+        await FinishCopyAsync(done, tab, tab.Current,
+            $"Copied {DisplayText.Safe(started.Table)} {DisplayText.Safe(oldKey)} as {DisplayText.Safe(newKey)}");
+    }
+
+    /// <summary>
+    /// The tail of every written copy ("Copy as" and the wizards), on the UI thread once the tab shows the new object: remembers the origin of the
+    /// step (shown is the entry of the tab that an undo finds again), logs "what" with the counts of the plan, puts the result line and the notes
+    /// on the tab and checks the project after the write.
+    /// </summary>
+    internal async Task FinishCopyAsync(CopyDone done, ObjectTabViewModel tab, ObjectRef shown, string what)
+    {
+        ArgumentNullException.ThrowIfNull(done);
+        ArgumentNullException.ThrowIfNull(tab);
+        ArgumentNullException.ThrowIfNull(shown);
+        ArgumentNullException.ThrowIfNull(what);
+        RememberOrigin(done.Step, tab, shown);
         var summary = done.Plan.Summary;
-        _log.Info($"Copied {DisplayText.Safe(started.Table)} {DisplayText.Safe(oldKey)} as {DisplayText.Safe(newKey)}: {summary.RowsInserted} rows, "
-            + $"{summary.TextsInserted} texts, {summary.FilesChanged} files changed, {summary.FilesCreated} files created, {done.Notes.Count} notes.");
+        _log.Info($"{what}: {summary.RowsInserted} rows, {summary.TextsInserted} texts, {summary.FilesChanged} files changed, "
+            + $"{summary.FilesCreated} files created, {done.Notes.Count} notes.");
         tab.SetApplyResult(summary, CreatedFiles(done.Plan), 0, done.Notes);
         await CheckAfterWriteAsync();
     }

@@ -47,10 +47,14 @@ public sealed partial class AppTexts
 
     public string ObjectsEditorPaste => T("objects.editor.paste", "Paste");
 
-    // The wizards: the entry of the menu Tools, the dialog of the new building and why the wizard is disabled.
+    // The wizards: the entry of the menu Tools, the dialogs of the new building and the new trait and why the wizard is disabled.
     public string MenuToolsNewBuilding => T("menu.tools.newBuilding", "New building");
 
+    public string MenuToolsNewTrait => T("menu.tools.newTrait", "New trait");
+
     public string ObjectsWizardBuildingTitle => T("objects.wizard.building.title", "New building");
+
+    public string ObjectsWizardTraitTitle => T("objects.wizard.trait.title", "New trait");
 
     public string ObjectsWizardSubculture => T("objects.wizard.subculture", "Race");
 

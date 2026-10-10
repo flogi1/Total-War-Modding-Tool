@@ -489,6 +489,40 @@ public class ObjectsRealDataTests
         Assert.Empty(ObjectCopy.TakenKeys(changes, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
     }
 
+    [RealDataFact] public void The_trait_wizard_copies_a_trait_with_its_levels_without_taken_keys()
+    {
+        var context = Shared.Value;
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
+        var definition = WizardDefinitionLoader.Load(Path.Combine(RepoRoot.Find(), "profiles", "warhammer_3", WizardDefinitionLoader.FileName)).Definitions!.Trait!;
+        Assert.Empty(definition.MissingIn(context.Graph));
+        var loc = new LocStore().Get(context.Order, CancellationToken.None);
+        var traits = store.Get(definition.TraitTable, context.Order, CancellationToken.None);
+
+        var templates = TraitWizard.Templates(definition, traits, loc);
+        var traitId = FirstTraitWithLevels(builder, store);
+        var source = builder.Build(traitId, context.Order, null, CancellationToken.None);
+        var newId = Id(definition.TraitTable, "twmt_test_" + traitId.KeyValues[0]);
+        var allocator = RandomIntegerKeys.Create(new Random(1), (t, f, v) => store.Get(t, context.Order, CancellationToken.None).FindByField(f, v).Count > 0);
+        var copy = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph, allocator);
+
+        var composed = TraitWizard.Compose(definition, copy, " (copy)");
+        var changes = ObjectCopy.Changes(composed, context.Order, CategoryOf, context.Graph, null);
+        _output.WriteLine($"Traits: {templates.Count} templates, {templates.Count(t => t.Name is not null)} with a name; trait {traitId}: "
+            + $"{composed.Objects.Count} object(s), {changes.Rows.Count} rows, {changes.Texts.Count} texts");
+
+        Assert.Equal(traits.Rows.Count, templates.Count);
+        Assert.Contains(templates, t => t.Key == traitId.KeyValues[0]);
+        Assert.Contains(templates, t => t.Name is not null);
+        Assert.True(composed.Objects.Count > 1);
+        Assert.Contains(changes.Rows, r => r.Table == definition.TraitTable);
+        Assert.NotEmpty(changes.Texts);
+        Assert.Contains(changes.Texts, t => t.Text.EndsWith(" (copy)", StringComparison.Ordinal));
+        Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(ObjectCopy.TakenKeys(changes, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
+    }
+
     [RealDataFact] public void No_value_holds_a_control_character_or_the_dialect_escape()
     {
         var context = Shared.Value;

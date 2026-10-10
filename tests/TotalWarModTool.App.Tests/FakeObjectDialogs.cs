@@ -73,4 +73,17 @@ internal sealed class FakeObjectDialogs : IObjectDialogs
         WhileAsking?.Invoke();
         return BuildingAnswer(input);
     }
+
+    /// <summary>Gives the answer of <see cref="AskNewTrait"/> from its input; null cancels. Cancels by default.</summary>
+    public Func<NewTraitInput, NewTraitAnswer?> TraitAnswer { get; set; } = _ => null;
+
+    /// <summary>The input of every <see cref="AskNewTrait"/> call.</summary>
+    public List<NewTraitInput> TraitAsks { get; } = [];
+
+    public NewTraitAnswer? AskNewTrait(NewTraitInput input)
+    {
+        TraitAsks.Add(input);
+        WhileAsking?.Invoke();
+        return TraitAnswer(input);
+    }
 }

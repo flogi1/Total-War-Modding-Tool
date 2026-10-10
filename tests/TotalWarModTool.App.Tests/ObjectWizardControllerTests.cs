@@ -12,6 +12,9 @@ public class ObjectWizardControllerTests
     private const string VariantsFile = @"db\variants_tables\Flo.tsv";
     private const string ChainsFile = @"db\chains_tables\Flo.tsv";
     private const string UpgradesFile = @"db\upgrades_tables\Flo.tsv";
+    private const string TraitsFile = @"db\traits_tables\Flo.tsv";
+    private const string TraitLevelsFile = @"db\trait_levels_tables\Flo.tsv";
+    private const string EffectsFile = @"db\level_effects_tables\Flo.tsv";
 
     private sealed record WizardSetup(Setup Setup, ObjectWizardController Wizard) : IDisposable
     {
@@ -239,5 +242,141 @@ public class ObjectWizardControllerTests
         Assert.Equal(setup.Texts.ObjectsCopyAsKeyExists("chains"), validate("b"));
         Assert.Null(validate("flo_b"));
         Assert.Null(validate("b_1_copy"));
+    }
+
+    // ---- the trait wizard ----
+
+    // The wizard file without its "trait" section (parsed, so the line endings of the source do not matter).
+    private static string WithoutTraitSection(string json)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+        Assert.True(node.Remove("trait"));
+        return node.ToJsonString();
+    }
+
+    [Fact] public async Task A_new_trait_writes_trait_levels_and_effects_in_one_step_and_opens_it()
+    {
+        using var wizard = await CreateAsync();
+        var setup = wizard.Setup;
+        setup.Dialogs.TraitAnswer = _ => new NewTraitAnswer("t1", "flo_t");
+        var recorded = 0;
+        setup.History.Changed += () => recorded++;
+        var changedFor = new List<Guid>();
+        setup.Apply.FilesChanged += (_, id) => changedFor.Add(id);
+
+        Assert.Null(wizard.Wizard.NewTraitDisabledReason);
+        Assert.True(wizard.Wizard.NewTraitCommand.CanExecute(null));
+        await wizard.Wizard.NewTraitAsync();
+
+        Assert.Single(setup.Dialogs.TraitAsks);
+        Assert.Contains(setup.Texts.ObjectsWizardLoading, setup.Runner.Titles);
+        Assert.Equal(["flo_t"], Cells(Assert.Single(setup.RowsOf(TraitsFile))));
+        Assert.Equal([["flo_t_1", "flo_t", "1"], ["flo_t_2", "flo_t", "2"]], setup.RowsOf(TraitLevelsFile).Select(Cells));
+        Assert.Equal([["flo_t_1", "e_a"], ["flo_t_1", "e_b"], ["flo_t_2", "e_a"]], setup.RowsOf(EffectsFile).Select(Cells));
+        var step = Assert.IsType<FileContentsStep>(setup.History.NextUndo);
+        Assert.Equal(1, recorded);
+        Assert.Contains(TraitsFile, step.Files);
+        Assert.Contains(TraitLevelsFile, step.Files);
+        Assert.Contains(EffectsFile, step.Files);
+        Assert.Equal([setup.Project.Id], changedFor);
+
+        var locFile = Assert.Single(Directory.GetFiles(Path.Combine(setup.Project.Folder, "pack"), "*.loc.tsv", SearchOption.AllDirectories));
+        var loc = File.ReadAllText(locFile);
+        Assert.Contains("trait_levels_onscreen_name_flo_t_1\tBrave (copy)\t", loc);
+        Assert.Contains("trait_levels_onscreen_name_flo_t_2\tBraver (copy)\t", loc);
+
+        var tab = Assert.IsType<ObjectTabViewModel>(setup.Tabs.SelectedTab);
+        Assert.Equal(new ObjectRef("traits_tables", ["flo_t"], null), tab.Current);
+        Assert.Equal(ObjectTabState.Ready, tab.State);
+        Assert.Equal(SourceKind.Project, tab.Result!.View.Root!.Provenance.Source.Kind);
+        Assert.NotNull(tab.ResultLine);
+        Assert.Empty(setup.Dialogs.Messages);
+        Assert.Contains(setup.Game.Log.Infos, entry => entry.Contains("New trait", StringComparison.Ordinal) && entry.Contains("flo_t", StringComparison.Ordinal)
+            && entry.Contains("t1", StringComparison.Ordinal));
+    }
+
+    [Fact] public async Task Undo_of_a_new_trait_removes_the_trait_its_levels_and_effects()
+    {
+        using var wizard = await CreateAsync();
+        var setup = wizard.Setup;
+        setup.Dialogs.TraitAnswer = _ => new NewTraitAnswer("t1", "flo_t");
+        await wizard.Wizard.NewTraitAsync();
+        var tab = Assert.IsType<ObjectTabViewModel>(setup.Tabs.SelectedTab);
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, TraitsFile);
+        Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+
+        Assert.False(File.Exists(setup.ProjectFile(TraitsFile)));
+        Assert.False(File.Exists(setup.ProjectFile(TraitLevelsFile)));
+        Assert.False(File.Exists(setup.ProjectFile(EffectsFile)));
+        Assert.False(setup.History.CanUndo);
+        Assert.Same(tab, setup.Tabs.SelectedTab);
+        Assert.Null(tab.Result!.View.Root);
+    }
+
+    [Fact] public async Task The_trait_dialog_lists_every_trait_with_the_name_of_its_first_level_and_refuses_taken_keys()
+    {
+        using var wizard = await CreateAsync();
+        var setup = wizard.Setup;
+
+        await wizard.Wizard.NewTraitAsync();
+
+        var input = Assert.Single(setup.Dialogs.TraitAsks);
+        Assert.Equal([("t1", "Brave"), ("t2", null)], input.Templates.Select(t => (t.Key, t.Name)));
+        Assert.Equal(setup.Texts.ObjectsCopyAsKeyEmpty, input.ValidateKey(string.Empty));
+        Assert.Equal(setup.Texts.ObjectsCopyAsKeyWhitespace, input.ValidateKey("a b"));
+        Assert.Equal(setup.Texts.ObjectsCopyAsKeyExists("traits"), input.ValidateKey("t1"));
+        Assert.Equal(setup.Texts.ObjectsCopyAsKeyExists("traits"), input.ValidateKey("t2"));
+        Assert.Null(input.ValidateKey("flo_t"));
+        Assert.Null(input.ValidateKey("t1_copy"));
+    }
+
+    [Fact] public async Task Cancelling_the_trait_dialog_writes_nothing()
+    {
+        using var wizard = await CreateAsync();
+        var setup = wizard.Setup;
+
+        await wizard.Wizard.NewTraitAsync();
+
+        Assert.Single(setup.Dialogs.TraitAsks);
+        Assert.DoesNotContain(setup.Texts.ObjectsCopyAsChecking, setup.Runner.Titles);
+        AssertNothingWritten(setup);
+        Assert.Empty(setup.Main.Main.Tabs.Tabs.OfType<ObjectTabViewModel>());
+        Assert.Contains(setup.Game.Log.Infos, entry => entry.Contains("new trait wizard was cancelled", StringComparison.Ordinal));
+    }
+
+    [Fact] public async Task The_trait_wizard_is_disabled_without_its_section_and_the_building_wizard_stays_usable()
+    {
+        using var wizard = await CreateAsync(WithoutTraitSection(ObjectsTestSchema.WizardsJson));
+        var setup = wizard.Setup;
+
+        Assert.Equal(setup.Texts.ObjectsWizardMissing, wizard.Wizard.NewTraitDisabledReason);
+        Assert.False(wizard.Wizard.NewTraitCommand.CanExecute(null));
+        Assert.Null(wizard.Wizard.NewBuildingDisabledReason);
+        await wizard.Wizard.NewTraitAsync();
+
+        Assert.Empty(setup.Dialogs.TraitAsks);
+        Assert.Contains(setup.Game.Log.Infos, entry => entry.Contains("new trait wizard was refused: the game profile has no trait wizard", StringComparison.Ordinal));
+    }
+
+    [Fact] public async Task A_trait_wizard_with_names_the_schema_does_not_know_is_refused_and_logged_in_english()
+    {
+        using var wizard = await CreateAsync(
+            ObjectsTestSchema.WizardsJson.Replace("\"traitTable\": \"traits_tables\"", "\"traitTable\": \"no_traits_tables\"", StringComparison.Ordinal));
+        var setup = wizard.Setup;
+        var expected = setup.Texts.ObjectsWizardSchemaMismatch("no_traits_tables");
+
+        await wizard.Wizard.NewTraitAsync();
+
+        Assert.Empty(setup.Dialogs.TraitAsks);
+        var message = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(expected, message.Message);
+        Assert.Equal(setup.Texts.ObjectsWizardTraitTitle, message.Title);
+        Assert.Equal(expected, wizard.Wizard.NewTraitDisabledReason);
+        Assert.Null(wizard.Wizard.NewBuildingDisabledReason);
+        Assert.Contains(setup.Game.Log.Warnings, entry => entry.Contains("the schema does not know no_traits_tables", StringComparison.Ordinal));
+        Assert.DoesNotContain(setup.Game.Log.Warnings.Concat(setup.Game.Log.Infos), entry => entry.Contains(expected, StringComparison.Ordinal));
+        AssertNothingWritten(setup);
     }
 }

@@ -138,6 +138,28 @@ internal static class ObjectsTestSchema
         new FieldDefinition("to", FieldType.StringU8, nameof(FieldType.StringU8), true, new TableReference("levels", "level_name")),
     ]);
 
+    // The mini trait tables of the trait wizard tests: a trait, its levels (key = trait key + "_" + number) and the effects of a level.
+    public static readonly TableDefinition Traits = new(0,
+    [
+        new FieldDefinition("key", FieldType.StringU8, nameof(FieldType.StringU8), true, null),
+    ]);
+
+    public static readonly TableDefinition TraitLevels = new(0,
+    [
+        new FieldDefinition("key", FieldType.StringU8, nameof(FieldType.StringU8), true, null),
+        new FieldDefinition("trait", FieldType.StringU8, nameof(FieldType.StringU8), false, new TableReference("traits", "key")),
+        new FieldDefinition("rank", FieldType.I32, nameof(FieldType.I32), false, null),
+    ]);
+
+    public static readonly TableDefinition LevelEffects = new(0,
+    [
+        new FieldDefinition("level", FieldType.StringU8, nameof(FieldType.StringU8), true, new TableReference("trait_levels", "key")),
+        new FieldDefinition("effect", FieldType.StringU8, nameof(FieldType.StringU8), true, null),
+    ]);
+
+    /// <summary>The trait wizard over the mini schema; the names of the levels are the loc column "onscreen_name" of trait_levels_tables.</summary>
+    public static readonly TraitWizardDefinition TraitDefinition = new("traits_tables", new TextRef("trait_levels_tables", "onscreen_name"));
+
     /// <summary>The building wizard over the mini schema; the chain of a new level is "&lt;key&gt;_chain".</summary>
     public static readonly BuildingWizardDefinition BuildingDefinition = new(
         "levels_tables", "chain", "level", "chains_tables", "_chain", "upgrades_tables", "from", "to", "variants_tables", "building", "culture",
@@ -164,6 +186,10 @@ internal static class ObjectsTestSchema
             "subcultureTable": "subcultures_tables",
             "subcultureCultureField": "culture",
             "nameText": { "table": "variants_tables", "column": "name" }
+          },
+          "trait": {
+            "traitTable": "traits_tables",
+            "nameText": { "table": "trait_levels_tables", "column": "onscreen_name" }
           }
         }
         """;
@@ -184,6 +210,13 @@ internal static class ObjectsTestSchema
 
     public static readonly object?[][] UpgradeRows = [["b_1", "b_2"]];
 
+    /// <summary>Traits t1 (levels t1_1 and t1_2, three effect rows) and t2 (no level).</summary>
+    public static readonly object?[][] TraitRows = [["t1"], ["t2"]];
+
+    public static readonly object?[][] TraitLevelRows = [["t1_1", "t1", 1], ["t1_2", "t1", 2]];
+
+    public static readonly object?[][] LevelEffectRows = [["t1_1", "e_a"], ["t1_1", "e_b"], ["t1_2", "e_a"]];
+
     public static readonly LocRow[] BuildingLocRows =
     [
         new("subcultures_name_sc1", "Empire", false),
@@ -192,6 +225,8 @@ internal static class ObjectsTestSchema
         new("variants_name_b_1sc1", "Barracks", false),
         new("variants_name_b_2c1", "Big barracks", false),
         new("variants_name_solosc1", "Shrine", false),
+        new("trait_levels_onscreen_name_t1_1", "Brave", false),
+        new("trait_levels_onscreen_name_t1_2", "Braver", false),
     ];
 
     private const string BuildingSchemaText = """
@@ -250,6 +285,36 @@ internal static class ObjectsTestSchema
                         localised_fields: [],
                     ),
                 ],
+                "traits_tables": [
+                    (
+                        version: 0,
+                        fields: [
+                            (name: "key", field_type: StringU8, is_key: true, is_reference: None),
+                        ],
+                        localised_fields: [],
+                    ),
+                ],
+                "trait_levels_tables": [
+                    (
+                        version: 0,
+                        fields: [
+                            (name: "key", field_type: StringU8, is_key: true, is_reference: None),
+                            (name: "trait", field_type: StringU8, is_key: false, is_reference: Some(("traits", "key"))),
+                            (name: "rank", field_type: I32, is_key: false, is_reference: None),
+                        ],
+                        localised_fields: [],
+                    ),
+                ],
+                "level_effects_tables": [
+                    (
+                        version: 0,
+                        fields: [
+                            (name: "level", field_type: StringU8, is_key: true, is_reference: Some(("trait_levels", "key"))),
+                            (name: "effect", field_type: StringU8, is_key: true, is_reference: None),
+                        ],
+                        localised_fields: [],
+                    ),
+                ],
             },
             patches: {},
         )
@@ -270,6 +335,9 @@ internal static class ObjectsTestSchema
             .AddEntry("db/variants_tables/data__", DbTableEncoder.Encode(Variants, 0, null, VariantRows))
             .AddEntry("db/subcultures_tables/data__", DbTableEncoder.Encode(Subcultures, 0, null, SubcultureRows))
             .AddEntry("db/upgrades_tables/data__", DbTableEncoder.Encode(Upgrades, 0, null, UpgradeRows))
+            .AddEntry("db/traits_tables/data__", DbTableEncoder.Encode(Traits, 0, null, TraitRows))
+            .AddEntry("db/trait_levels_tables/data__", DbTableEncoder.Encode(TraitLevels, 0, null, TraitLevelRows))
+            .AddEntry("db/level_effects_tables/data__", DbTableEncoder.Encode(LevelEffects, 0, null, LevelEffectRows))
             .WriteTo(path);
 
     /// <summary>The building pack in the data folder of the game (data.pack) and the loc pack with the building texts; returns the path of the building pack.</summary>

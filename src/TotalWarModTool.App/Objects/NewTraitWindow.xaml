@@ -1,0 +1,71 @@
+<Window x:Class="TotalWarModTool.App.NewTraitWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:local="clr-namespace:TotalWarModTool.App"
+        Title="{Binding Texts.ObjectsWizardTraitTitle}"
+        Width="520" Height="520" MinWidth="400" MinHeight="380" ResizeMode="CanResizeWithGrip"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource Theme.WindowBackground}"
+        Foreground="{DynamicResource Theme.Text}"
+        ContentRendered="OnContentRendered">
+    <!--
+        DataContext is the NewTraitViewModel. Like the new building dialog without race and chain: the template list is in the one row that grows
+        (it virtualizes), the boxes update the view model on every keystroke, OK is the default button and disabled while the check has a text.
+        Names and keys are game data and go through the WizardLabelConverter, which escapes them.
+    -->
+    <Window.Resources>
+        <local:WizardLabelConverter x:Key="WizardLabel" />
+        <Style x:Key="ErrorTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Theme.Warning}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Text}" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <DataTemplate x:Key="ChoiceTemplate">
+            <TextBlock Text="{Binding Converter={StaticResource WizardLabel}}" />
+        </DataTemplate>
+    </Window.Resources>
+    <Grid Margin="16" FocusManager.FocusedElement="{Binding ElementName=FilterBox}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="FilterLabel" Grid.Row="0" Text="{Binding Texts.ObjectsWizardFilter}" Margin="0,0,0,4" />
+        <TextBox x:Name="FilterBox" Grid.Row="1" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=FilterLabel}"
+                 PreviewKeyDown="OnFilterKeyDown" />
+
+        <TextBlock x:Name="TemplateLabel" Grid.Row="2" Text="{Binding Texts.ObjectsWizardTemplate}" Margin="0,0,0,4" />
+        <ListBox x:Name="TemplateList" Grid.Row="3" Margin="0,0,0,12" SelectionMode="Single" MinHeight="120"
+                 ItemsSource="{Binding FilteredTemplates}" SelectedItem="{Binding SelectedTemplate, Mode=TwoWay}"
+                 ItemTemplate="{StaticResource ChoiceTemplate}"
+                 ScrollViewer.CanContentScroll="True" VirtualizingPanel.IsVirtualizing="True"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=TemplateLabel}"
+                 PreviewKeyDown="OnListKeyDown" SelectionChanged="OnSelectionChanged" />
+
+        <TextBlock x:Name="KeyLabel" Grid.Row="4" Text="{Binding Texts.ObjectsWizardKey}" Margin="0,0,0,4" />
+        <TextBox x:Name="KeyBox" Grid.Row="5" Text="{Binding Key, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12"
+                 automation:AutomationProperties.LabeledBy="{Binding ElementName=KeyLabel}" />
+
+        <TextBlock x:Name="ErrorText" Grid.Row="6" Text="{Binding Error}" Style="{StaticResource ErrorTextStyle}" />
+
+        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+            <Button x:Name="OkButton" Content="{Binding Texts.DialogOk}" MinWidth="90" Padding="12,3" IsDefault="True"
+                    IsEnabled="{Binding CanAccept}" Click="OnOkClick" />
+            <Button x:Name="CancelButton" Content="{Binding Texts.DialogCancel}" MinWidth="90" Padding="12,3" Margin="8,0,0,0" IsCancel="True"
+                    Click="OnCancelClick" />
+        </StackPanel>
+    </Grid>
+</Window>

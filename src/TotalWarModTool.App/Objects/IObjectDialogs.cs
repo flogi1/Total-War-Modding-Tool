@@ -8,6 +8,11 @@ public sealed record NewBuildingInput(BuildingCatalog Catalog, string? Preselect
 /// <summary>After null: a new chain. Else the stage the new building follows.</summary>
 public sealed record NewBuildingAnswer(string Template, string Key, BuildingStage? After);
 
+/// <summary>What the trait dialog shows. ValidateKey refuses an empty key, spaces and tabs and a trait key the trait table has.</summary>
+public sealed record NewTraitInput(IReadOnlyList<WizardChoice> Templates, Func<string, string?> ValidateKey);
+
+public sealed record NewTraitAnswer(string Template, string Key);
+
 /// <summary>Everything the apply, the copy of an object and the wizards ask or tell the user. Display strings are escaped by the caller. The fake in the tests records the calls.</summary>
 public interface IObjectDialogs
 {
@@ -28,4 +33,7 @@ public interface IObjectDialogs
 
     /// <summary>The dialog of the new building: subculture, template, key and chain. Null: cancel.</summary>
     NewBuildingAnswer? AskNewBuilding(NewBuildingInput input);
+
+    /// <summary>The dialog of the new trait: template and key. Null: cancel.</summary>
+    NewTraitAnswer? AskNewTrait(NewTraitInput input);
 }

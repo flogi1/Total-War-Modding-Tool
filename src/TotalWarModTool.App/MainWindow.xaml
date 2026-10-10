@@ -28,6 +28,9 @@
                 <MenuItem Header="{Binding Texts.MenuToolsNewBuilding}" Command="{Binding Wizards.NewBuildingCommand}"
                           Visibility="{Binding HasWizards, Converter={StaticResource BoolToVisibility}}"
                           ToolTip="{Binding Wizards.NewBuildingDisabledReason}" ToolTipService.ShowOnDisabled="True" />
+                <MenuItem Header="{Binding Texts.MenuToolsNewTrait}" Command="{Binding Wizards.NewTraitCommand}"
+                          Visibility="{Binding HasWizards, Converter={StaticResource BoolToVisibility}}"
+                          ToolTip="{Binding Wizards.NewTraitDisabledReason}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
                 <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
             </MenuItem>
