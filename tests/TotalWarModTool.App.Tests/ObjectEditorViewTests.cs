@@ -525,11 +525,11 @@ public class ObjectEditorViewTests
             var folding = Assert.Single(view.Foldings.AllFoldings);
             Assert.True(folding.IsFolded);
             Assert.Equal(Texts.ObjectsMoreRows(20), folding.Title);
-            Assert.Empty(tab.ExpandedSections);
+            Assert.False(tab.IsSectionExpanded(0));
 
             folding.IsFolded = false;
             Pump(window);
-            Assert.Contains(0, tab.ExpandedSections);
+            Assert.True(tab.IsSectionExpanded(0));
 
             tab.ApplyResult(LongResult());
             Pump(window);

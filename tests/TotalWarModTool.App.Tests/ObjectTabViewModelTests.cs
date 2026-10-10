@@ -618,20 +618,37 @@ public class ObjectTabViewModelTests
     [Fact] public void Expanded_sections_survive_a_new_result_and_not_a_move()
     {
         var tab = ReadyTab();
-        Assert.Empty(tab.ExpandedSections);
+        Assert.False(tab.IsSectionExpanded(1));
 
         tab.SetSectionExpanded(1, true);
         tab.SetSectionExpanded(1, true);
-        Assert.Equal([1], tab.ExpandedSections);
+        Assert.True(tab.IsSectionExpanded(1));
+        Assert.False(tab.IsSectionExpanded(0));
 
         tab.ApplyResult(Result());
-        Assert.Equal([1], tab.ExpandedSections);
+        Assert.True(tab.IsSectionExpanded(1));
 
         tab.SetSectionExpanded(1, false);
-        Assert.Empty(tab.ExpandedSections);
+        Assert.False(tab.IsSectionExpanded(1));
 
         tab.SetSectionExpanded(0, true);
         tab.NavigateTo(Id("b"), false);
-        Assert.Empty(tab.ExpandedSections);
+        Assert.False(tab.IsSectionExpanded(0));
+    }
+
+    [Fact] public void An_expanded_section_stays_expanded_when_an_earlier_section_disappears()
+    {
+        static ObjectSection Section(string table) => new(table, "building", false, [Row("1"), Row("2")]);
+        static ObjectBuildResult With(params ObjectSection[] sections) => Result(new ObjectView(Id("a"), Row("v"), [], sections, [], Order(), [Table]));
+
+        var tab = Tab();
+        tab.ApplyResult(With(Section("a_tables"), Section("b_tables"), Section("c_tables")));
+        tab.SetSectionExpanded(2, true);
+
+        tab.ApplyResult(With(Section("a_tables"), Section("c_tables")));
+
+        Assert.True(tab.IsSectionExpanded(1));
+        Assert.False(tab.IsSectionExpanded(0));
+        Assert.False(tab.IsSectionExpanded(2));
     }
 }

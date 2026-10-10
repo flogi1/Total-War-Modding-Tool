@@ -765,7 +765,9 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 - **Falten:** Ein Abschnitt mit mehr als 20 Zeilen (Zeilen im Sinn der Zeilenblöcke des Abschnitts) ist ab der
   sechsten Zeile gefaltet: von hinter der letzten Textzeile der fünften Zeile bis zum Ende der letzten Zeile des
   Abschnitts, mit dem Text „+ N weitere Zeilen“. Die Faltungen sind `FoldingManager`-Segmente und folgen deshalb
-  dem Text. Der Faltzustand liegt im Tab (`ExpandedSections`, Abschnittsindizes des Objekts); die View meldet eine
+  dem Text. Der Faltzustand liegt im Tab, je Abschnitt nach `(SourceTable, FieldName)` (bei gleichem Paar mit laufender
+  Nummer) statt nach Index: Verschwindet durch Übernehmen ein früherer Abschnitt, bleibt derselbe Abschnitt entfaltet.
+  Die View fragt und setzt ihn über `IsSectionExpanded(index)` und `SetSectionExpanded(index, …)`; sie meldet eine
   Änderung über `TextView.VisualLinesChanged` zurück (der `FoldingManager` hat kein eigenes Ereignis). Er bleibt über
   `ApplyResult` und wird bei einem Objektwechsel geleert.
 - **Tab mit ungeübernommenem Text wird wieder angezeigt:** Die View ordnet die Zeilen der Baseline den Zeilen des Textes

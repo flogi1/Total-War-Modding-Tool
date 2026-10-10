@@ -270,7 +270,7 @@ public sealed partial class ObjectEditorView : UserControl
             {
                 var folding = foldings.FirstOrDefault(f => f.Folding.StartOffset == section.StartOffset).Folding;
                 section.Tag = folding?.Section;
-                section.IsFolded = folding is null || _tab?.ExpandedSections.Contains(folding.Section) != true;
+                section.IsFolded = folding is null || _tab?.IsSectionExpanded(folding.Section) != true;
             }
         }
         finally
@@ -289,7 +289,7 @@ public sealed partial class ObjectEditorView : UserControl
 
         foreach (var section in _foldings.AllFoldings)
         {
-            if (section.Tag is int index && _tab.ExpandedSections.Contains(index) == section.IsFolded)
+            if (section.Tag is int index && _tab.IsSectionExpanded(index) == section.IsFolded)
             {
                 _tab.SetSectionExpanded(index, !section.IsFolded);
             }

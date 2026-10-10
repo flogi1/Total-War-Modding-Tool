@@ -37,7 +37,7 @@ public sealed class ObjectTabViewModel : TabViewModel
     private BlockText? _block;
     private (string Text, ObjectChanges Changes)? _checked;
     private readonly Dictionary<ObjectId, string?> _displayNames = [];
-    private readonly HashSet<int> _expandedSections = [];
+    private readonly HashSet<SectionKey> _expandedSections = [];
     private int _headLineLength;
     private bool _hasUnappliedText;
     private string _status = string.Empty;
@@ -112,19 +112,41 @@ public sealed class ObjectTabViewModel : TabViewModel
     public string TranslateTitle(string key) => _translate(key);
 
     /// <summary>
-    /// The sections (indexes into the view's sections) the user unfolded. Stays across <see cref="ApplyResult"/> (the same object, sections in the
-    /// same order); a move to another object clears it. An index the new block does not have does no harm.
+    /// Tells whether the user unfolded the section (index into the view's sections of the current result). The tab remembers a section by its
+    /// table and field, so the answer stays right when an apply adds or removes an earlier section; a move to another object forgets it.
     /// </summary>
-    public IReadOnlySet<int> ExpandedSections => _expandedSections;
+    public bool IsSectionExpanded(int section) => SectionKeyOf(section) is { } key && _expandedSections.Contains(key);
 
-    /// <summary>Remembers that the section is unfolded or folded again. Set by the view when the user folds or unfolds.</summary>
+    /// <summary>Remembers that the section is unfolded or folded again. Set by the view when the user folds or unfolds. Without a result or for an index out of range it does nothing.</summary>
     public void SetSectionExpanded(int section, bool expanded)
     {
-        if (expanded ? _expandedSections.Add(section) : _expandedSections.Remove(section))
+        if (SectionKeyOf(section) is { } key)
         {
-            OnPropertyChanged(nameof(ExpandedSections));
+            _ = expanded ? _expandedSections.Add(key) : _expandedSections.Remove(key);
         }
     }
+
+    // Table and field of the section; the occurrence counts equal pairs before it, in case the same pair is listed twice.
+    private SectionKey? SectionKeyOf(int section)
+    {
+        if (_result?.View.Sections is not { } sections || section < 0 || section >= sections.Count)
+        {
+            return null;
+        }
+
+        var occurrence = 0;
+        for (var i = 0; i < section; i++)
+        {
+            if (sections[i].SourceTable == sections[section].SourceTable && sections[i].FieldName == sections[section].FieldName)
+            {
+                occurrence++;
+            }
+        }
+
+        return new SectionKey(sections[section].SourceTable, sections[section].FieldName, occurrence);
+    }
+
+    private readonly record struct SectionKey(string Table, string Field, int Occurrence);
 
     /// <summary>Display name of a link target from the loc table of the last build (data, escaped); null when none or without a built result.</summary>
     public string? DisplayNameOf(ObjectId target)
