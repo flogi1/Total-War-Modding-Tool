@@ -705,6 +705,37 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   übersprungen) und `Tabelle.Feld` für ein unbekanntes Feld (ohne Beachtung der Groß-/Kleinschreibung),
   je Name einmal. Bei `nameText` wird nur die Tabelle geprüft: die Spalte liegt in den Loc-Dateien und
   ist kein Schemafeld.
+- **Stufenwahl statt fester höchster Stufe:** Bei „Stufe in bestehender Kette“ wählt der Nutzer die Stufe,
+  hinter der das neue Gebäude steht (`BuildingCatalog.StagesOf`, nach `level`, dann Schlüssel). `level`
+  wird `Stufe.level + 1`, die Upgrade-Zeile ist `upgrades from <gewählte Stufe>`. Das ersetzt „höchste
+  Stufe“ aus der Beschreibung oben, denn die höchste Stufe ist nicht immer eindeutig (Spike: 53 Ketten mit
+  mehreren Stufen auf der höchsten `level`, 144 Stufen mit Verzweigung).
+- **Upgrade-Zeilen der Vorlage entfallen in beiden Modi:** `BuildingWizard.Compose` entfernt aus der
+  kopierten Stufe jeden Abschnitt der Upgrade-Tabelle. Bei „Neue Kette“ bleibt keine Upgrade-Zeile, bei
+  „bestehende Kette“ legt `Compose` genau die eine Zeile `from = gewählte Stufe` an. Das ist die einzige
+  Spielregel im Code (neben `level` 0 bei neuer Kette).
+- **Neue Kette:** Das Feld auf die Kette zeigt auf den Schlüssel des kopierten Kettenobjekts
+  (`<neuer Schlüssel><chainKeySuffix>`, `ChainIdFor`), `level` ist 0. Die Hinweise beider Kopien werden
+  nach (Art, Tabelle) zusammengezählt; der Hinweis `ForeignKeyRows` der Ketten-Kopie auf die Stufentabelle
+  (die Stufen der Vorlage-Kette) entfällt. Hat die Vorlage keine Kette, bleibt das Feld unverändert,
+  `level` wird 0 und der Hinweis `NoChain` (Tabelle der Ketten, Anzahl 0) steht im Ergebnis.
+- **Alle Kultur-Varianten der Vorlage werden kopiert:** Auch Varianten anderer Völker (Regel 2 der
+  Kopierregel); der Assistent filtert nicht. Die Spieltexte `name` aller kopierten Varianten bekommen den
+  Zusatz `nameSuffix`.
+- **Vorlagen nur über Varianten mit Kultur oder Subkultur:** `BuildingCatalog.TemplatesOf(subkultur)`
+  liefert die Stufen mit einer Variante, deren Subkultur die gewählte ist oder deren Kultur die Kultur der
+  gewählten Subkultur ist. Varianten, die nur eine Fraktion tragen (weder Kultur noch Subkultur), machen
+  eine Stufe zu keiner Vorlage. Der Name einer Vorlage (und einer Stufe in `StagesOf`) ist der Spieltext
+  `<Variantentabelle ohne _tables>_<Spalte von nameText>_<Schlüssel der Variante>` der ersten passenden
+  Variante, die einen hat; ohne Text ist der Name `null`.
+- **Vorauswahl:** `PreselectFor(view)` gilt nur für Sichten der Stufentabelle. Die erste Zeile des
+  Variantenabschnitts mit einer bekannten Subkultur gibt sie vor; sonst gibt die erste Zeile mit einer
+  Kultur, die Subkulturen hat, die erste Subkultur dieser Kultur in der Reihenfolge der Liste vor; sonst
+  `null`.
+- **Echtdaten (Plan 4, Task 4, WH3 Vanilla und aktive Mods):** `wh_main_sc_emp_empire` hat 105 Vorlagen,
+  alle mit Namen; die Kaserne `wh_main_emp_barracks_3` als Stufe hinter sich selbst (Upgrade-Zeile 1,
+  `level` höchste Stufe + 1) und mit neuer Kette (`..._chain`, 2 Objekte, 39 Zeilen) ergibt keinen belegten
+  Schlüssel und keinen Hinweis auf die Stufentabelle.
 
 ### 5.9 App
 

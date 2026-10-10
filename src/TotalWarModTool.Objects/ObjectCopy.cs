@@ -7,6 +7,9 @@ public enum CopyNoteKind
     ForeignKeyRows,
     DepthExceeded,
     HiddenSection,
+
+    /// <summary>The building wizard found no chain to copy (a template without chain); Table is the table of the chains.</summary>
+    NoChain,
 }
 
 /// <summary>Table with suffix; Count the rows concerned.</summary>
