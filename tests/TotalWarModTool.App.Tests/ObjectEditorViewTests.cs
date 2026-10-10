@@ -390,6 +390,28 @@ public class ObjectEditorViewTests
         }
     });
 
+    [Fact] public void The_last_shown_line_of_a_folding_keeps_its_trailing() => Sta.Run(() =>
+    {
+        var tab = Tab(LongResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var folding = Assert.Single(view.Foldings.AllFoldings);
+            Assert.True(folding.IsFolded);
+            var line = view.Editor.Document.GetLineByOffset(folding.StartOffset);
+            var elements = view.Editor.TextArea.TextView.GetOrConstructVisualLine(line).Elements;
+
+            var trailing = elements.ToList().FindIndex(e => e is TrailingElement);
+            var folded = elements.ToList().FindIndex(e => e.GetType().Name.Contains("Folding", StringComparison.Ordinal));
+            Assert.True(trailing >= 0, "no trailing on the line the folding starts at");
+            Assert.True(folded > trailing, "the folding must come after the trailing");
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
     [Fact] public void Typing_schedules_a_check_after_the_delay() => Sta.Run(() =>
     {
         var tab = Tab();

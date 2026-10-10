@@ -62,7 +62,6 @@ public sealed partial class ObjectEditorView : UserControl
         Editor.TextArea.TextView.MouseLeave += (_, _) => ShowLinkCursor(false);
         Editor.TextArea.TextView.MouseHover += OnMouseHover;
         Editor.TextArea.TextView.MouseHoverStopped += (_, _) => _hoverToolTip.IsOpen = false;
-        Editor.TextArea.TextView.ElementGenerators.Add(new TrailingGenerator(() => _map, () => _tab, key => Editor.TryFindResource(key) as Brush));
 
         _checkTimer = new DispatcherTimer { Interval = CheckDelay };
         _checkTimer.Tick += (_, _) =>
@@ -72,6 +71,8 @@ public sealed partial class ObjectEditorView : UserControl
         };
 
         _foldings = FoldingManager.Install(Editor.TextArea);
+        // In front of the folding generator: its element has text, so it ends the line there; the trailing (length 0) must be built first.
+        Editor.TextArea.TextView.ElementGenerators.Insert(0, new TrailingGenerator(() => _map, () => _tab, key => Editor.TryFindResource(key) as Brush));
         Editor.TextArea.TextView.VisualLinesChanged += (_, _) => RememberFoldState();
 
         Editor.TextChanged += OnEditorTextChanged;

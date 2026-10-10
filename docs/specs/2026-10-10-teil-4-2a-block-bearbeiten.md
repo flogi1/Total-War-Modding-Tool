@@ -786,6 +786,8 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   möglich). Der Cursor hat keinen Halt im Anhängsel (`HandlesLineBorders`, kein Halt im Element), Selektion und
   Kopieren enthalten es nie. Bei einer gefalteten Zeile steht es hinter der ersten Dokumentzeile, vor dem
   Faltungstext.
+  Damit das gilt, steht der `TrailingGenerator` vor dem Generator der Faltung (`ElementGenerators.Insert(0, …)`): Dessen
+  Element hat Text und beendet die Zeile, ein Anhängsel dahinter käme nie dran.
 
 ## 6. Verworfene Alternativen
 
