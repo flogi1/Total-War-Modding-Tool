@@ -359,6 +359,7 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Speicher der History (Spec Annahme 5): `FileContentsStep` hält `Previous` und `Next` jeder Datei im Speicher; in Plan 3 messen, ob `Previous` in den Papierkorb statt in den Speicher muss
 - `FileCopyQuestion.DeletedKeys` verbindet Schlüsselwerte mit `|`, `ObjectId.JoinedKey` ohne Trennzeichen; bei Plan 3 (Anzeige) prüfen, ob eine gemeinsame Form nötig ist
 - `ProjectWritePlan` prüft in einem Set einer Überschreibzeile die Farbkanäle nur für `ChangedFields`; ungeänderte Kanäle der Baseline werden nicht geprüft
+- Aus dem Review von Plan 2 (2026-10-10): Nach einem `WriteFailed` sind die Fingerprints des Plans veraltet; Plan 3 muss das Objekt vor einem erneuten Übernehmen neu aufbauen und `RollbackFailed`-Dateien deutlich zeigen. Redo nach geleertem Papierkorb und Undo mit ungültigem Papierkorb-Pfad lassen den Schritt fallen, obwohl nichts geändert wurde (Regel „jeder andere Fehler“). Ein Undo, das nach der ersten Datei scheitert, hinterlässt einen gemischten Zustand (Spec-Festlegung); eine Rückschreibstufe wie im `ProjectWriter` wäre möglich
 
 == Wartet auf ein öffentliches Remote ==
 

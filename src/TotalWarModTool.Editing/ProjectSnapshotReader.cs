@@ -10,7 +10,8 @@ namespace TotalWarModTool.Editing;
 /// <summary>Reads what the write plan computes from. Reads only; never writes.</summary>
 public static class ProjectSnapshotReader
 {
-    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
+    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
 
     /// <summary>
     /// Reads the project files of the requested tables (every file below pack\db\&lt;table&gt;\ that ProjectFiles.List reports as Table), the loc
@@ -80,13 +81,31 @@ public static class ProjectSnapshotReader
             return null;
         }
 
+        // Strict on purpose: the text is written back by an undo, so it must be the file's bytes, not a lenient reading of them.
+        byte[] bytes;
         try
         {
-            return (fingerprint, File.ReadAllText(check.FullPath!, Utf8));
+            bytes = File.ReadAllBytes(check.FullPath!);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             problems.Add(new SnapshotProblem(SnapshotProblemKind.ProjectFileUnreadable, item.RelativeFile, null, "the file cannot be read: " + ex.Message));
+            return null;
+        }
+
+        if (bytes.AsSpan().StartsWith(Utf8Bom))
+        {
+            problems.Add(new SnapshotProblem(SnapshotProblemKind.ProjectFileInvalid, item.RelativeFile, null, "the file starts with a byte order mark"));
+            return null;
+        }
+
+        try
+        {
+            return (fingerprint, Utf8.GetString(bytes));
+        }
+        catch (DecoderFallbackException)
+        {
+            problems.Add(new SnapshotProblem(SnapshotProblemKind.ProjectFileUnreadable, item.RelativeFile, null, "the file is not valid UTF-8"));
             return null;
         }
     }

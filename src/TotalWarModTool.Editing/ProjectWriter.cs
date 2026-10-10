@@ -28,6 +28,12 @@ public static class ProjectWriter
             throw new ArgumentException("The plan has open questions or errors, or nothing to write.", nameof(plan));
         }
 
+        // The check compares Previous and the rollback writes PreviousText back: without them a changed file could not be taken back.
+        if (plan.Files.Any(static f => f.Kind == PlannedFileKind.Changed && (f.Previous is null || f.PreviousText is null)))
+        {
+            throw new ArgumentException("A changed file of the plan has no previous fingerprint or text.", nameof(plan));
+        }
+
         if (Check(plan, projectFolder) is { } mismatch)
         {
             return new WriteOutcome(null, mismatch);

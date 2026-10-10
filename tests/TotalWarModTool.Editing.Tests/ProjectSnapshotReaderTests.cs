@@ -99,6 +99,29 @@ public class ProjectSnapshotReaderTests
     }
 
     [Fact]
+    public void Invalid_utf8_is_unreadable_and_a_byte_order_mark_is_invalid()
+    {
+        // Both would come back altered from a lenient decoder; an undo would then write the altered text over the user's file.
+        using var tmp = new TempDir();
+        var folder = Path.Combine(tmp.Path, "pack", "db", X);
+        Directory.CreateDirectory(folder);
+        var valid = File.ReadAllBytes(WriteProjectTable(tmp.Path, X, 2, "ok", XRow("k1")));
+        File.WriteAllBytes(Path.Combine(folder, "bad.tsv"), [.. valid, 0xFF, 0xFE]);
+        File.WriteAllBytes(Path.Combine(folder, "bom.tsv"), [0xEF, 0xBB, 0xBF, .. valid]);
+
+        var snapshot = Read(tmp.Path, Request(X));
+
+        Assert.Equal(@"db\x_tables\ok.tsv", Assert.Single(snapshot.Tables).RelativeFile);
+        Assert.Equal(2, snapshot.Problems.Count);
+        var bad = Assert.Single(snapshot.Problems, p => p.File == @"db\x_tables\bad.tsv");
+        Assert.Equal(SnapshotProblemKind.ProjectFileUnreadable, bad.Kind);
+        Assert.Contains("UTF-8", bad.Detail);
+        var bom = Assert.Single(snapshot.Problems, p => p.File == @"db\x_tables\bom.tsv");
+        Assert.Equal(SnapshotProblemKind.ProjectFileInvalid, bom.Kind);
+        Assert.Contains("byte order mark", bom.Detail);
+    }
+
+    [Fact]
     public void Loc_files_are_read_only_when_requested()
     {
         using var tmp = new TempDir();

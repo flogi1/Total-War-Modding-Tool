@@ -476,10 +476,9 @@ public static class ObjectDiff
         }
 
         /// <summary>
-        /// The block trims the end of every value, so a stored value that differs from the parsed one only by whitespace at its end (536 real
-        /// values end with a space) is unchanged. An edit of such a value is still seen.
+        /// The block shows values without their trailing whitespace, so an edited value gets the stored ending back. A value that was cleared
+        /// stays empty: the user removed it, whitespace included.
         /// </summary>
-        /// <summary>The block shows values without their trailing whitespace, so an edited value gets the stored ending back.</summary>
         private static string KeepTrailingWhitespace(string baseline, string parsed)
         {
             var trimmed = baseline.TrimEnd();
@@ -488,6 +487,10 @@ public static class ObjectDiff
                 : parsed;
         }
 
+        /// <summary>
+        /// The block trims the end of every value, so a stored value that differs from the parsed one only by whitespace at its end (536 real
+        /// values end with a space) is unchanged. An edit of such a value is still seen.
+        /// </summary>
         private static bool SameValue(string baseline, string parsed) =>
             string.Equals(baseline, parsed, StringComparison.Ordinal) || string.Equals(baseline.TrimEnd(), parsed, StringComparison.Ordinal);
 

@@ -70,12 +70,46 @@ public class ProjectWritePlanTests
     {
         var file = TableFile(A, X, 1, [["k2", "b1", "n"]]);
 
-        var plan = Plan(Changes([SetX("k1", "x", "5", FromVanilla)]), Snapshot(file));
+        var plan = Plan(Changes([SetX("k1", "x", "0", FromVanilla)]), Snapshot(file));
 
         var planned = Assert.Single(plan.Files);
         var table = TableTsv.Read(planned.NewText, MiniSchema).Table!;
         Assert.Equal(1, table.Version);
         Assert.Equal([["k2", "b1", "n"], ["k1", "b1", "x"]], table.Rows.ToArray());
+    }
+
+    [Fact]
+    public void An_override_row_with_a_value_the_file_version_cannot_hold_is_an_error()
+    {
+        // The vanilla row has extra = 5; the v1 file has no extra column. Appending the row would silently turn 5 into 0 in the game.
+        var file = TableFile(A, X, 1, [["k2", "b1", "n"]]);
+
+        var plan = Plan(Changes([SetX("k1", "x", "5", FromVanilla, line: 6), InsertX("k9", line: 8) with { Cells = ["k9", "b1", "n", "3"] }]), Snapshot(file));
+
+        Assert.Equal(2, plan.Errors.Count);
+        Assert.All(plan.Errors, e => Assert.Equal((WriteErrorKind.FieldNotInFileVersion, A), (e.Kind, e.RelativeFile)));
+        Assert.Equal([6, 8], plan.Errors.Select(e => e.Line));
+        Assert.Contains("extra", plan.Errors[0].Detail);
+        Assert.Empty(plan.Files);
+    }
+
+    [Fact]
+    public void A_key_rename_chain_inside_one_file_is_accepted()
+    {
+        // The diff emits the inserts of a section before its deletes: k1 -> k2 and k2 -> k3 in one edit.
+        var file = TableFile(A, X, 2, [XRow("k1"), XRow("k2")]);
+        var changes = Changes(
+        [
+            InsertX("k2"),
+            InsertX("k3"),
+            Change(RowChangeKind.Delete, X, ["k1", "b1", "n", "1"], ["k1", "b1", "n", "1"], InA, 2),
+            Change(RowChangeKind.Delete, X, ["k2", "b1", "n", "1"], ["k2", "b1", "n", "1"], InA, 3),
+        ]);
+
+        var plan = Plan(changes, Snapshot(file));
+
+        Assert.Empty(plan.Errors);
+        Assert.Equal([XRow("k2"), XRow("k3")], Rows(Assert.Single(plan.Files).NewText));
     }
 
     [Fact]

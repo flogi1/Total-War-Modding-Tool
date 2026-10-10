@@ -135,6 +135,17 @@ public sealed class ProjectWriterTests : IDisposable
     }
 
     [Fact]
+    public void A_changed_file_without_its_previous_text_or_fingerprint_is_refused()
+    {
+        // The rollback writes PreviousText back and the check compares Previous: a plan without them could not be taken back.
+        var changed = Changed(A, "old", "new");
+
+        Assert.Throws<ArgumentException>(() => Apply(PlanOf(changed with { PreviousText = null })));
+        Assert.Throws<ArgumentException>(() => Apply(PlanOf(changed with { Previous = null })));
+        Assert.Equal("old", File.ReadAllText(PathOf(A)));
+    }
+
+    [Fact]
     public void Cancellation_before_the_first_write_writes_nothing()
     {
         var changed = Changed(A, "old", "new");

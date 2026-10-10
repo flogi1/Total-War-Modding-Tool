@@ -80,29 +80,52 @@ public sealed class FileContentsStep : IUndoableAction
         }
 
         var done = new List<string>();
-        for (var i = 0; i < _states.Count; i++)
+        try
         {
-            var failure = Apply(_states[i], undo, out var outcome);
-            if (failure is null)
+            for (var i = 0; i < _states.Count; i++)
             {
-                done.Add(outcome);
-                continue;
-            }
+                var failure = Apply(_states[i], undo, out var outcome);
+                if (failure is null)
+                {
+                    done.Add(outcome);
+                    continue;
+                }
 
-            // Nothing was changed yet and the library took back everything: the step can be tried again.
-            if (i == 0 && failure.Deferrable)
+                // Nothing was changed yet and the library took back everything: the step can be tried again.
+                if (i == 0 && failure.Deferrable)
+                {
+                    throw new StepDeferredException(failure.Detail, null);
+                }
+
+                var lines = new List<string>();
+                for (var j = 0; j < _states.Count; j++)
+                {
+                    var state = j < done.Count ? done[j] : j == i ? "failed: " + failure.Detail : "unchanged";
+                    lines.Add($"{_states[j].Entry.RelativeFile}: {state}");
+                }
+
+                throw new InvalidOperationException(string.Join("; ", lines));
+            }
+        }
+        finally
+        {
+            if (undo)
             {
-                throw new StepDeferredException(failure.Detail, null);
+                RemoveFoldersOfTrashedFiles();
             }
+        }
+    }
 
-            var lines = new List<string>();
-            for (var j = 0; j < _states.Count; j++)
+    // After every file is in the trash, innermost creations first: a parent folder that two created files share is in the list of the file
+    // that was created first, so it can only go once the later file's folders are gone. Best effort; RemoveEmptyFolders never throws.
+    private void RemoveFoldersOfTrashedFiles()
+    {
+        for (var i = _states.Count - 1; i >= 0; i--)
+        {
+            if (_states[i].Trash is not null)
             {
-                var state = j < done.Count ? done[j] : j == i ? "failed: " + failure.Detail : "unchanged";
-                lines.Add($"{_states[j].Entry.RelativeFile}: {state}");
+                ProjectFileOps.RemoveEmptyFolders(_projectFolder, _states[i].Folders);
             }
-
-            throw new InvalidOperationException(string.Join("; ", lines));
         }
     }
 
@@ -153,7 +176,8 @@ public sealed class FileContentsStep : IUndoableAction
                 return new Failure(Describe(result.Problem.ToString(), result.Detail), result.Problem == FileWriteProblem.Locked);
             }
 
-            state.Current = result.Fingerprint;
+            // The fingerprint of the write is null only when the file vanished right after it; then it is asked again rather than taken as trashed.
+            state.Current = result.Fingerprint ?? ProjectFileWriter.Fingerprint(_projectFolder, entry.RelativeFile);
             outcome = "written";
             return null;
         }
@@ -168,7 +192,6 @@ public sealed class FileContentsStep : IUndoableAction
 
             state.Trash = trashed.File;
             state.Current = null;
-            ProjectFileOps.RemoveEmptyFolders(_projectFolder, state.Folders);
             outcome = "trashed";
             return null;
         }

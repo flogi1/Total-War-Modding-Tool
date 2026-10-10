@@ -232,7 +232,8 @@ public static class ProjectWritePlan
             var defaultResolved = false;
             FileWork? defaultTarget = null;
 
-            foreach (var change in changes)
+            // Deletes first: the diff emits the inserts of a section before its deletes, and a key may move from one row to another in one edit.
+            foreach (var change in changes.OrderBy(static c => c.Kind == RowChangeKind.Delete ? 0 : 1))
             {
                 switch (change.Kind)
                 {
@@ -457,6 +458,19 @@ public static class ProjectWritePlan
             {
                 Fail(WriteErrorKind.TableNotWritable, change.Line, work.RelativeFile, "the table has a field of an unsupported type");
                 return;
+            }
+
+            // A value the file cannot hold would become the default after the rebuild and in the game, without a trace.
+            var kept = new HashSet<int>(mapping.Where(static m => m >= 0));
+            for (var i = 0; i < current.Fields.Count; i++)
+            {
+                var type = current.Fields[i].Type;
+                if (!kept.Contains(i) && !string.Equals(CellText.Format(type, values[i]), CellText.Format(type, CellText.DefaultValue(type)), StringComparison.Ordinal))
+                {
+                    Fail(WriteErrorKind.FieldNotInFileVersion, change.Line, work.RelativeFile,
+                        $"the field '{current.Fields[i].Name}' with the value '{CellText.ShortenForDetail(change.Cells[i])}' is not in version {work.Version} of the file");
+                    return;
+                }
             }
 
             var row = RowLayout.Remap(work.Definition, current, mapping, values);

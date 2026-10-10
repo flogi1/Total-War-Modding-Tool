@@ -80,6 +80,23 @@ public sealed class FileContentsStepTests : IDisposable
     }
 
     [Fact]
+    public void Undo_of_two_created_files_removes_the_shared_parent_folder()
+    {
+        // The first create made pack\db and pack\db\y_tables, the second only pack\db\z_tables: db is in the first file's list only.
+        var step = Step(Created(@"db\y_tables\n.tsv", "n"), Created(@"db\z_tables\c.tsv", "c"));
+
+        step.Undo();
+
+        Assert.False(Directory.Exists(Path.Combine(Project, "pack", "db")));
+        Assert.Equal(2, step.InTrash.Count);
+
+        step.Do();
+
+        Assert.Equal("n", Text(@"db\y_tables\n.tsv"));
+        Assert.Equal("c", Text(@"db\z_tables\c.tsv"));
+    }
+
+    [Fact]
     public void Undo_leaves_the_step_when_a_file_changed_since()
     {
         var step = Step(Existing(A, "old", "new"));
