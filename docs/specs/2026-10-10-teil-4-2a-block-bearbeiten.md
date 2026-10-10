@@ -548,6 +548,8 @@ Vanilla-Dateien ersetzen: Das war in 4.1 schon falsch dargestellt (Zeilen erschi
    Dateien aus den gehaltenen vorherigen Inhalten zurückgeschrieben; gelingt auch das nicht, nennt
    die Meldung die Dateien und ihren Zustand. Es gibt keinen Snapshot-Ordner: Die vorherigen Inhalte
    leben im Undo-Schritt.
+   (Umsetzung Plan 2: jede Datei für sich atomar über `ProjectFileWriter` und `ProjectFileOps`, dann
+   Rückschreiben; siehe Festlegungen.)
 3. Liefert `FileContentsStep` (UndoRedo): pro Datei `(RelativeFile, Previous: Text oder null, Next:
    Text, FingerprintAfter)`. `Undo` prüft den Fingerprint jeder Datei gegen `FingerprintAfter`
    (Abweichung: `StepDeferredException`-Verhalten wie `FileStep`, Meldung „Datei X wurde seither
@@ -575,6 +577,8 @@ den Papierkorb statt in den Speicher (Backlog, Annahme 5).
 - **Schreibplan, Spieltexte.** Loc-Regel 1 nimmt auch eine Kopie, die den Schlüssel hält. Eine angehängte Loc-Zeile hat `Tooltip false`; Ersetzen behält `Tooltip`. Die Loc-Frage steht unter dem Schlüssel `*loc` (`WriteAnswers.LocKey`) und gilt für alle Textänderungen ohne Datei.
 
 - **Undo-Schritt.** `FileContentsStep` prüft alle Dateien gegen den zuletzt hinterlassenen Fingerprint, bevor die erste geschrieben wird. Ein Fehler nach der ersten Datei lässt den Schritt fallen und nennt jede Datei mit Zustand (Spec 7 „Tausch scheitert“ gilt für das Übernehmen, nicht für Undo). `FileContentsChangedException` ist eine `StepDeferredException`; der Schritt bleibt in der History.
+
+- **Schreiben.** `Projects` bietet keine öffentliche Staging-Stufe, deshalb schreibt `ProjectWriter` jede Datei für sich atomar (`ProjectFileWriter.WriteText` für bestehende, `ProjectFileOps.Create` für neue Dateien und Kopien) und schreibt bei einem Fehler die schon geschriebenen Dateien in umgekehrter Reihenfolge zurück: eine geänderte Datei bekommt ihren vorherigen Text, eine angelegte oder kopierte Datei geht in den Papierkorb (samt leer gewordener, vom Schreiben angelegter Ordner). Scheitert ein Rückschreiben, läuft der Rest trotzdem weiter; `WriteFailure.Files` nennt pro Datei `RolledBack` oder `RollbackFailed`. Der einzige Abbruchpunkt ist vor der ersten Datei.
 
 ### 5.7 Editor
 

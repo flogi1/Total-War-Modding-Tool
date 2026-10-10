@@ -111,3 +111,16 @@ public sealed record WritePlan(IReadOnlyList<PlannedFile> Files, IReadOnlyList<T
 
     public bool HasErrors => Errors.Count > 0;
 }
+
+public enum WriteFailureKind { FileChanged, FileUnknown, WriteFailed, RollbackFailed }
+
+public enum WrittenFileState { Unchanged, Written, RolledBack, RollbackFailed }
+
+/// <summary>
+/// Kind FileChanged/FileUnknown: nothing was written, File names it. WriteFailed: every file is RolledBack or Unchanged. RollbackFailed: at
+/// least one file stays Written or RollbackFailed; Files says which. Detail is short technical English.
+/// </summary>
+public sealed record WriteFailure(WriteFailureKind Kind, string? File, string Detail, IReadOnlyList<(string RelativeFile, WrittenFileState State)> Files);
+
+/// <summary>Exactly one of Step and Failure is set.</summary>
+public sealed record WriteOutcome(FileContentsStep? Step, WriteFailure? Failure);
