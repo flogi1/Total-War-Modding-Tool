@@ -42,6 +42,16 @@ Teil 4: Objekt-Ansicht als Codeblock, Katalog, Autovervollständigung
   - Aus Plan 1: Pack-Index-Cache in `TableStore` und `LocStore` ohne Obergrenze und doppelt gehalten
   - Aus Plan 1 (Nachprüfung 2026-10-09): Loc-Suche nutzt die Tabellenschreibweise des ersten Aufrufers im Cache (Loc-Schlüssel sind schreibweisenabhängig); bei abweichender Groß-/Kleinschreibung fehlen Texte ohne Hinweis
   - Für Plan 2: Fingerprints für „veraltet“ am besten schon beim Aufbau im `ObjectBuilder` erfassen (sonst Lücke zwischen Aufbau und Signatur); Quellen mit vorübergehenden Problemen ändern die Signatur nicht; Owner-Link eines zusammengesetzten Schlüssels zeigt die verkettete Form (`b1cult1`)
+  - Aus Plan 2: Ergebnis-Cache pro Verlaufseintrag, damit Zurück/Vor ohne Neuaufbau zeigen
+  - Aus Plan 2: Maustasten 4/5 für Zurück/Vor; `Alt+Links`/`Alt+Rechts` auch, wenn der Fokus nicht im Tab-Inhalt liegt (Viewer beim Aktivieren fokussieren)
+  - Aus Plan 2: Scroll-Position des Objekt-Tabs beim Neuaufbau desselben Objekts behalten (heute nur beim Auf- und Zuklappen)
+  - Aus Plan 2: Kategorie-Dateien aus globalem und Projekt-Ordner (Schichten ausgeliefert < global < Projekt)
+  - Aus Plan 2: Abschnittstitel nur dann als Link, wenn Zeilen verborgen sind
+  - Aus Plan 2: Ziel-Tooltip zeigt nur den Namen, nicht die Kurzbeschreibung
+  - Aus Plan 2: Pluralformen der Statuszeile („1 Warnungen“, „1 mods“): Texte mit Einzahl/Mehrzahl
+  - Aus Plan 2: Veraltet-Markierung durch eine Schema-Änderung während eines laufenden Aufbaus wird von dessen Ergebnis gelöscht (enges Fenster)
+  - Aus Plan 2: `MaxObjectHistory` (Session) und `ObjectTabViewModel.MaxHistory` sind zwei Konstanten mit demselben Wert 50 (Parity-Test oder gemeinsame Library)
+  - Aus Plan 2: Neuer Tab per Umschalt-Klick übernimmt den Hinweis „ungespeicherte Quelle“ nicht
 
 Teil 5: Lua-Editor
   - Editor-Komponente wählen (NuGet nur nach Rückfrage)

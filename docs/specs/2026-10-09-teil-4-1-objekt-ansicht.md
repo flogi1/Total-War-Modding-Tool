@@ -367,6 +367,20 @@ Titel-Schlüssel stehen in `locales/en.json` und `de.json`.
 - Der `TableStore` lebt einmal im Composition Root und wird bei Schema-Wechsel oder
   Spielordner-Wechsel verworfen.
 
+#### Festlegungen aus Plan 2
+
+- Die Identität eines Objekt-Tabs ist sein aktueller Eintrag (`ObjectRef`: Tabelle, Schlüsselwerte, Wurzel-Pack), nicht `EntryPath`. `EntryPath` hält die Id des ersten Eintrags und wird nicht nachgeführt. Ein zweiter Tab desselben Objekts ist erlaubt (Umschalt-Klick); „Als Objekt anzeigen“ wählt dagegen einen vorhandenen Tab mit gleichem Eintrag aus.
+- Der Verlauf ist auf 50 Einträge begrenzt. Zurück und Vor bauen über den Runner neu; es gibt keinen Ergebnis-Cache pro Verlaufseintrag (der warme Aufbau dauert 66 ms, das Fenster erscheint nicht). Eine Navigation setzt den Tab auf „nicht aufgebaut“: die alten Zeilen sind weg, Quell-Hinweise und die Veraltet-Markierung gelöscht. „Aktualisieren“ behält die Zeilen bis zum Ergebnis. Bei Abbruch oder Fehler bleiben die alten Zeilen mit einem Hinweis stehen.
+- Die Signaturen (`TableStore.SignatureOf` je Tabelle aus `ObjectView.Tables`, dazu `LocStore.SignatureOf`) werden in derselben Runner-Operation direkt nach dem Aufbau erfasst. Die stille Prüfung vergleicht zuerst die Quellenliste der neu berechneten Ladereihenfolge (Art und Pfad), danach die Signaturen. Ein Projektwechsel markiert deshalb über die Quellenliste, ohne Sonderfall. Ein erfolgreicher Neuaufbau löscht die Markierung (Pack- und Schema-Markierung, nicht die Außen-Änderung).
+- Ein Ergebnis wird nur übernommen, wenn der Tab noch denselben Eintrag zeigt. Der Store wird bei einem Wechsel von Schema oder Spielordner verworfen; jeder Objekt-Tab trägt dann die Schema-Markierung.
+- Wurzel-Pack: Nur ein Pack, das im Katalog liegt und kein Vanilla-Pack ist, kommt als Wurzel-Pack in die Ladereihenfolge. Ein Pack außerhalb des Katalogs kommt nicht hinein.
+- Session: Objekt-Tabs werden mit Verlauf und Position gespeichert (`SessionTab.Object`, die Schema-Version bleibt 1) und beim Start ohne Aufbau angelegt. Während des Wiederherstellens sind Lazy-Aufbauten unterdrückt, danach wird nur der aktive Tab gebaut. Die Dedupe-Regel der Session gilt nicht für Objekt-Tabs.
+- Der Hover-Name kommt aus der `LocTable` des Aufbaus (`ObjectBuilder.DisplayName`), ohne Zugriff auf den Store; ohne Namen zeigt der Tooltip den Tabellennamen. „Ziel unbekannt“ gilt für jeden Warnungs-Wert außer der Warnzeile selbst.
+- „Zur Zeile springen“ nutzt `RowProvenance.EntryPath` (Pack-Eintrag oder Projektdatei) und prüft, dass der danach gewählte Tab Pack und Eintrag der Quelle zeigt, bevor die Zeile gesucht wird.
+- Der Kontextmenü-Eintrag erscheint nur in Tabellen-Rastern, nicht bei Loc-Dateien. Gründe für die Sperre, in dieser Reihenfolge: keine Schlüsselspalte, keine Zeile markiert, kein Spielordner, kein Schema, eine Operation läuft.
+- Kategorie-Datei Gebäude: 9 Regeln (Namen, Effekte, Einheiten `allows {unit}`, Ausbau zu und von, `requires technology {technology_key}`, `requires building {required}`, Rückbau, `cai_construction_system_synergies_tables` versteckt). Die Titel-Schlüssel sind zusätzlich Properties in `AppTexts`, damit der Locale-Test sie als benutzt sieht; ein neuer Titel-Schlüssel braucht daher eine Property.
+- Lange Zeilen im Block brechen um, es gibt keinen horizontalen Scrollbalken. `Alt+Links` und `Alt+Rechts` wirken, solange der Fokus im Tab-Inhalt liegt.
+
 ## 6. Verworfene Alternativen
 
 | Entscheidung | Grund | Verworfen |
@@ -444,6 +458,8 @@ Titel-Schlüssel stehen in `locales/en.json` und `de.json`.
 | 5 | Die Junction-Regel passt auch bei Einheiten und Traits. | Abnahme Plan 2; sonst Kategorie-Datei. |
 | 6 | Zusammenführung über Feldnamen genügt für die 104 Mod-Einträge mit älterem Layout. | **Bestätigt** (Echtdaten-Test 2026-10-09 über alle Tabellen der Ladereihenfolge): 1742 Tabellen, 964.436 Zeilen, 94.453 Zeilen mit älterem Layout, 1 Eintrag `VersionNotInSchema`, keine Exception, 4,4 s, 339 MB ohne Obergrenze. |
 | 7 | `FlowDocument` mit einigen hundert Zeilen und Hyperlinks bleibt flüssig. | Abnahme Plan 2 mit der Fraktion. |
+
+Die Abnahme von Plan 2 läuft über die manuelle Checkliste in `docs/plans/2026-10-09-teil-4-1-plan-2-app.md`.
 
 ## 11. Entscheidungen des Nutzers (2026-10-09)
 
