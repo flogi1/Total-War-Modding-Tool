@@ -390,6 +390,51 @@ public class ObjectsControllerTests
         Assert.Equal(setup.Texts.ObjectsStale, tab.StaleText);
     }
 
+    // The check that a change event started last, awaited; a check started by the test itself would prove nothing about the trigger.
+    private static Task TriggeredStaleCheck(Setup setup) => setup.Controller.StaleCheck ?? Task.CompletedTask;
+
+    [Fact] public async Task Saving_a_project_table_of_the_object_marks_the_tab_stale_by_itself()
+    {
+        using var setup = await CreateAsync();
+        var project = NewProject(setup, "Alpha", [["k1", "Project label"]]);
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        Assert.Equal(SourceKind.Project, tab.Result!.View.Root!.Provenance.Source.Kind);
+        await setup.Main.Main.OpenProjectFileAsync(project.Id, @"db\x_tables\a.tsv");
+        var editable = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        editable.Rows[0][1] = "A longer project label than before";
+        await TriggeredStaleCheck(setup);                                              // the first edit checks too: nothing on disk changed yet
+        Assert.False(tab.IsStale);
+        var beforeSave = setup.Controller.StaleCheck;
+
+        Assert.True(await setup.Main.Documents!.SaveAsync([editable]));
+
+        Assert.NotSame(beforeSave, setup.Controller.StaleCheck);                       // the save started a check of its own
+        await TriggeredStaleCheck(setup);
+        Assert.True(tab.IsStale);
+        Assert.Equal(setup.Texts.ObjectsStale, tab.StaleText);
+    }
+
+    [Fact] public async Task A_refresh_that_finds_a_changed_vanilla_pack_marks_the_tab_stale_by_itself()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        await TriggeredStaleCheck(setup);
+        Assert.False(tab.IsStale);
+        var catalog = setup.Workspace.Catalog;
+        var beforeRefresh = setup.Controller.StaleCheck;
+        ObjectsTestSchema.WriteVanillaPack(setup.Game, "data.pack", ObjectsTestSchema.XRows, [["k1", 1], ["k1", 2], ["k1", 3]]);
+
+        await setup.Workspace.RefreshAsync();
+
+        Assert.NotSame(catalog, setup.Workspace.Catalog);
+        Assert.NotSame(beforeRefresh, setup.Controller.StaleCheck);                    // the new catalog started a check
+        await TriggeredStaleCheck(setup);
+        Assert.True(tab.IsStale);
+        Assert.Equal(setup.Texts.ObjectsStale, tab.StaleText);
+    }
+
     [Fact] public async Task Switching_the_active_project_marks_every_object_tab()
     {
         using var setup = await CreateAsync();

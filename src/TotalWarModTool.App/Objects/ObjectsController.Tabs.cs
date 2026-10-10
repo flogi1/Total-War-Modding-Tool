@@ -64,6 +64,9 @@ public sealed partial class ObjectsController
         return _staleCheck;
     }
 
+    /// <summary>The check started last (it may have ended); null before the first. Lets tests await a check that a change event started.</summary>
+    internal Task? StaleCheck => _staleCheck;
+
     /// <summary>Opens the table the root row of the tab came from and selects the row there; the tab says when that was not possible.</summary>
     internal async Task JumpAsync(ObjectTabViewModel tab)
     {
