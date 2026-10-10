@@ -180,6 +180,8 @@ public class ObjectsRealDataTests
     private static readonly Lazy<IReadOnlyDictionary<string, CategoryDefinition>> Categories = new(() =>
         CategoryDefinitions.LoadAll(Path.Combine(RepoRoot.Find(), "profiles", "warhammer_3", "objects")).ByRootTable);
 
+    private static string NoIntegerKey(string table, string field) => throw new InvalidOperationException("unexpected integer key for " + table + "." + field);
+
     private static CategoryDefinition? CategoryOf(string table) => Categories.Value.GetValueOrDefault(table);
 
     // Renders the block of the object, parses it twice (the second run is warm) and diffs it against the view it came from.
@@ -274,11 +276,13 @@ public class ObjectsRealDataTests
     [RealDataFact] public void Copying_the_barracks_follows_the_copy_rule()
     {
         var context = Shared.Value;
-        var builder = NewBuilder(context);
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
         var source = builder.Build(Id("building_levels_tables", "wh_main_emp_barracks_2"), context.Order, null, CancellationToken.None);
         var newId = Id("building_levels_tables", "twmt_test_barracks");
+        var allocator = RandomIntegerKeys.Create(new Random(1), (t, f, v) => store.Get(t, context.Order, CancellationToken.None).FindByField(f, v).Count > 0);
 
-        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph);
+        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph, allocator);
         var copy = result.Objects[0];
         var empty = new ObjectView(newId, null, [], [], [], context.Order, []);
         var changes = ObjectDiff.Compute(empty, copy, CategoryOf("building_levels_tables"), context.Graph, null);
@@ -310,6 +314,12 @@ public class ObjectsRealDataTests
         Assert.Contains(copy.Sections, s => s.SourceTable == "building_effects_junction_tables");
         Assert.DoesNotContain(copy.Sections, s => s.SourceTable == "cai_construction_system_synergies_tables");
         Assert.Contains(result.Notes, n => n is { Kind: CopyNoteKind.ForeignKeyRows, Table: "technologies_tables" });
+        Assert.DoesNotContain(result.Notes, n => n.Table == "building_units_allowed_tables");
+        var sourceUnits = Assert.Single(source.Sections, s => s.SourceTable == "building_units_allowed_tables");
+        var copiedUnits = Assert.Single(copy.Sections, s => s.SourceTable == "building_units_allowed_tables");
+        Assert.Equal(sourceUnits.Rows.Count, copiedUnits.Rows.Count);
+        var sourceKeys = sourceUnits.Rows.Select(r => r.Fields.First(f => f.Name == "key").Text).ToHashSet(StringComparer.Ordinal);
+        Assert.All(copiedUnits.Rows, r => Assert.DoesNotContain(r.Fields.First(f => f.Name == "key").Text, sourceKeys));
         Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
         Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
     }
@@ -323,7 +333,7 @@ public class ObjectsRealDataTests
         var source = builder.Build(traitId, context.Order, null, CancellationToken.None);
         var newId = Id("character_traits_tables", "twmt_test_" + traitId.KeyValues[0]);
 
-        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph);
+        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph, NoIntegerKey);
 
         var prefix = traitId.KeyValues[0] + "_";
         var levels = source.Sections.Where(s => s.SourceTable == "character_trait_levels_tables").SelectMany(s => s.Rows)

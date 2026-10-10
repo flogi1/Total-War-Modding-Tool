@@ -11,8 +11,10 @@ public enum SectionMode
 /// <summary>
 /// FieldName null means every section of the table. Pattern holds {fieldName} placeholders for Sentence.
 /// For one section the first matching rule (in file order) wins: a rule with FieldName null matches every section of its table, so later rules for that table are ignored.
+/// CopyOwned ("copy": "owned"): the rows of the section belong to the object and are copied with it (spec 5.8).
 /// </summary>
-public sealed record SectionRule(string Table, string? FieldName, string? TitleKey, SectionMode Mode, string? Pattern, bool Hidden);
+public sealed record SectionRule(string Table, string? FieldName, string? TitleKey, SectionMode Mode, string? Pattern, bool Hidden,
+    bool CopyOwned = false);
 
 public sealed record CategoryDefinition(string RootTable, string TitleKey, IReadOnlyList<SectionRule> Sections);
 
@@ -231,8 +233,26 @@ public static class CategoryDefinitions
             hidden = hiddenElement.GetBoolean();
         }
 
+        var copyOwned = false;
+        if (TryGetProperty(item, "copy", out var copyElement) && copyElement.ValueKind != JsonValueKind.Null)
+        {
+            if (copyElement.ValueKind != JsonValueKind.String || !string.Equals(copyElement.GetString(), "owned", StringComparison.OrdinalIgnoreCase))
+            {
+                detail = where + "copy must be \"owned\".";
+                return null;
+            }
+
+            copyOwned = true;
+        }
+
+        if (hidden && copyOwned)
+        {
+            detail = where + "a hidden section cannot be copied.";
+            return null;
+        }
+
         detail = string.Empty;
-        return new SectionRule(table, fieldName, titleKey, mode, pattern, hidden);
+        return new SectionRule(table, fieldName, titleKey, mode, pattern, hidden, copyOwned);
     }
 
     // Property names are matched ignoring case, like the other loaders of the profile folder.

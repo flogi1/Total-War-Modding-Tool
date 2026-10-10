@@ -48,6 +48,59 @@ public class CategoryDefinitionsTests
         Assert.False(category.Sections[0].Hidden);
     }
 
+    [Fact]
+    public void A_section_with_copy_owned_loads()
+    {
+        using var tmp = new TempDir();
+
+        var result = Load(tmp, ("owned.json",
+            """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "copy": "owned" }, { "table": "y" }, { "table": "z", "copy": null } ] }"""));
+
+        Assert.Empty(result.Problems);
+        var sections = result.ByRootTable["a_tables"].Sections;
+        Assert.True(sections[0].CopyOwned);
+        Assert.False(sections[1].CopyOwned);
+        Assert.False(sections[2].CopyOwned);
+    }
+
+    [Theory]
+    [InlineData("all")]
+    [InlineData("Owned ")]
+    public void A_copy_value_other_than_owned_is_a_problem(string value)
+    {
+        using var tmp = new TempDir();
+
+        var result = Load(tmp, ("bad_copy.json",
+            "{ \"schemaVersion\": 1, \"rootTable\": \"a_tables\", \"titleKey\": \"t\", \"sections\": [ { \"table\": \"x\", \"copy\": \"" + value + "\" } ] }"));
+
+        Assert.Empty(result.ByRootTable);
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("copy must be \"owned\".", problem.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_copy_value_that_is_not_text_is_a_problem()
+    {
+        using var tmp = new TempDir();
+
+        var result = Load(tmp, ("number_copy.json",
+            """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "copy": true } ] }"""));
+
+        Assert.Contains("copy must be \"owned\".", Assert.Single(result.Problems).Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_hidden_section_cannot_be_copied()
+    {
+        using var tmp = new TempDir();
+
+        var result = Load(tmp, ("hidden_owned.json",
+            """{ "schemaVersion": 1, "rootTable": "a_tables", "titleKey": "t", "sections": [ { "table": "x", "hidden": true, "copy": "owned" } ] }"""));
+
+        Assert.Empty(result.ByRootTable);
+        Assert.Contains("a hidden section cannot be copied.", Assert.Single(result.Problems).Detail, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("no_root.json", """{ "schemaVersion": 1, "titleKey": "t" }""")]
     [InlineData("version2.json", """{ "schemaVersion": 2, "rootTable": "a_tables", "titleKey": "t" }""")]

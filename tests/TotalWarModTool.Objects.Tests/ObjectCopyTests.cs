@@ -19,9 +19,62 @@ public class ObjectCopyTests
 
     private static CopyResult Rename(ObjectView source, string newKey = "b9", Func<ObjectId, ObjectView>? build = null,
         CategoryDefinition? category = null) =>
-        ObjectCopy.Rename(source, Id(Root, newKey), build ?? (id => throw new InvalidOperationException("unexpected build of " + id)), _ => category, Graph);
+        ObjectCopy.Rename(source, Id(Root, newKey), build ?? (id => throw new InvalidOperationException("unexpected build of " + id)), _ => category, Graph,
+            NoIntegerKey);
+
+    private static string NoIntegerKey(string table, string field) => throw new InvalidOperationException("unexpected integer key for " + table + "." + field);
 
     private static (string Name, string Text)[] Fields(ParsedRow row) => row.Fields.Select(f => (f.Name, f.Text)).ToArray();
+
+    // ---- a section marked "copy": "owned": rows with an integer key of their own ----
+
+    private static readonly ReferenceGraph OwnedGraph = ReferenceGraph.Build(TestSchema.Build(
+        (Root, 1, [TestSchema.Field("level_name", key: true)]),
+        ("units_tables", 1,
+        [
+            TestSchema.Field("key", FieldType.I32, key: true),
+            TestSchema.Field("building", reference: (Root, "level_name")),
+            TestSchema.Field("unit"),
+        ])));
+
+    private static ObjectRow OwnedUnitRow(string key, string unit) => new(
+        [Val("key", key, FieldType.I32, key: true), Val("building", "b1", refTable: Root, refColumn: "level_name"), Val("unit", unit)],
+        From(Vanilla), Id("units_tables", key), null);
+
+    private static ObjectView OwnedSource() => Source([Section("units_tables", "building", false, OwnedUnitRow("7", "u1"), OwnedUnitRow("8", "u2"))]);
+
+    [Fact]
+    public void A_section_marked_copy_owned_is_copied_with_new_integer_keys()
+    {
+        var asked = new List<(string Table, string Field)>();
+        var values = new Queue<string>(["1000000001", "1000000002"]);
+        var category = new CategoryDefinition(Root, "cat", [new SectionRule("units_tables", null, null, SectionMode.List, null, false, CopyOwned: true)]);
+
+        var result = ObjectCopy.Rename(OwnedSource(), Id(Root, "b9"), _ => throw new InvalidOperationException("unexpected build"), _ => category, OwnedGraph,
+            (table, field) =>
+            {
+                asked.Add((table, field));
+                return values.Dequeue();
+            });
+
+        var section = Assert.Single(Assert.Single(result.Objects).Sections);
+        Assert.Equal("units_tables", section.SourceTable);
+        Assert.Equal(2, section.Rows.Count);
+        Assert.Equal([("key", "1000000001"), ("unit", "u1")], Fields(section.Rows[0]));
+        Assert.Equal([("key", "1000000002"), ("unit", "u2")], Fields(section.Rows[1]));
+        Assert.All(section.Rows, row => Assert.DoesNotContain(row.Fields, f => f.Name == "building"));
+        Assert.Equal([("units_tables", "key"), ("units_tables", "key")], asked);
+        Assert.Empty(result.Notes);
+    }
+
+    [Fact]
+    public void An_unmarked_section_with_its_own_integer_key_stays_a_note()
+    {
+        var result = ObjectCopy.Rename(OwnedSource(), Id(Root, "b9"), _ => throw new InvalidOperationException("unexpected build"), _ => null, OwnedGraph, NoIntegerKey);
+
+        Assert.Empty(Assert.Single(result.Objects).Sections);
+        Assert.Equal(new CopyNote(CopyNoteKind.ForeignKeyRows, "units_tables", 2), Assert.Single(result.Notes));
+    }
 
     // ---- traits: a root with prefix rows ----
 
@@ -139,7 +192,7 @@ public class ObjectCopyTests
         {
             built.Add(id);
             return StageView(id.KeyValues[0]);
-        }, _ => null, Graph);
+        }, _ => null, Graph, NoIntegerKey);
 
         Assert.Equal([Id("trait_levels_tables", "t1_1"), Id("trait_levels_tables", "t1_2")], built);
         Assert.Equal(["traits_tables:t9", "trait_levels_tables:t9_1", "trait_levels_tables:t9_2"], result.Objects.Select(o => o.Id.ToString()).ToArray());
@@ -156,7 +209,7 @@ public class ObjectCopyTests
     [Fact]
     public void A_third_level_is_reported_not_copied()
     {
-        var result = ObjectCopy.Rename(TraitView("t1_1"), Id("traits_tables", "t9"), id => StageView(id.KeyValues[0], withNote: true), _ => null, Graph);
+        var result = ObjectCopy.Rename(TraitView("t1_1"), Id("traits_tables", "t9"), id => StageView(id.KeyValues[0], withNote: true), _ => null, Graph, NoIntegerKey);
 
         Assert.Equal(2, result.Objects.Count);
         Assert.Equal(new CopyNote(CopyNoteKind.DepthExceeded, "level_notes_tables", 1), Assert.Single(result.Notes));
@@ -176,8 +229,8 @@ public class ObjectCopyTests
     {
         var source = Source([]);
 
-        Assert.Throws<ArgumentException>(() => ObjectCopy.Rename(source, Id("other_tables", "b9"), _ => source, _ => null, Graph));
-        Assert.Throws<ArgumentException>(() => ObjectCopy.Rename(source, new ObjectId(Root, ["a", "b"]), _ => source, _ => null, Graph));
+        Assert.Throws<ArgumentException>(() => ObjectCopy.Rename(source, Id("other_tables", "b9"), _ => source, _ => null, Graph, NoIntegerKey));
+        Assert.Throws<ArgumentException>(() => ObjectCopy.Rename(source, new ObjectId(Root, ["a", "b"]), _ => source, _ => null, Graph, NoIntegerKey));
     }
 
     [Fact]

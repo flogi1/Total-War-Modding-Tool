@@ -624,6 +624,11 @@ Kopierregel für Abschnittszeilen, eine pro Zeile, in dieser Reihenfolge:
 1. Abschnitt versteckt (`hidden`): nicht kopiert, kein Hinweis.
 2. Junction-Tabelle, oder der Schlüssel der Zeile enthält das Feld auf die Wurzel
    (`building_culture_variants`, `building_effects_junction`): kopiert, der Wurzelwert ersetzt.
+2a. Abschnitt mit `"copy": "owned"` in der Kategorie-Datei (`building_units_allowed`): jede Zeile
+   des Abschnitts ist kopiert, auch mit eigenem Schlüssel ohne Präfix. Die Regel steht vor Regel 2
+   und gilt für Wurzel und Unterobjekte. Ein Schlüsselfeld der Zeile vom Typ `I32` oder `I64`, das
+   nicht das Feld auf die Wurzel ist, bekommt einen neuen Zufallswert (siehe „Festlegungen aus
+   Plan 4“).
 3. Eigener Schlüssel, dessen Wert mit dem alten Wurzelschlüssel plus `_` beginnt
    (`character_trait_levels.key = <trait>_1`): kopiert, das Präfix ersetzt. Die Zeile ist selbst ein
    Objekt; `ObjectCopy` baut es über `build` auf und wendet dieselbe Regel auf seine Abschnitte an
@@ -662,6 +667,27 @@ einem Übernehmen (ein Undo-Schritt). Prüft Annahme 3 für Traits.
 
 Beide Assistenten sind Hüllen um `ObjectCopy` und Übernehmen; ihre einzige Spielregel ist die
 Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Daten.
+
+#### Festlegungen aus Plan 4
+
+- **Zufallsschlüssel nur bei `CopyOwned`:** `ObjectCopy.Rename` bekommt einen `NewIntegerKey`
+  (`(Tabelle, Feld) -> Text`). Er wird nur für Schlüsselfelder vom Typ `I32` oder `I64` gefragt, die
+  nicht das Feld auf die Wurzel sind und deren Wert nicht dem alten Wurzelschlüssel gleicht, und nur in
+  Zeilen eines Abschnitts mit `"copy": "owned"`. Ein Zahlschlüssel in anderen Abschnitten bleibt wie
+  heute (Zeile als Hinweis `ForeignKeyRows` nicht kopiert, oder kopiert mit unverändertem Wert).
+- **Bereich und Prüfung:** `RandomIntegerKeys.Create(Random, taken)` zieht gleichverteilt aus
+  1 000 000 000 bis 2 147 483 647 (beide inklusive). Ein Wert, den `taken(Tabelle, Feld, Wert)` meldet
+  (die App prüft gegen die Ladereihenfolge über `MergedTable.FindByField`) oder den der Allocator
+  schon vergeben hat (über alle Tabellen und Felder), wird neu gezogen; nach 100 Ziehungen für einen
+  Aufruf wirft er `InvalidOperationException`. Die Prüfung der eingefügten Schlüssel in
+  `ObjectCopy.TakenKeys` folgt mit der App-Schicht.
+- **Kategorie-Datei:** `"copy"` ist optional; fehlt es oder ist es `null`, gilt wie bisher die
+  allgemeine Regel. Jeder andere Wert ist ein Problem der Datei („copy must be "owned".“). Zusammen mit
+  `"hidden": true` ist es ein Problem („a hidden section cannot be copied.“). Das Profil
+  `warhammer_3` setzt `"copy": "owned"` für `building_units_allowed_tables`; `technologies` bleibt ein
+  Hinweis.
+- **Echtdaten (kopierte Kaserne):** `building_units_allowed` (4 Zeilen) wird kopiert, jede Zeile mit
+  neuem `key`; es entsteht kein Hinweis für diese Tabelle.
 
 ### 5.9 App
 
