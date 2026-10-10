@@ -545,8 +545,15 @@ public sealed partial class ObjectApplyController
             _dialogs.ShowMessage(_texts.ObjectsApplyFailedTitle, FailureMessage(failure));
             if (failure.Kind == WriteFailureKind.RollbackFailed)
             {
-                // The disk is no longer the baseline the text was edited from.
-                tab?.MarkStale();
+                // The disk is no longer the baseline the text was edited from. Without a tab (a copy) the open object tabs are checked instead.
+                if (tab is not null)
+                {
+                    tab.MarkStale();
+                }
+                else
+                {
+                    await _objects.CheckStaleAsync();
+                }
             }
             else if (failure.Kind is WriteFailureKind.FileChanged or WriteFailureKind.FileUnknown)
             {
@@ -601,9 +608,12 @@ public sealed partial class ObjectApplyController
         return new CheckPlanned(changes, snapshot, plan);
     }
 
+    // A diagnostic without a line (line 0: from a copy, which has no text) is shown without the line prefix.
     private string ErrorsMessage(IReadOnlyList<BlockDiagnostic> errors)
     {
-        var lines = errors.Select(error => _texts.ObjectsApplyErrorLine(error.Line, _texts.DiagnosticText(error.Kind))).ToList();
+        var lines = errors
+            .Select(error => error.Line > 0 ? _texts.ObjectsApplyErrorLine(error.Line, _texts.DiagnosticText(error.Kind)) : _texts.DiagnosticText(error.Kind))
+            .ToList();
         return _texts.ObjectsApplyErrorsMessage(errors.Count) + "\n" + string.Join("\n", CappedLines.Of(lines, _texts.ReportMoreLines));
     }
 

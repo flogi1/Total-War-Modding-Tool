@@ -21,6 +21,8 @@ public sealed partial class ObjectApplyController
 
     private sealed record CopyTaken(IReadOnlyList<TakenKey> Keys) : CopyOutcome;
 
+    private sealed record CopyNothing : CopyOutcome;
+
     private sealed record CopyPlanned(IReadOnlyList<CopyNote> Notes, ObjectChanges Changes, ProjectSnapshot Snapshot, WritePlan Plan) : CopyOutcome;
 
     /// <summary>"Copy as" of the tab (the CopyCommand). Does nothing while another write runs or when the tab's CopyDisabledReason is not null (logged).</summary>
@@ -98,6 +100,10 @@ public sealed partial class ObjectApplyController
                 _log.Warn($"A copy of an object was refused: {shownErrors.Count} errors.");
                 _dialogs.ShowMessage(_texts.ObjectsApplyErrorsTitle, ErrorsMessage(shownErrors));
                 return null;
+            case CopyNothing:
+                _log.Info("A copy of an object was dropped: the copy has no change to write.");
+                _dialogs.ShowMessage(_texts.ObjectsCopyAs, _texts.ObjectsApplyResultNothing);
+                return null;
             case CopyTaken taken:
                 _log.Warn($"A copy of an object was refused: {taken.Keys.Count} of its keys exist already.");
                 var lines = taken.Keys.Select(key => Shown(key.Table) + ": " + Shown(string.Join(" | ", key.KeyValues))).ToList();
@@ -124,8 +130,15 @@ public sealed partial class ObjectApplyController
 
     private async Task CopyCoreAsync(ObjectTabViewModel tab)
     {
-        if (_objects.EnsureStores() is not { } stores || _projects.Active is not { IsUsable: true } project)
+        if (_objects.EnsureStores() is not { } stores)
         {
+            _log.Info("A copy of an object was dropped: there are no stores (no game or no schema).");
+            return;
+        }
+
+        if (_projects.Active is not { IsUsable: true } project)
+        {
+            _log.Info("A copy of an object was dropped: there is no active usable project.");
             return;
         }
 
@@ -181,6 +194,11 @@ public sealed partial class ObjectApplyController
         if (changes.HasErrors)
         {
             return new CopyErrors(changes.Diagnostics);
+        }
+
+        if (changes.IsEmpty)
+        {
+            return new CopyNothing();
         }
 
         var taken = ObjectCopy.TakenKeys(changes, stores.Graph, (table, keyValues) => stores.Tables.Get(table, order, ct).FindByKey(keyValues).Count > 0);

@@ -753,6 +753,10 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Hinweise der Kopie außer `HiddenSection`, und Undo wählt den Tab und baut ihn neu wie beim Übernehmen.
 - **Kontextmenü des Editors:** AvalonEdit hatte keines. Es gibt jetzt eines mit Ausschneiden, Kopieren, Einfügen und
   „Kopieren als“ (Texte `objects.editor.cut`, `objects.editor.copy`, `objects.editor.paste`).
+- **Fehler einer Kopie ohne Zeile:** Diagnosen einer Kopie tragen Zeile 0 (es gibt keinen Text). Der Fehlerdialog zeigt
+  sie ohne „Zeile N:“, nur mit der Art des Fehlers. Eine Kopie ohne Änderung (etwa eine leere Kopie eines Assistenten)
+  bricht nach Lauf A mit „Nichts zu schreiben“ ab, nichts wird geschrieben. Ein fehlgeschlagener Rollback ohne Tab
+  (Kopie) löst die Prüfung der Objekt-Tabs aus statt einer Markierung.
 
 ### 5.9 App
 

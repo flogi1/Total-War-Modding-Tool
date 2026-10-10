@@ -162,6 +162,40 @@ public class ObjectCopyAsTests
         AssertNothingCopied(setup);
     }
 
+    [Fact] public async Task An_error_of_a_copy_is_shown_without_a_line_number_and_nothing_is_written()
+    {
+        using var setup = await CreateAsync();
+        var tab = await ShowK1Async(setup);
+
+        // The copied y row has a value that its I32 field does not accept; a copy has no text, so its diagnostics have no line.
+        var row = new ParsedRow([new ParsedField("value", "abc", 0)], [], 0);
+        var copy = XObject("k9") with { Sections = [new ParsedSection("y_tables", "x", [row], 0)] };
+        var done = await setup.Apply.WriteCopyAsync((_, _, _) => new CopyResult([copy], []), tab.Result!.Order, setup.Project,
+            setup.Objects.Stores!, "Copy: test", "k1", () => true);
+
+        Assert.Null(done);
+        var (title, message) = Assert.Single(setup.Dialogs.Messages);
+        Assert.Equal(setup.Texts.ObjectsApplyErrorsTitle, title);
+        Assert.StartsWith(setup.Texts.ObjectsApplyErrorsMessage(1), message);
+        Assert.Contains(setup.Texts.DiagnosticText(DiagnosticKind.InvalidValue), message);
+        Assert.DoesNotContain(setup.Texts.ObjectsApplyErrorLine(0, string.Empty).Trim(), message);
+        AssertNothingCopied(setup);
+    }
+
+    [Fact] public async Task A_copy_without_changes_says_so_and_writes_nothing()
+    {
+        using var setup = await CreateAsync();
+        var tab = await ShowK1Async(setup);
+
+        var done = await setup.Apply.WriteCopyAsync((_, _, _) => new CopyResult([], []), tab.Result!.Order, setup.Project,
+            setup.Objects.Stores!, "Copy: test", "k1", () => true);
+
+        Assert.Null(done);
+        Assert.Equal((setup.Texts.ObjectsCopyAs, setup.Texts.ObjectsApplyResultNothing), Assert.Single(setup.Dialogs.Messages));
+        Assert.Contains(setup.Game.Log.Infos, entry => entry.Contains("no change to write", StringComparison.Ordinal));
+        AssertNothingCopied(setup);
+    }
+
     [Fact] public async Task The_result_line_of_a_copy_names_the_rows_left_out()
     {
         using var setup = await CreateAsync();
