@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "nameSuffix": " (copy)",
+  "building": {
+    "levelTable": "building_levels_tables",
+    "chainField": "chain",
+    "levelField": "level",
+    "chainTable": "building_chains_tables",
+    "chainKeySuffix": "_chain",
+    "upgradeTable": "building_upgrades_junction_tables",
+    "upgradeFromField": "from",
+    "upgradeToField": "to",
+    "variantTable": "building_culture_variants_tables",
+    "variantBuildingField": "building",
+    "variantCultureField": "culture",
+    "variantSubcultureField": "subculture",
+    "subcultureTable": "cultures_subcultures_tables",
+    "subcultureCultureField": "culture",
+    "nameText": { "table": "building_culture_variants_tables", "column": "name" }
+  },
+  "trait": {
+    "traitTable": "character_traits_tables",
+    "nameText": { "table": "character_trait_levels_tables", "column": "onscreen_name" }
+  }
+}

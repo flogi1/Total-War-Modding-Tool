@@ -697,6 +697,14 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   ordinal). `ObjectCopy.AppendToTexts` hängt einen Zusatz an die Texte einer Spalte: Wurzeltexte der
   Objekte der Tabelle und Texte der Zeilen ihrer Abschnitte (Spaltenname ohne Beachtung der
   Groß-/Kleinschreibung).
+- **Assistenten-Datei:** `WizardDefinitionLoader.Load` liest `profiles/warhammer_3/wizards.json` (geteilter
+  Lesezugriff, wirft nie). Fehlende Datei: weder Definitionen noch Problem. Unbrauchbar (Problem als Text):
+  ungültiges JSON, `schemaVersion` ungleich 1, ein vorhandener Abschnitt `building` oder `trait` mit
+  fehlendem oder leerem Pflichtfeld (`<abschnitt>.<feld> is missing.`). `nameSuffix` fehlt: `""`.
+  `MissingIn(graph)` meldet `Tabelle` für eine dem Graphen unbekannte Tabelle (ihre Felder werden dann
+  übersprungen) und `Tabelle.Feld` für ein unbekanntes Feld (ohne Beachtung der Groß-/Kleinschreibung),
+  je Name einmal. Bei `nameText` wird nur die Tabelle geprüft: die Spalte liegt in den Loc-Dateien und
+  ist kein Schemafeld.
 
 ### 5.9 App
 
