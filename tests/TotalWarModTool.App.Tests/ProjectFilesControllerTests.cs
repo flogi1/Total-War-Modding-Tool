@@ -27,6 +27,11 @@ public class ProjectFilesControllerTests
 
         public bool Exists(string relativeFile) => File.Exists(PathOf(relativeFile));
 
+        // Moves the write time of a file forward, so that a save that leaves it as long as it was is still found as a change by the time alone
+        // and the test does not depend on the resolution of the clock.
+        public void Touch(string relativeFile) =>
+            File.SetLastWriteTimeUtc(PathOf(relativeFile), File.GetLastWriteTimeUtc(PathOf(relativeFile)).AddMinutes(5));
+
         public void Dispose() => Game.Dispose();
 
         // Every file and folder of the project folder, relative, sorted: what a failed or cancelled action must leave as it was.
@@ -522,6 +527,7 @@ public class ProjectFilesControllerTests
         var tab = await OpenAsync(setup, file);
         tab.InsertRowCommand.Execute(null);
         Assert.True(await setup.Documents.SaveAsync([tab]));
+        setup.Touch(file);                                                      // the time alone shows the change, whatever the length
         setup.Tabs.Close(tab);
         var saved = File.ReadAllBytes(setup.PathOf(file));
 
@@ -1074,6 +1080,7 @@ public class ProjectFilesControllerTests
         // Saved, the tab no longer blocks the step. But the file is not the one the step created any more (the save wrote the user's work into
         // it), so the undo does not trash it: the step is dropped and the file stays (see Undo_of_a_new_file_that_was_saved_to_meanwhile...).
         Assert.True(await setup.Documents.SaveAsync([tab]));
+        setup.Touch(created.RelativeFile!);                                     // the save wrote the same length as the creation: the time alone shows the change
         setup.Documents.UndoCommand.Execute(null);
         Assert.Equal(2, setup.Dialogs.Messages.Count);
         Assert.Equal(setup.Game.Texts.FileStepFileChanged(created.RelativeFile!), setup.Dialogs.Messages[1].Message);
