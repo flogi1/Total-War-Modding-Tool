@@ -796,7 +796,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 |---|---|
 | Parse-Fehler im Text | Zeile unterstrichen, Tooltip mit Grund, Übernehmen gesperrt mit Tooltip „N Fehler“ (seit Plan 3b; Plan 3a zeigte die Fehler erst beim Übernehmen als Dialog) |
 | Typfehler (Text in Zahlenfeld, Farbe ungültig) | wie Parse-Fehler; der Tooltip nennt die Art des Fehlers und den `Detail` der Diagnose (der erwartete Typ wie im Raster) |
-| Referenzziel unbekannt | Warnung (gelb), Übernehmen erlaubt, Ergebniszeile zählt Warnungen |
+| Referenzziel unbekannt | Warnung (gelb), Übernehmen erlaubt, Ergebniszeile zählt Warnungen; die gelbe Unterstreichung beim Tippen zeigt nur Warnungen, die die Prüfung ohne Referenzprüfung findet, die Referenzwarnungen kommen im Lauf A des Übernehmens |
 | Schlüssel im Text doppelt | Fehler an der zweiten Zeile; Ausnahme: der Aufbau hatte den Schlüssel schon doppelt (`Duplicate`), dann Identität nach Reihenfolge (5.3) |
 | Projektzeile überschreibt Vanilla-Zeile und wird gelöscht | Zeile aus der Projektdatei entfernt und Dateikopie für die Vanilla-Zeile mit Rückfrage (5.5) |
 | Schlüssel schon in der Zieldatei (Projekt dupliziert) | Fehler vor dem Schreiben, Meldung nennt Datei und Schlüssel; nichts geschrieben |
@@ -867,7 +867,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
      den Runner, Rückfragen, Ergebniszeile, Sperren, Undo-Verhalten, Raster-Kopplung, Guards beim
      Schließen, Texte, manuelle Checkliste.
    - **Plan 3b: Darstellung im Editor.** Färbung, Anhängsel, Falten, Fehleranzeige (Unterstreichung mit
-     entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`.
+     entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`. **Umgesetzt**, Abnahme und voller Testlauf mit dem Nutzer offen.
 4. **Plan 4: App Kopieren und Assistenten.** „Kopieren als“, „Neues Gebäude“, „Neuer Trait“, Texte,
    manuelle Checkliste mit Spielstart.
 
@@ -876,7 +876,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | Nr. | Annahme | Prüfung |
 |---|---|---|
 | 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3a mit Spielstart (2026-10-10): **bestätigt** für die gelöschte Einheit (Angabe des Nutzers: Pack gebaut, installiert, Spiel gestartet, die Einheit fehlt). Abnahme Plan 4: neues Gebäude baubar offen. |
-| 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. |
+| 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. Plan 3b misst `Parse` plus Differenz (`The_empire_block_diffs_fast`, Zahl trägt der Controller nach dem Echtdaten-Lauf ein); Färben pro sichtbarer Zeile: Abnahme 3b. |
 | 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a (2026-10-10, zehn Dateikopien großer Tabellen, Speicher beobachtet): **bestätigt**, unter 200 MB (Angabe des Nutzers, ohne genaue Zahl). Plan 2 hält `Previous` und `Next` im Schritt; ein Auslagern in den Papierkorb ist nicht nötig. |

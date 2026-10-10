@@ -361,6 +361,16 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - `ProjectWritePlan` prüft in einem Set einer Überschreibzeile die Farbkanäle nur für `ChangedFields`; ungeänderte Kanäle der Baseline werden nicht geprüft
 - Aus dem Review von Plan 2 (2026-10-10): Nach einem `WriteFailed` sind die Fingerprints des Plans veraltet; Plan 3 muss das Objekt vor einem erneuten Übernehmen neu aufbauen und `RollbackFailed`-Dateien deutlich zeigen. Redo nach geleertem Papierkorb und Undo mit ungültigem Papierkorb-Pfad lassen den Schritt fallen, obwohl nichts geändert wurde (Regel „jeder andere Fehler“). Ein Undo, das nach der ersten Datei scheitert, hinterlässt einen gemischten Zustand (Spec-Festlegung); eine Rückschreibstufe wie im `ProjectWriter` wäre möglich
 
+== Aus Teil 4.2a Plan 3b (Editor) zurückgestellt ==
+
+- Ein Theme-Wechsel zur Laufzeit färbt den Editor erst beim nächsten Redraw (Scrollen, Tippen, neuer Block); das Ereignis des `ThemeManager` abonnieren und `TextView.Redraw()` rufen
+- Eine neu getippte Zeile mit dem Text einer gelöschten Zeile gilt als geändert (ohne Anhängsel), bis der Block neu gebaut wird
+- Der Tooltip eines Links zeigt nur den Namen; eine Kurzbeschreibung gehört zum Backlog von 4.1
+- Der Faltzustand wird über `TextView.VisualLinesChanged` zurückgemeldet, weil der `FoldingManager` kein eigenes Ereignis hat; ein Ereignis wäre genauer
+- Der Vorschlagskatalog (4.2b) nutzt `TextArea.TextEntered`
+- Das Faltsymbol am linken Rand nutzt die Standardfarben von AvalonEdit; mit den Theme-Tokens färben, falls es im dunklen Theme stört
+- Eine Zeile, die nur ein Anhängsel hat (Warnung des Aufbaus, leere Zeile), hat für den Cursor keinen eigenen Halt am Zeilenanfang; in der Abnahme prüfen
+
 == Aus Teil 4.2a Plan 3a (App) zurückgestellt ==
 
 - Die Frage nach der Zieldatei mit mehr als etwa 6 Kandidaten braucht eine Liste statt Knöpfen
@@ -368,7 +378,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Schlüsselform von `FileCopyQuestion.DeletedKeys` (Plan 2) ist jetzt in der Kopie-Frage sichtbar; in der Abnahme prüfen, ob sie lesbar ist
 - Die zweite Berechnung des Plans (mit den Antworten) läuft auf dem UI-Thread; bei der Kopie einer sehr großen Tabelle kann das kurz einfrieren. Dann in einen eigenen Runner-Lauf oder in Lauf B verlegen
 - Ein fehlgeschlagener Rollback (`RollbackFailed`) ist in der App nur über den Meldungstext getestet, weil `ProjectWriter` keinen Haken zum Erzwingen bietet; ein Test mit einer Datei, die nach dem Schreiben gesperrt wird, wäre möglich, wenn `ProjectWriter` einen Test-Haken bekommt
-- Der Fehlerdialog beim Übernehmen nennt Zeilennummer und Art, nicht den Namen des Felds oder Werts (Plan 3b zeigt die Stelle im Editor)
 - `ObjectsController.CategoryOf` und `ResolveOrder` aus dem Plan wurden nicht angelegt (das Übernehmen nutzt Kategorie und Ladereihenfolge des Aufbaus); Plan 4 prüft, ob „Kopieren als“ sie braucht
 
 == Wartet auf ein öffentliches Remote ==
