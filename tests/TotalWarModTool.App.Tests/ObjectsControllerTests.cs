@@ -265,6 +265,21 @@ public class ObjectsControllerTests
         Assert.Equal(1, setup.Builds("k1"));
     }
 
+    [Fact] public async Task Opening_a_tab_while_an_idle_object_tab_is_selected_builds_only_the_new_tab()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        setup.Runner.IsRunning = true;
+        var idle = Show(setup, table, "k1");                                           // selected, but the runner was busy
+        Assert.Equal(ObjectTabState.Idle, idle.State);
+        setup.Runner.IsRunning = false;
+
+        var opened = Show(setup, table, "k2");
+
+        Assert.Equal((ObjectTabState.Ready, 1), (opened.State, setup.Builds("k2")));
+        Assert.Equal((ObjectTabState.Idle, 0), (idle.State, setup.Builds("k1")));      // adding the new tab did not build the old one
+    }
+
     [Fact] public async Task A_schema_change_discards_the_store_and_marks_the_tabs()
     {
         using var setup = await CreateAsync();

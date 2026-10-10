@@ -19,6 +19,9 @@ public sealed partial class ObjectsController
     // The number of open scopes of SuppressLazyBuilds.
     private int _suppressLazyBuilds;
 
+    // The selected tab at the last change of the tab list: only a change of the selection builds lazily.
+    private TabViewModel? _seenSelectedTab;
+
     /// <summary>The object tabs of the tab list, in tab order.</summary>
     public IReadOnlyList<ObjectTabViewModel> ObjectTabs => _tabs.Tabs.OfType<ObjectTabViewModel>().ToList();
 
@@ -126,9 +129,17 @@ public sealed partial class ObjectsController
         }
     }
 
-    // A tab that was not built yet (restored, or the runner was busy) is built when it is shown, unless a restore scope is open.
+    // A tab that was not built yet (restored, or the runner was busy) is built when it is shown, unless a restore scope is open. Only a change
+    // of the selection counts: a tab added to the list raises a change while the old tab is still selected, and that one must not be built then.
     private void OnTabsChanged()
     {
+        var selected = _tabs.SelectedTab;
+        if (ReferenceEquals(selected, _seenSelectedTab))
+        {
+            return;
+        }
+
+        _seenSelectedTab = selected;
         if (_suppressLazyBuilds == 0)
         {
             BuildSelectedIfIdle();

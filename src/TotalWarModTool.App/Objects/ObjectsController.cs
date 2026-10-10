@@ -83,6 +83,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
             documents.ModifiedChanged += (_, _) => StartStaleCheck();
         }
 
+        _seenSelectedTab = tabs.SelectedTab;
         tabs.Changed += (_, _) => OnTabsChanged();
     }
 
