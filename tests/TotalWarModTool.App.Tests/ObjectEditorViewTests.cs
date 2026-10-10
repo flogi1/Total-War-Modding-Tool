@@ -4,6 +4,7 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
+using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Rendering;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Objects;
@@ -322,6 +323,66 @@ public class ObjectEditorViewTests
             System.Windows.Documents.EditingCommands.MoveRightByCharacter.Execute(null, view.Editor.TextArea);
 
             Assert.Equal(tab.HeadLineLength + 1, view.Editor.TextArea.Caret.Offset);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void End_puts_the_caret_in_front_of_the_trailing() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var (view, window) = Create(tab);
+        try
+        {
+            var caret = view.Editor.TextArea.Caret;
+            caret.Offset = 0;
+            System.Windows.Documents.EditingCommands.MoveToLineEnd.Execute(null, view.Editor.TextArea);
+            Pump(window);
+
+            Assert.Equal(tab.HeadLineLength, caret.Offset);
+            Assert.Equal(tab.HeadLineLength, caret.VisualColumn);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void Shift_End_does_not_select_the_trailing() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var (view, window) = Create(tab);
+        try
+        {
+            view.Editor.TextArea.Caret.Offset = 0;
+            System.Windows.Documents.EditingCommands.SelectToLineEnd.Execute(null, view.Editor.TextArea);
+            Pump(window);
+
+            var selection = view.Editor.TextArea.Selection;
+            Assert.All(selection.Segments, segment => Assert.True(segment.EndVisualColumn <= tab.HeadLineLength));
+            Assert.Equal(tab.Text[..tab.HeadLineLength], selection.GetText());
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void A_caret_position_behind_the_trailing_is_moved_in_front_of_it() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var (view, window) = Create(tab);
+        try
+        {
+            var caret = view.Editor.TextArea.Caret;
+            var behind = tab.HeadLineLength + 1;
+            caret.Position = new TextViewPosition(1, behind, behind);
+            Pump(window);
+
+            Assert.Equal(tab.HeadLineLength, caret.VisualColumn);
+            Assert.Equal(tab.HeadLineLength, caret.Offset);
         }
         finally
         {
