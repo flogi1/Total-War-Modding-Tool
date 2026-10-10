@@ -257,6 +257,12 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Meldung eines dauerhaft gescheiterten Dateischritts kann mit vielen Papierkorb-Pfaden lang werden (bis zu 10 Pfade und die Zahl der übrigen)
 - Beim Übernehmen eines Eintrags, der seinen Pfad behält (kein Namensdialog, zum Beispiel ein Skript), erscheinen Ablehnungsgründe der Library noch auf Englisch
 
+== Aus Teil 4.2a Plan 1 (Objects) zurückgestellt ==
+
+- Kopierregel für eigene Schlüsselzeilen, die zum Objekt gehören (Plan 4, Assistenten): Die Kaserne hat in `building_units_allowed` 4 Zeilen mit eigenem Schlüssel `key` ohne Präfix; die Regel meldet sie als Fremdschlüsselzeilen und kopiert sie nicht, obwohl ein neues Gebäude ohne erlaubte Einheiten unbrauchbar ist. Vorschlag: optionales Feld pro Abschnitt in der Kategorie-Datei (zum Beispiel `"copy": "owned"`), gesetzt für `building_units_allowed`, Standard unverändert (`technologies` bleibt ein Hinweis). Die Regel bleibt allgemein, die Assistenten tragen keine Ausnahme. Das Feld erst mit Plan 4 einführen; findet die Abnahme weitere solche Tabellen, eine Heuristik prüfen („Schlüssel wird von keiner anderen Tabelle referenziert“), vorher an den Echtdaten messen
+- Leerzeichen am Ende von Werten (Plan 2, Übernehmen): 536 Textzellen im Spiel enden auf Leerzeichen, der Block schneidet sie ab, die Differenz hält unveränderte Werte unverändert. Wird so ein Wert bearbeitet, geht das Leerzeichen am Ende still verloren. Vorschlag: endet der gespeicherte Wert auf Whitespace und der neue nicht, hängt `ObjectDiff` das alte Ende wieder an (mit Test); Anführungszeichen um solche Werte sind keine Option, weil 1707 Werte selbst mit `"` beginnen
+- Leerzeichen am Ende im Editor sichtbar machen (Plan 3): als Anhängsel markieren, damit der Nutzer sieht, dass der Wert eines hat und beim Bearbeiten erhalten bleibt
+
 == Wartet auf ein öffentliches Remote ==
 
 - Remote für das lokale Repo festlegen (bisher nur lokal)
