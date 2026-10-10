@@ -51,6 +51,14 @@ internal static class BlockFixture
             TestSchema.Field("icon"),
         ]),
         ("notes_tables", 1, [TestSchema.Field("building", reference: RootKey), TestSchema.Field("a"), TestSchema.Field("b")]),
+        // Junction by shape (two references, four fields) that also has a key field of its own.
+        ("perks_tables", 1,
+        [
+            TestSchema.Field("building", reference: RootKey),
+            TestSchema.Field("perk", reference: ("perk_defs_tables", "key")),
+            TestSchema.Field("scope", key: true),
+            TestSchema.Field("rank", FieldType.I32),
+        ]),
         ("bonus_tables", 1,
         [
             TestSchema.Field("building", key: true, reference: RootKey),

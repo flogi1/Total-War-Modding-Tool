@@ -32,13 +32,13 @@ public sealed class TableStore
         /// <summary>Every source that had rows of the key before the current one, in order.</summary>
         public List<TableSource> History { get; } = [];
 
-        /// <summary>The entry path of the first row of each source in <see cref="History"/>, same order.</summary>
+        /// <summary>Every distinct entry path of the replaced layers that held the key, in order.</summary>
         public List<string> HistoryEntries { get; } = [];
 
         /// <summary>The sources the current rows replaced.</summary>
         public IReadOnlyList<TableSource> Overridden { get; set; } = [];
 
-        /// <summary>The entry paths of <see cref="Overridden"/>, same order.</summary>
+        /// <summary>The entry paths of the replaced layers, see <see cref="HistoryEntries"/>.</summary>
         public IReadOnlyList<string> OverriddenEntries { get; set; } = [];
     }
 
@@ -289,7 +289,17 @@ public sealed class TableStore
             return;
         }
 
-        // A later source replaces every row of the key, at the position of the first one.
+        // A later source replaces every row of the key, at the position of the first one. Every file of the replaced layer that held the
+        // key is remembered, so a delete can strip the key from all of them.
+        foreach (var position in state.Positions)
+        {
+            var layerEntry = rows[position]!.Provenance.EntryPath;
+            if (!state.HistoryEntries.Contains(layerEntry, StringComparer.Ordinal))
+            {
+                state.HistoryEntries.Add(layerEntry);
+            }
+        }
+
         foreach (var position in state.Positions.Skip(1))
         {
             rows[position] = null;
@@ -297,7 +307,6 @@ public sealed class TableStore
 
         var first = state.Positions[0];
         state.History.Add(listings[state.SourceIndex].Source);
-        state.HistoryEntries.Add(rows[first]!.Provenance.EntryPath);
         var overridden = state.History.ToArray();
         var overriddenEntries = state.HistoryEntries.ToArray();
         rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false, entryPath) { OverriddenEntries = overriddenEntries });

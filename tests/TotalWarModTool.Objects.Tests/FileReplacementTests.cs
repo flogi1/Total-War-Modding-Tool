@@ -99,6 +99,24 @@ public class FileReplacementTests
     }
 
     [Fact]
+    public void A_layer_that_holds_the_key_in_two_files_lists_both_files()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePackEntries(tmp.File("vanilla.pack"), Schema,
+            ("data__", "units_tables", 2, [U("u1", "Alpha", 10)]),
+            ("extra", "units_tables", 2, [U("u1", "Alpha extra", 11)])));
+        var proj = Path.Combine(tmp.Path, "proj");
+        TestSources.WriteProjectTable(proj, Schema, "units_tables", 2, "a", [U("u1", "Project", 99)]);
+
+        var table = NewStore().Get("units_tables", TestSources.Order(vanilla, TestSources.Project(proj)), None);
+
+        // A delete has to strip the key from every file of the overridden layer, not only the first.
+        var row = Assert.Single(table.Rows);
+        Assert.Equal([vanilla], row.Provenance.Overridden);
+        Assert.Equal(["db/units_tables/data__", "db/units_tables/extra"], row.Provenance.OverriddenEntries);
+    }
+
+    [Fact]
     public void A_row_nothing_overrides_has_no_overridden_entries()
     {
         using var tmp = new TempDir();

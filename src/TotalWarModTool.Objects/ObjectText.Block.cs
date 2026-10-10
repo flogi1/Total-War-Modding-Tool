@@ -185,10 +185,10 @@ public static partial class ObjectText
         var rowTexts = row.RowId is { } rowId ? view.Texts.Where(entry => entry.Owner.Equals(rowId)).ToList() : [];
         foreach (var field in row.Fields)
         {
-            // An empty field stays out unless a text of the row has its name: the field line tells the parser that the quoted line below it
-            // is the game text, not the value.
+            // An empty field stays out unless a text of the row has its name (the field line tells the parser that the quoted line below it
+            // is the game text, not the value) or it is a key field (the row is identified by it, so the parser needs it even when empty).
             var shared = rowTexts.Any(entry => string.Equals(entry.Column, field.Name, StringComparison.OrdinalIgnoreCase));
-            if ((field.Text.Length > 0 || shared) && !excluded.Any(name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
+            if ((field.Text.Length > 0 || shared || field.IsKey) &&!excluded.Any(name => string.Equals(name, field.Name, StringComparison.OrdinalIgnoreCase)))
             {
                 lines.Add(new BlockLine(BlockLineKind.RowField, AssignmentSpans(field), LocTrailing(field), RowFieldIndent, sectionIndex, rowIndex));
             }
@@ -231,11 +231,7 @@ public static partial class ObjectText
             trailing.AddRange(LocTrailing(field, trailing.Count > 0));
         }
 
-        if (row.OtherEnd is { } other)
-        {
-            named.Add(other.Name);
-        }
-
+        // Only the fields the pattern names stand in the sentence; the other end of a junction that it does not name is a field line.
         return (spans, trailing);
     }
 

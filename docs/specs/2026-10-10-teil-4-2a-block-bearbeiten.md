@@ -381,7 +381,9 @@ jeder Task im selben Commit ergänzt):
   editierbarer Text). Der Text enthält alle Zeilen; `Collapsed`-Zeilen gibt es dort nicht.
 - Satz- und Junction-Zeilen haben eine Kopfzeile (Satz bzw. nur das andere Ende). Felder, die das
   Muster nicht nennt (und bei Junction alle außer dem anderen Ende und dem Feld auf die Wurzel),
-  stehen mit nicht leerem Wert als Feldzeilen auf Stufe 2 darunter, ebenso Spieltexte der Zeile.
+  stehen mit nicht leerem Wert als Feldzeilen auf Stufe 2 darunter, ebenso leere Schlüsselfelder (die
+  Zeile wird über sie erkannt) und Spieltexte der Zeile. Das andere Ende einer Junction, das ein
+  Satzmuster nicht nennt, ist ebenfalls eine Feldzeile.
   Sonst ginge der Wert in Tabellen ohne Schlüssel beim Round-Trip verloren (der Feldsatz bestimmt dort
   die Identität). Die Skizze oben (`xp = 2` unter der Satzzeile) zeigt dasselbe.
 - Die Kopfzeile einer Listenzeile ohne Schlüsselfeld ist das erste Feld in Schemareihenfolge außer dem
@@ -451,7 +453,9 @@ jeder Task im selben Commit ergänzt):
   nicht in `RowProvenance.Overridden`.
 - `RowProvenance.OverriddenEntries` ist eine init-Eigenschaft (Standard leer), kein Konstruktorparameter:
   bestehende Aufrufe bauen unverändert, `with { OverriddenEntries = … }` setzt sie. Sie hält zu jeder
-  Quelle in `Overridden` den Eintragspfad (bei Quellen mit mehreren Dateien den der ersten Zeile).
+  Sie hält die Eintragspfade aller Dateien der überschriebenen Schichten, die den Schlüssel hatten, in
+  Reihenfolge der Schichten; hatte eine Quelle den Schlüssel in mehreren Dateien, stehen alle da (die Liste
+  kann also länger sein als `Overridden`), damit ein Löschen den Schlüssel aus allen Dateien entfernt.
 
 ### 5.4 Übernehmen: Zielregeln
 
@@ -765,7 +769,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3 und 4: Pack bauen, installieren, Spiel starten, gelöschte Einheit fehlt, neues Gebäude baubar. |
 | 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. |
 | 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
-| 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_ends_with_whitespace_and_texts_need_only_the_known_escapes`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
+| 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Abnahme Plan 3: zehn Dateikopien großer Tabellen, Speicher beobachten. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Plan 3, erste Task. |
 

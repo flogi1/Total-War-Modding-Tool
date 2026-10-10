@@ -21,7 +21,7 @@ public sealed record SourceProblem(TableSource Source, string EntryPath, SourceP
 /// </summary>
 public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate, string EntryPath = "")
 {
-    /// <summary>The entry path of every source in <see cref="Overridden"/>, same order and count (the pack entry or the project file below the project folder); empty for rows nothing overrides.</summary>
+    /// <summary>The entry path of every file of the sources in <see cref="Overridden"/> that held the key (pack entry or project file below the project folder), earliest first; a source that held it in several files contributes several paths, so it can be longer than Overridden. Empty for rows nothing overrides.</summary>
     public IReadOnlyList<string> OverriddenEntries { get; init; } = [];
 }
 

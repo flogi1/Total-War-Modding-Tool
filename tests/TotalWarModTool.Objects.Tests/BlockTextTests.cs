@@ -339,6 +339,45 @@ public class BlockTextTests
         Assert.Equal("He said \"hi\" \\ x", Assert.Single(parsed.Texts).Text);
     }
 
+    private static ObjectView PerksView(string scope)
+    {
+        var perk = BlockFixture.Val("perk", "p1", refTable: "perk_defs_tables");
+        var row = new ObjectRow([BlockFixture.Val("building", "b1", refTable: BlockFixture.Root, refColumn: "level_name"), perk,
+            BlockFixture.Val("scope", scope, key: true), BlockFixture.Val("rank", "1", FieldType.I32)], From(Vanilla),
+            new ObjectId("perks_tables", [scope]), perk);
+        return BlockFixture.View(BlockFixture.RootRow(), [Section("perks_tables", "building", true, row)]);
+    }
+
+    [Fact]
+    public void An_empty_key_field_under_a_junction_row_round_trips()
+    {
+        var view = PerksView("");
+
+        var block = ObjectText.RenderBlock(view, BlockFixture.Category);
+        var parsed = ObjectTextParser.Parse(block.Text, view, BlockFixture.Category, BlockFixture.Graph);
+        var changes = ObjectDiff.Compute(view, parsed, BlockFixture.Category, BlockFixture.Graph, null);
+
+        Assert.Contains("    scope = ", block.Text.Split('\n'));
+        Assert.Empty(changes.Diagnostics);
+        Assert.True(changes.IsEmpty);
+    }
+
+    [Fact]
+    public void A_junction_field_the_sentence_pattern_does_not_name_is_still_in_the_text()
+    {
+        var view = PerksView("s1");
+        var category = new CategoryDefinition(BlockFixture.Root, "cat", [new SectionRule("perks_tables", null, null, SectionMode.Sentence, "rank {rank}", false)]);
+
+        var block = ObjectText.RenderBlock(view, category);
+        var parsed = ObjectTextParser.Parse(block.Text, view, category, BlockFixture.Graph);
+        var changes = ObjectDiff.Compute(view, parsed, category, BlockFixture.Graph, null);
+
+        Assert.Contains("    perk = p1", block.Text.Split('\n'));
+        Assert.Empty(changes.Diagnostics);
+        Assert.True(changes.IsEmpty);
+        Assert.Contains(Assert.Single(Assert.Single(parsed.Sections).Rows).Fields, f => f.Name == "perk" && f.Text == "p1");
+    }
+
     [Fact]
     public void A_row_shows_its_empty_field_when_a_text_of_the_row_has_the_same_name()
     {

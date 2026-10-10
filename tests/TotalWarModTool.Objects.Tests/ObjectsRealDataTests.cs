@@ -327,7 +327,7 @@ public class ObjectsRealDataTests
         });
     }
 
-    [RealDataFact] public void No_value_ends_with_whitespace_and_texts_need_only_the_known_escapes()
+    [RealDataFact] public void No_value_holds_a_control_character_or_the_dialect_escape()
     {
         var context = Shared.Value;
         var store = new TableStore(context.Schema, context.Graph, MergeTestCacheBytes);
@@ -403,6 +403,7 @@ public class ObjectsRealDataTests
         var locKeys = loc.KeysWithPrefix(string.Empty);
         long locWithTab = 0;
         long locTrailing = 0;
+        long locWithCarriageReturn = 0;
         foreach (var key in locKeys)
         {
             loc.TryGet(key, out var entry);
@@ -412,6 +413,12 @@ public class ObjectsRealDataTests
                 Note("loc tab", "loc", key, entry.Text);
             }
 
+            if (entry.Text.Contains('\r'))
+            {
+                locWithCarriageReturn++;
+                Note("loc cr", "loc", key, entry.Text);
+            }
+
             if (entry.Text.Length > 0 && entry.Text[^1] == ' ')
             {
                 locTrailing++;
@@ -419,7 +426,7 @@ public class ObjectsRealDataTests
         }
 
         _output.WriteLine($"Text cells: {cells}; ending with space or tab: {trailing}; starting with a space: {leading}; holding a literal backslash-t or backslash-n: {escapeSequences}; holding a real tab or line break: {controlCharacters}");
-        _output.WriteLine($"Loc texts: {locKeys.Count}; with a tab: {locWithTab}; ending with a space: {locTrailing}");
+        _output.WriteLine($"Loc texts: {locKeys.Count}; with a tab: {locWithTab}; with a carriage return: {locWithCarriageReturn}; ending with a space: {locTrailing}");
         foreach (var example in examples)
         {
             _output.WriteLine("  " + example);
