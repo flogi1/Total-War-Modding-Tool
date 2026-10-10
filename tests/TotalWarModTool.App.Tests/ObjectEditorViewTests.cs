@@ -148,4 +148,69 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    [Fact] public void Ctrl_Enter_is_bound_to_the_apply_command_of_the_tab() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var calls = 0;
+        tab.ApplyHandler = _ =>
+        {
+            calls++;
+            return Task.CompletedTask;
+        };
+        var (view, window) = Create(tab);
+        try
+        {
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "\n  x = 1");
+            var binding = view.Editor.InputBindings.OfType<KeyBinding>().Single(b => b.Key == Key.Return && b.Modifiers == ModifierKeys.Control);
+            Assert.Same(tab.ApplyCommand, binding.Command);
+            Assert.True(binding.Command.CanExecute(null));
+            binding.Command.Execute(null);
+            Assert.Equal(1, calls);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void The_undo_commands_of_the_editor_reach_the_window() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var (view, window) = Create(tab);
+        try
+        {
+            // The window binds Undo and Redo to the global history; the editor must neither handle them nor stand in their way.
+            var ran = new List<RoutedCommand>();
+            window.CommandBindings.Add(new CommandBinding(ApplicationCommands.Undo, (_, e) => { ran.Add(ApplicationCommands.Undo); e.Handled = true; }, (_, e) => e.CanExecute = true));
+            window.CommandBindings.Add(new CommandBinding(ApplicationCommands.Redo, (_, e) => { ran.Add(ApplicationCommands.Redo); e.Handled = true; }, (_, e) => e.CanExecute = true));
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "\n  x = 1");
+            var text = view.Editor.Text;
+
+            Assert.True(ApplicationCommands.Undo.CanExecute(null, view.Editor.TextArea));
+            ApplicationCommands.Undo.Execute(null, view.Editor.TextArea);
+            ApplicationCommands.Redo.Execute(null, view.Editor.TextArea);
+
+            Assert.Equal([ApplicationCommands.Undo, ApplicationCommands.Redo], ran);
+            Assert.Equal(text, view.Editor.Text);
+            Assert.DoesNotContain(view.Editor.TextArea.InputBindings.OfType<KeyBinding>(), b => b.Command == ApplicationCommands.Undo || b.Command == ApplicationCommands.Redo);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void The_editor_takes_the_focus_when_the_view_is_loaded() => Sta.Run(() =>
+    {
+        var (view, window) = Create(Tab());
+        try
+        {
+            Assert.True(view.Editor.TextArea.IsKeyboardFocusWithin || ReferenceEquals(FocusManager.GetFocusedElement(window), view.Editor.TextArea));
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

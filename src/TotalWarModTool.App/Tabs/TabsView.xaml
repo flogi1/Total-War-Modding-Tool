@@ -211,13 +211,14 @@
         <!--
             An object: the buttons of the history, refresh, the jump to the row and apply, then the status (its tool tip lists the warnings); under
             it the result line of the last apply, the notice and, while the tab is outdated, what changed with a refresh button; then the editor
-            with the block text. Alt+Left and Alt+Right move through the history while the focus is in the tab.
+            with the block text. Alt+Left and Alt+Right move through the history, Ctrl+Enter applies, while the focus is in the tab.
         -->
         <DataTemplate DataType="{x:Type local:ObjectTabViewModel}">
             <DockPanel>
                 <DockPanel.InputBindings>
                     <KeyBinding Key="Left" Modifiers="Alt" Command="{Binding BackCommand}" />
                     <KeyBinding Key="Right" Modifiers="Alt" Command="{Binding ForwardCommand}" />
+                    <KeyBinding Key="Return" Modifiers="Ctrl" Command="{Binding ApplyCommand}" />
                 </DockPanel.InputBindings>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,2">
                     <Button Command="{Binding BackCommand}" Padding="8,2"

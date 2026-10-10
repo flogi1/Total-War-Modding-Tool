@@ -41,6 +41,9 @@ public sealed partial class ObjectEditorView : UserControl
 
         Editor.TextChanged += OnEditorTextChanged;
         DataContextChanged += OnDataContextChanged;
+
+        // The tab becomes visible: typing can start at once.
+        Loaded += (_, _) => Editor.Focus();
     }
 
     /// <summary>The editor, for tests and for Plan 3b (colorizer, element generator, folding).</summary>

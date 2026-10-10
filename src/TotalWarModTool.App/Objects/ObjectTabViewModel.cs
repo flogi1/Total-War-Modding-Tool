@@ -168,8 +168,8 @@ public sealed class ObjectTabViewModel : TabViewModel
         }
     }
 
-    /// <summary>The tool tip of the apply button: the reason it is disabled, else its name.</summary>
-    public string ApplyToolTip => ApplyDisabledReason ?? Texts.ObjectsApply;
+    /// <summary>The tool tip of the apply button: the reason it is disabled, else its name with the key.</summary>
+    public string ApplyToolTip => ApplyDisabledReason ?? Texts.ObjectsApply + " (" + Texts.ObjectsApplyGesture + ")";
 
     /// <summary>The result line of the last apply ("3 rows in 2 files changed, 1 file created: db\x_tables\flo.tsv"); null until an apply, cleared by a move to another object.</summary>
     public string? ResultLine => _resultLine;

@@ -1,3 +1,5 @@
+using TotalWarModTool.Objects;
+using TotalWarModTool.Editing;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
@@ -901,6 +903,43 @@ public class TabsViewTests
             Assert.False(tab.ShowText);
             Assert.Equal([true, false], buttons.Select(b => b.IsChecked == true));      // the grid switch is checked again
             Assert.Equal(Visibility.Visible, setup.Grid.Visibility);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    [Fact] public void The_object_tab_template_shows_the_apply_button_the_result_line_and_the_editor() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            var vanilla = new TableSource(SourceKind.Vanilla, "db.pack", @"D:\game\db.pack");
+            var row = new ObjectRow([new FieldValue("effect", FieldType.StringU8, "v", null, ReferenceResolution.None, null, null)],
+                new RowProvenance(vanilla, [], false, false), null, null);
+            var id = new ObjectId("units_tables", ["a"]);
+            var order = new LoadOrder([vanilla], null, []);
+            var view = new ObjectView(id, row, [], [], [], order, ["units_tables"]);
+            var tab = new ObjectTabViewModel(Texts, setup.ViewModel.Close, [new ObjectRef("units_tables", ["a"], null)], 0, key => key);
+            tab.ApplyResult(new ObjectBuildResult(view, order, null, new Dictionary<string, string>(), "loc", new LocTable(new Dictionary<string, LocText>(), [])));
+            tab.SetApplyResult(new WriteSummary(1, 0, 0, 0, 0, 1, 0, 0), [], 0);
+            setup.ViewModel.Tabs.Add(tab);
+            setup.ViewModel.SelectedTab = tab;
+            Pump(setup.Window);
+
+            var apply = Descendants<Button>(setup.View).Single(button => ReferenceEquals(button.Command, tab.ApplyCommand));
+            Assert.Equal(Texts.ObjectsApply, apply.Content);
+            Assert.Equal(tab.ApplyToolTip, apply.ToolTip);
+            Assert.True(ToolTipService.GetShowOnDisabled(apply));
+            Assert.Equal(tab.ResultLine, Descendants<TextBlock>(setup.View).Single(text => text.Text == tab.ResultLine).Text);
+            Assert.Equal(tab.Text, Descendants<ObjectEditorView>(setup.View).Single().Editor.Text);
+            Assert.NotEqual(string.Empty, tab.Text);
+
+            // Ctrl+Enter applies from anywhere in the tab, not only from the editor.
+            var keys = Descendants<DockPanel>(setup.View).SelectMany(panel => panel.InputBindings.OfType<KeyBinding>())
+                .Where(binding => binding.Modifiers == ModifierKeys.Control && binding.Key == Key.Return).ToList();
+            Assert.Contains(keys, binding => ReferenceEquals(binding.Command, tab.ApplyCommand));
         }
         finally
         {

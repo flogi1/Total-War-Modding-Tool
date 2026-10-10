@@ -503,4 +503,13 @@ public class ObjectTabViewModelTests
         Assert.False(tab.HasUnappliedText);
         Assert.False(tab.IsModified);
     }
+
+    [Fact] public void The_apply_tool_tip_is_the_reason_or_the_name_with_the_key()
+    {
+        var tab = ReadyTab();
+        Assert.Equal(Texts.ObjectsApplyNoChanges, tab.ApplyToolTip);
+        tab.ApplyHandler = _ => Task.CompletedTask;
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        Assert.Equal(Texts.ObjectsApply + " (" + Texts.ObjectsApplyGesture + ")", tab.ApplyToolTip);
+    }
 }

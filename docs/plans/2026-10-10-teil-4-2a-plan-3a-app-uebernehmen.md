@@ -707,6 +707,8 @@ Regeln:
 
 ### Task 8: Window-Verdrahtung des Editors (Strg+Enter, Undo-Tasten, Fokus) und View-Test der ganzen Tab-Vorlage
 
+**Status:** erledigt; `ObjectTabViewModelTests` 32/32, `ObjectEditorViewTests` 8/8, `TabsViewTests` 45/45 grün, Build ohne Warnung. Ctrl+Enter lässt sich in Tests nicht als Tastendruck simulieren (WPF liest die echten Modifikatoren): geprüft wird die Bindung am Editor und am `DockPanel`, Undo/Redo über einen Befehl, den ein Fenster-Binding fängt.
+
 Die Tastenwege und das Zusammenspiel von Editor, Hauptfenster und Template. Spec 5.7 (Tastatur).
 
 **Files:**
