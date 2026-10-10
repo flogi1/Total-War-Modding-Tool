@@ -600,4 +600,18 @@ public class ObjectTabViewModelTests
         Assert.Empty(noHandler.Diagnostics);
         Assert.False(noHandler.IsDiffEmpty);
     }
+
+    [Fact] public void DisplayNameOf_reads_the_loc_of_the_result_and_is_null_without_one()
+    {
+        var tab = Tab();
+        var fire = new ObjectId("effects_tables", ["e1"]);
+        Assert.Null(tab.DisplayNameOf(fire));
+
+        tab.ApplyResult(Result());
+        Assert.Equal("Fire", tab.DisplayNameOf(fire));
+        Assert.Null(tab.DisplayNameOf(new ObjectId("effects_tables", ["unknown"])));
+
+        tab.Text += "x";
+        Assert.Equal("Fire", tab.DisplayNameOf(fire));
+    }
 }

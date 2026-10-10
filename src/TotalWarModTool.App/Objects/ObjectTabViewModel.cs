@@ -36,6 +36,7 @@ public sealed class ObjectTabViewModel : TabViewModel
     private string _baselineText = string.Empty;
     private BlockText? _block;
     private (string Text, ObjectChanges Changes)? _checked;
+    private readonly Dictionary<ObjectId, string?> _displayNames = [];
     private int _headLineLength;
     private bool _hasUnappliedText;
     private string _status = string.Empty;
@@ -108,6 +109,24 @@ public sealed class ObjectTabViewModel : TabViewModel
 
     /// <summary>The text of a section title key (the loc key of a category rule) in the current language; for the trailing of the editor.</summary>
     public string TranslateTitle(string key) => _translate(key);
+
+    /// <summary>Display name of a link target from the loc table of the last build (data, escaped); null when none or without a built result.</summary>
+    public string? DisplayNameOf(ObjectId target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (_state != ObjectTabState.Ready || _result is null)
+        {
+            return null;
+        }
+
+        if (!_displayNames.TryGetValue(target, out var name))
+        {
+            name = ObjectBuilder.DisplayName(_result.Loc, target) is { } text ? MessageText.EscapeControlCharacters(text) : null;
+            _displayNames[target] = name;
+        }
+
+        return name;
+    }
 
     /// <summary>The block text of the last result (ObjectText.RenderBlock(...).Text); empty without a result.</summary>
     public string BaselineText => _baselineText;
@@ -493,6 +512,7 @@ public sealed class ObjectTabViewModel : TabViewModel
     private void SetBlock(BlockText? block)
     {
         _block = block;
+        _displayNames.Clear();
         if (_checked is not null)
         {
             _checked = null;

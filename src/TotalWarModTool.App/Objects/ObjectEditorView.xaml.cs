@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
+using ICSharpCode.AvalonEdit.Rendering;
 
 namespace TotalWarModTool.App;
 
@@ -23,6 +24,8 @@ public sealed partial class ObjectEditorView : UserControl
     private readonly TextSegmentCollection<TextSegment> _readOnlySegments;
     private ObjectTabViewModel? _tab;
     private BlockLineMap? _map;
+    private readonly DiagnosticRenderer _diagnostics;
+    private readonly ToolTip _hoverToolTip = new();
     private bool _settingText;
 
     public ObjectEditorView()
@@ -47,6 +50,10 @@ public sealed partial class ObjectEditorView : UserControl
         }
 
         Editor.TextArea.TextView.LineTransformers.Add(new BlockColorizer(() => _map, key => Editor.TryFindResource(key) as Brush));
+        _diagnostics = new DiagnosticRenderer(() => _tab?.Diagnostics ?? [], key => Editor.TryFindResource(key) as Brush);
+        Editor.TextArea.TextView.BackgroundRenderers.Add(_diagnostics);
+        Editor.TextArea.TextView.MouseHover += OnMouseHover;
+        Editor.TextArea.TextView.MouseHoverStopped += (_, _) => _hoverToolTip.IsOpen = false;
         Editor.TextArea.TextView.ElementGenerators.Add(new TrailingGenerator(() => _map, () => _tab, key => Editor.TryFindResource(key) as Brush));
 
         _checkTimer = new DispatcherTimer { Interval = CheckDelay };
@@ -65,6 +72,32 @@ public sealed partial class ObjectEditorView : UserControl
 
     /// <summary>The editor, for tests and for Plan 3b (colorizer, element generator, folding).</summary>
     internal TextEditor Editor => TextBox;
+
+    /// <summary>The underlines of the diagnostics, for tests.</summary>
+    internal DiagnosticRenderer Diagnostics => _diagnostics;
+
+    /// <summary>The tool tip text at a point of the text view (view coordinates), or null.</summary>
+    internal string? ToolTipAt(Point viewPoint)
+    {
+        var textView = Editor.TextArea.TextView;
+        if (_tab is null || textView.GetPosition(viewPoint + textView.ScrollOffset) is not { } position)
+        {
+            return null;
+        }
+
+        return EditorHover.ToolTipAt(_tab, _map, position.Line, position.Column - 1, _tab.Texts);
+    }
+
+    private void OnMouseHover(object? sender, MouseEventArgs e)
+    {
+        if (ToolTipAt(e.GetPosition(Editor.TextArea.TextView)) is { } text)
+        {
+            _hoverToolTip.Content = text;
+            _hoverToolTip.PlacementTarget = Editor.TextArea.TextView;
+            _hoverToolTip.IsOpen = true;
+            e.Handled = true;
+        }
+    }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
@@ -93,6 +126,10 @@ public sealed partial class ObjectEditorView : UserControl
         else if (e.PropertyName == nameof(ObjectTabViewModel.Block))
         {
             RebuildMap();
+        }
+        else if (e.PropertyName == nameof(ObjectTabViewModel.Diagnostics))
+        {
+            Editor.TextArea.TextView.InvalidateLayer(KnownLayer.Selection);
         }
         else if (e.PropertyName == nameof(ObjectTabViewModel.HeadLineLength))
         {

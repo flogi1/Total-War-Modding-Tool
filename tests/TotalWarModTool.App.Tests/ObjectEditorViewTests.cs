@@ -3,6 +3,7 @@ using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Rendering;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Objects;
@@ -372,4 +373,75 @@ public class ObjectEditorViewTests
             Thread.Sleep(10);
         }
     }
+
+    private static BlockDiagnostic Diagnostic(int line, DiagnosticSeverity severity) => new(line, severity, DiagnosticKind.InvalidValue, "detail");
+
+    [Fact] public void A_diagnostic_line_is_underlined_in_the_error_colour() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var diagnostics = new List<BlockDiagnostic>();
+        tab.CheckHandler = _ => new ObjectChanges([], [], diagnostics);
+        var (view, window) = Create(tab);
+        try
+        {
+            var error = (Brush)view.FindResource("Theme.ObjectError");
+            var warning = (Brush)view.FindResource("Theme.Warning");
+            Assert.Empty(view.Diagnostics.Underlines());
+
+            diagnostics.Add(Diagnostic(2, DiagnosticSeverity.Warning));
+            diagnostics.Add(Diagnostic(3, DiagnosticSeverity.Warning));
+            diagnostics.Add(Diagnostic(3, DiagnosticSeverity.Error));
+            diagnostics.Add(Diagnostic(500, DiagnosticSeverity.Error));
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "\n");
+            tab.Check();
+            Pump(window);
+
+            var underlines = view.Diagnostics.Underlines();
+            Assert.Equal([2, 3, 500], underlines.Select(u => u.Line));
+            Assert.Same(warning, underlines[0].Brush);
+            Assert.Same(error, underlines[1].Brush);
+
+            var visual = new DrawingVisual();
+            using (var context = visual.RenderOpen())
+            {
+                view.Diagnostics.Draw(view.Editor.TextArea.TextView, context);
+            }
+
+            // Line 500 is not in the document: Draw skips it.
+            Assert.NotNull(visual.Drawing);
+            Assert.True(visual.Drawing.Children.Count > 0);
+
+            tab.Text = tab.BaselineText;
+            Assert.Empty(view.Diagnostics.Underlines());
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void The_tool_tip_of_a_point_comes_from_the_hover_rules() => Sta.Run(() =>
+    {
+        var tab = Tab(LinkResult());
+        var diagnostics = new[] { new BlockDiagnostic(2, DiagnosticSeverity.Error, DiagnosticKind.InvalidValue, "expected an integer") };
+        tab.CheckHandler = _ => new ObjectChanges([], [], diagnostics);
+        var (view, window) = Create(tab);
+        try
+        {
+            view.Editor.Document.Insert(view.Editor.Document.TextLength, "\n");
+            tab.Check();
+            Pump(window);
+            var textView = view.Editor.TextArea.TextView;
+            var number = LineOf(view, "chain = chain1");
+            var linkPoint = textView.GetVisualPosition(new TextViewPosition(number, 13), VisualYPosition.LineMiddle) - textView.ScrollOffset;
+            var errorPoint = textView.GetVisualPosition(new TextViewPosition(2, 2), VisualYPosition.LineMiddle) - textView.ScrollOffset;
+
+            Assert.Equal(tab.DisplayNameOf(Chain) ?? "building_chains", view.ToolTipAt(new Point(linkPoint.X, linkPoint.Y)));
+            Assert.Contains("expected an integer", view.ToolTipAt(new Point(errorPoint.X, errorPoint.Y)));
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }
