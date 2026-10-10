@@ -484,7 +484,7 @@ In `LocStoreTests`: `[Fact] public void A_project_loc_file_replaces_the_pack_loc
 
 **Interfaces:** Consumes alles aus Task 1 bis 5, `RealData`, `RealDataFact`, `CategoryDefinitions.LoadAll(profiles/warhammer_3/objects)`.
 
-- [ ] **Step 1: Tests** (keine RED-Phase nötig, sie prüfen Invarianten auf Echtdaten; sie werden ohne `TWMT_WH3_DIR` übersprungen):
+- [x] **Step 1: Tests** (keine RED-Phase nötig, sie prüfen Invarianten auf Echtdaten; sie werden ohne `TWMT_WH3_DIR` übersprungen):
 
 ```csharp
 [RealDataFact] public void The_barracks_block_round_trips_without_changes()  // RenderBlock → Parse → Compute: keine Diagnostics, IsEmpty; Ausgabe: Zeilenzahl, Parse-Dauer (Stopwatch), Assert Parse unter 200 ms (Annahme 2, Grenze großzügig; die Spec nennt 50 ms als Ziel, die Ausgabe zeigt den Wert).
@@ -495,9 +495,11 @@ In `LocStoreTests`: `[Fact] public void A_project_loc_file_replaces_the_pack_loc
 [RealDataFact] public void No_value_ends_with_whitespace_and_texts_need_only_the_known_escapes()  // über alle Tabellen der Ladereihenfolge (wie der 4.1-Test über alle Tabellen): zählt Zellen, deren Text mit Leerzeichen oder Tab endet, und Loc-Texte mit \t; Ausgabe der Zahlen und Beispiele (bis 5); Assert: Zellen mit Leerzeichen am Ende == 0 (Annahme 4). Scheitert das, meldet der Implementer die Zahlen; die Regel in Spec 5.2 Regel 2 wird dann in Plan 1 nachgezogen (Werte mit Leerzeichen am Ende müssten in Anführungszeichen), nicht still angepasst.
 ```
 
-- [ ] **Step 2: Lauf ohne Variable** – `dotnet test tests/TotalWarModTool.Objects.Tests`: die neuen Tests sind übersprungen, alles andere grün. Der Implementer setzt `TWMT_WH3_DIR` nicht.
-- [ ] **Step 3: Spec** – Abschnitt 10: Annahmen 2, 3, 4 bekommen in der Spalte „Prüfung“ den Testnamen; Ergebnis „offen (Echtdaten-Lauf des Controllers)“.
-- [ ] **Step 4: Commit** – `git commit -m "test: check the block round-trip, copy rule and value invariants on real data"`.
+- [x] **Step 2: Lauf ohne Variable** – `dotnet test tests/TotalWarModTool.Objects.Tests`: die neuen Tests sind übersprungen, alles andere grün. Der Implementer setzt `TWMT_WH3_DIR` nicht.
+- [x] **Step 3: Spec** – Abschnitt 10: Annahmen 2, 3, 4 bekommen in der Spalte „Prüfung“ den Testnamen; Ergebnis „offen (Echtdaten-Lauf des Controllers)“.
+- [x] **Step 4: Commit** – `git commit -m "test: check the block round-trip, copy rule and value invariants on real data"`.
+
+> **Status Task 6: erledigt (2026-10-10).** Mit `TWMT_WH3_DIR` (Steam-Installation, nur Lesen) laufen alle 11 Echtdaten-Tests der Objects-Tests grün; ohne die Variable sind sie übersprungen (Objects-Tests 252 grün, 11 übersprungen). Der Echtdaten-Lauf fand vier Abweichungen von Spec und Plan, die als eigener Fix-Commit davor behoben sind (Rulings im Ledger, Festlegungen in der Spec): (1) 4691 Werte mit einzelnem `\t`/`\n`: `ControlCharacter` nur für die Dialekt-Folge; (2) 536 Werte enden auf Leerzeichen (Annahme 4 widerlegt): die Differenz ignoriert Leerzeichen am Ende; (3) Spieltext-Spalte heißt wie ein Feld (Fraktion `attack_desc`): das zweite Vorkommen mit Anführungszeichen ist der Text, der Block zeigt die Feldzeile mit; (4) der Aufbau legt nur Abschnitte mit Zeilen an: Abschnittskopf ohne Feld gilt für den einen Abschnitt der Baseline. Messwerte stehen in Spec Abschnitt 10 („Ergebnisse des Echtdaten-Laufs von Plan 1“). Offene Entscheidung für den Nutzer: die Kopierregel lässt `building_units_allowed` (4 Zeilen der Kaserne, eigener Schlüssel ohne Präfix) als Fremdschlüsselzeilen aus.
 
 Der Controller führt danach den Echtdaten-Lauf aus (`TWMT_WH3_DIR` gesetzt, nur `tests/TotalWarModTool.Objects.Tests`) und trägt die Messwerte in Spec Abschnitt 10 ein (eigener Docs-Commit).
 

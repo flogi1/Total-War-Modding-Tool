@@ -273,9 +273,10 @@ Regeln:
    nur lesbar (Abschnitt 5.7). Der Parser prüft, dass sie mit der Wurzel des Aufbaus übereinstimmt.
 2. **Feldzeile** `name = wert` auf Stufe 1 (Wurzel) oder Stufe 2 (Feld einer Abschnittszeile).
    `wert` reicht vom ersten Zeichen nach `= ` bis zum Zeilenende, Leerzeichen am Ende werden
-   abgeschnitten (kein Feldwert im Spiel endet auf Leerzeichen; prüft Annahme 4). Ein leerer Wert ist
+   abgeschnitten (536 Werte im Spiel enden auf Leerzeichen, Annahme 4: sie bleiben unverändert, solange
+   der Nutzer sie nicht bearbeitet, siehe Festlegungen aus Plan 1). Ein leerer Wert ist
    `name = ` oder `name =`. Werte enthalten nie Tab oder Zeilenumbruch (Grenze des TSV-Dialekts aus
-   Teil 2; ein wörtliches `\t` oder `\n` wird mit Meldung abgelehnt).
+   Teil 2; die Dialekt-Folge für beides, zwei Backslashes und `t` oder `n`, wird mit Meldung abgelehnt).
 3. **Loc-Zeile** `spalte = "text"` unter ihrem Besitzer: auf Stufe 1 für Spieltexte der Wurzel
    (`LocEntry.Owner` gleich Wurzel), auf Stufe 2 unter der Abschnittszeile, der der Text gehört
    (`Owner` gleich `RowId` der Zeile). Der Loc-Schlüssel ist `<tabelle>_<spalte>_<schlüssel des
@@ -396,8 +397,22 @@ jeder Task im selben Commit ergänzt):
 - Parser: Ein Abschnittskopf, der nicht aufgelöst werden kann (unbekannt, versteckt, Feld nötig),
   überspringt seine Zeilen ohne Folgefehler. Ein zweiter Kopf derselben `(Tabelle, Feld)` ist
   `UnknownSection` („section repeated“); seine Zeilen werden trotzdem gelesen.
-- Parser: Ein Wert mit den zwei Zeichen `\t` oder `\n` ist `ControlCharacter` (Regel 2). Echte Werte
-  mit diesen Zeichenfolgen würden dadurch beim Round-Trip abgelehnt; Task 6 misst, ob es sie gibt.
+- Parser: `ControlCharacter` (Regel 2) gilt nur für die Escape-Folge des TSV-Dialekts (zwei
+  Backslashes und `t` oder `n`), nicht für einen einzelnen Backslash vor `t` oder `n`. Der Echtdaten-Lauf
+  fand 4691 Werte mit einem einzelnen Backslash vor `t`/`n` (zum Beispiel in Aktionsbeschreibungen), aber
+  keinen mit der Dialekt-Folge und keinen mit echtem Tab oder Zeilenumbruch.
+- Parser: Ein Wert, der mit `"` beginnt, bleibt ein Feldwert (der Lauf fand 1707 solcher Felder,
+  etwa `localised_description`). Spieltext-Spalten heißen teils wie ein Feld der Tabelle (`attack_desc`
+  an der Fraktion). Dann zeigt der Block die Feldzeile (leer, bei Zeilen nur in diesem Fall) und
+  darunter die Textzeile; das zweite Vorkommen eines Namens mit Wert in Anführungszeichen ist der
+  Spieltext, das erste das Feld.
+- Parser: Ein Abschnittskopf ohne `.feld` für eine Tabelle mit mehreren Referenzen auf die Wurzel
+  meint den einen Abschnitt, den der Aufbau für diese Tabelle hat. Der Aufbau legt nur Abschnitte mit
+  Zeilen an, deshalb trägt der Kopf oft kein Feld. Sonst bleibt es „field required“.
+- Differenz: Ein Wert, der sich vom gespeicherten nur durch Leerzeichen am Ende unterscheidet, gilt als
+  unverändert (auch bei Schlüsseln und Zeilen ohne Schlüssel). Der Block schneidet Leerzeichen am Ende
+  ab; 536 Textzellen im Spiel enden auf Leerzeichen (Annahme 4). Ein Leerzeichen am Ende lässt sich
+  im Block weder anlegen noch entfernen; wer es braucht, nutzt das Raster.
 - Parser: Satzzeilen werden gegen den Text ohne Entfernen der Leerzeichen am Ende gelesen, damit
   `allows ` (Platzhalter leer) zum Muster passt; Platzhalterwerte werden getrimmt.
 - Der Kategorie-Loader lehnt ein Muster mit zwei Platzhaltern ohne Text dazwischen ab (Detail
@@ -748,11 +763,37 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | Nr. | Annahme | Prüfung |
 |---|---|---|
 | 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3 und 4: Pack bauen, installieren, Spiel starten, gelöschte Einheit fehlt, neues Gebäude baubar. |
-| 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion; Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. |
-| 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Test Plan 1 und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. |
-| 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (wie 4.1 Annahme 6). |
+| 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. |
+| 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
+| 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_ends_with_whitespace_and_texts_need_only_the_known_escapes`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Abnahme Plan 3: zehn Dateikopien großer Tabellen, Speicher beobachten. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Plan 3, erste Task. |
+
+### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)
+
+- **Annahme 2:** Block der Fraktion `wh_main_emp_empire`: 2138 Zeilen, 82 413 Zeichen. `Parse` braucht kalt
+  2 bis 32 ms (ein Lauf misst 2,0 ms, ein anderer 32,0 ms, je nach JIT), warm 3,7 bis 11,2 ms. Das Ziel
+  unter 50 ms ist erreicht; das Färben kommt in Plan 3 dazu. Gebäude (127 Zeilen) 0,3 ms, Trait 0,1 ms.
+- **Annahme 3 (Kopierregel), Kaserne `wh_main_emp_barracks_2`:** kopiert werden `building_culture_variants`
+  (1), `building_effects_junction` (1), `building_set_to_building_junctions` (1),
+  `building_upgrades_junction` (2, from und to) und `technology_required_building_levels_junctions` (3).
+  Nicht kopiert (Regel 4, Hinweis): `technologies` (3 Zeilen, wie erwartet) **und
+  `building_units_allowed` (4 Zeilen)**. Die erlaubten Einheiten gehören zum Gebäude, die Tabelle hat
+  aber einen eigenen Schlüssel `key` ohne Präfix und ist von `technologies` nach Form nicht zu
+  unterscheiden. Die Regel trifft hier also nicht alle nötigen Zeilen; das ist eine Entscheidung für den
+  Nutzer (Ausnahme pro Tabelle in der Kategorie-Datei, Regel erweitern oder so lassen), Plan 4.
+  Trait `wh2_dlc09_trait_settra_title`: 3 Stufen mit Präfix-Schlüssel werden Unterobjekte, jede mit
+  3 bis 4 Effekten in `trait_level_effects`, so wie die Regel es will. Der Trait
+  `wh2_dlc09_dummy_trait_dynasty_1` hat 4 Stufen ohne Präfix im Schlüssel; sie werden als Hinweis gemeldet.
+  Keine Hinweise für versteckte Abschnitte bei der Kaserne.
+- **Annahme 4:** In der ersten Fassung widerlegt. 3 645 551 Textzellen, 212 535 Loc-Texte:
+  536 Zellen enden auf Leerzeichen (vor allem `localised_description`, `localised_title`,
+  `localised_name` und `filter_projectiles_node`), 19 beginnen mit einem Leerzeichen, 4691 enthalten einen
+  einzelnen Backslash vor `t` oder `n`, 1707 beginnen mit `"`; keine Zelle enthält einen echten Tab, einen
+  Zeilenumbruch oder die Dialekt-Folge. Loc: 894 Texte enden auf Leerzeichen (im Block in Anführungszeichen,
+  unkritisch), 8 enthalten einen Tab. Folgen: siehe die Festlegungen aus Plan 1 unter 5.3
+  (`ControlCharacter` nur für die Dialekt-Folge, Differenz ignoriert Leerzeichen am Ende, gleichnamige
+  Spalte und Feld, Abschnittskopf ohne Feld).
 
 ## 11. Entscheidungen des Nutzers (2026-10-10)
 

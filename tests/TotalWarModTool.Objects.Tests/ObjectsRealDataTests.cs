@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 using Xunit.Abstractions;
 
@@ -174,6 +175,261 @@ public class ObjectsRealDataTests
         }
 
         Assert.True(watch.ElapsedMilliseconds < 30_000, $"Merging took {watch.ElapsedMilliseconds} ms");
+    }
+
+    private static readonly Lazy<IReadOnlyDictionary<string, CategoryDefinition>> Categories = new(() =>
+        CategoryDefinitions.LoadAll(Path.Combine(RepoRoot.Find(), "profiles", "warhammer_3", "objects")).ByRootTable);
+
+    private static CategoryDefinition? CategoryOf(string table) => Categories.Value.GetValueOrDefault(table);
+
+    // Renders the block of the object, parses it twice (the second run is warm) and diffs it against the view it came from.
+    private void RoundTrip(ObjectId id, CategoryDefinition? category, ObjectBuilder? builder = null)
+    {
+        var context = Shared.Value;
+        builder ??= NewBuilder(context);
+        var view = builder.Build(id, context.Order, null, CancellationToken.None);
+        var block = ObjectText.RenderBlock(view, category);
+
+        var watch = Stopwatch.StartNew();
+        ObjectTextParser.Parse(block.Text, view, category, context.Graph);
+        var coldMilliseconds = watch.Elapsed.TotalMilliseconds;
+        watch.Restart();
+        var parsed = ObjectTextParser.Parse(block.Text, view, category, context.Graph);
+        var warmMilliseconds = watch.Elapsed.TotalMilliseconds;
+        var changes = ObjectDiff.Compute(view, parsed, category, context.Graph, null);
+
+        PrintView(view);
+        _output.WriteLine($"Block of {id}: {block.Lines.Count} lines, {block.Text.Length} characters; parse {coldMilliseconds:F1} ms cold, {warmMilliseconds:F1} ms warm");
+        foreach (var diagnostic in changes.Diagnostics.Take(10))
+        {
+            _output.WriteLine($"  diagnostic line {diagnostic.Line} {diagnostic.Severity} {diagnostic.Kind}: {diagnostic.Detail}");
+        }
+
+        foreach (var row in changes.Rows.Take(10))
+        {
+            _output.WriteLine($"  unexpected {row.Kind} {row.Table} line {row.Line}: {string.Join(" | ", row.Cells)}");
+        }
+
+        Assert.NotNull(view.Root);
+        Assert.Empty(changes.Diagnostics);
+        Assert.True(changes.IsEmpty, $"{changes.Rows.Count} row changes and {changes.Texts.Count} text changes without an edit");
+        Assert.True(warmMilliseconds < 200, $"Parse took {warmMilliseconds:F1} ms");
+    }
+
+    [RealDataFact] public void The_barracks_block_round_trips_without_changes() =>
+        RoundTrip(Id("building_levels_tables", "wh_main_emp_barracks_2"), CategoryOf("building_levels_tables"));
+
+    [RealDataFact] public void The_empire_block_round_trips_and_parses_fast() =>
+        RoundTrip(Id("factions_tables", "wh_main_emp_empire"), CategoryOf("factions_tables"));
+
+    // The first trait that has level rows whose key is the trait key plus "_" (the sub-objects of the copy rule).
+    private static ObjectId FirstTraitWithLevels(ObjectBuilder builder, TableStore store)
+    {
+        var context = Shared.Value;
+        var traits = store.Get("character_traits_tables", context.Order, CancellationToken.None);
+        foreach (var row in traits.Rows.Take(3000))
+        {
+            var key = CellText.Format(traits.Definition!.Fields[0].Type, row.Cells[0]);
+            var id = Id("character_traits_tables", key);
+            var view = builder.Build(id, context.Order, null, CancellationToken.None);
+            if (view.Sections.Any(s => s.SourceTable == "character_trait_levels_tables"
+                && s.Rows.Any(r => r.Fields.Any(f => f.IsKey && f.Text.StartsWith(key + "_", StringComparison.Ordinal)))))
+            {
+                return id;
+            }
+        }
+
+        throw new InvalidOperationException("No trait with prefix-keyed levels among the first 3000 traits.");
+    }
+
+    [RealDataFact] public void A_trait_block_round_trips()
+    {
+        var context = Shared.Value;
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
+
+        RoundTrip(FirstTraitWithLevels(builder, store), CategoryOf("character_traits_tables"), builder);
+    }
+
+    [RealDataFact] public void Copying_the_barracks_follows_the_copy_rule()
+    {
+        var context = Shared.Value;
+        var builder = NewBuilder(context);
+        var source = builder.Build(Id("building_levels_tables", "wh_main_emp_barracks_2"), context.Order, null, CancellationToken.None);
+        var newId = Id("building_levels_tables", "twmt_test_barracks");
+
+        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph);
+        var copy = result.Objects[0];
+        var empty = new ObjectView(newId, null, [], [], [], context.Order, []);
+        var changes = ObjectDiff.Compute(empty, copy, CategoryOf("building_levels_tables"), context.Graph, null);
+
+        _output.WriteLine($"Copy of {source.Id}: {result.Objects.Count} object(s), {copy.Sections.Count} sections, {copy.Texts.Count} root texts");
+        foreach (var section in source.Sections.Where(s => s.Rows.Count > 0))
+        {
+            var copied = copy.Sections.FirstOrDefault(s => s.SourceTable == section.SourceTable && s.FieldName == section.FieldName);
+            _output.WriteLine($"  {section.SourceTable}.{section.FieldName}: {section.Rows.Count} rows, {copied?.Rows.Count ?? 0} copied");
+        }
+
+        foreach (var note in result.Notes)
+        {
+            _output.WriteLine($"  note {note.Kind} {note.Table}: {note.Count}");
+        }
+
+        foreach (var group in changes.Rows.GroupBy(r => r.Table))
+        {
+            _output.WriteLine($"  insert {group.Key}: {group.Count()}");
+        }
+
+        foreach (var diagnostic in changes.Diagnostics.Take(10))
+        {
+            _output.WriteLine($"  diagnostic line {diagnostic.Line} {diagnostic.Severity} {diagnostic.Kind}: {diagnostic.Detail}");
+        }
+
+        Assert.Single(result.Objects);
+        Assert.Contains(copy.Sections, s => s.SourceTable == "building_culture_variants_tables");
+        Assert.Contains(copy.Sections, s => s.SourceTable == "building_effects_junction_tables");
+        Assert.DoesNotContain(copy.Sections, s => s.SourceTable == "cai_construction_system_synergies_tables");
+        Assert.Contains(result.Notes, n => n is { Kind: CopyNoteKind.ForeignKeyRows, Table: "technologies_tables" });
+        Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [RealDataFact] public void Copying_a_trait_copies_its_levels_as_sub_objects()
+    {
+        var context = Shared.Value;
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
+        var traitId = FirstTraitWithLevels(builder, store);
+        var source = builder.Build(traitId, context.Order, null, CancellationToken.None);
+        var newId = Id("character_traits_tables", "twmt_test_" + traitId.KeyValues[0]);
+
+        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph);
+
+        var prefix = traitId.KeyValues[0] + "_";
+        var levels = source.Sections.Where(s => s.SourceTable == "character_trait_levels_tables").SelectMany(s => s.Rows)
+            .Count(r => r.Fields.Any(f => f.IsKey && f.Text.StartsWith(prefix, StringComparison.Ordinal)));
+        _output.WriteLine($"Trait {traitId}: {levels} prefix level row(s), {result.Objects.Count} copied object(s)");
+        foreach (var sub in result.Objects.Skip(1))
+        {
+            _output.WriteLine($"  {sub.Id}: {string.Join(", ", sub.Sections.Select(s => s.SourceTable + " " + s.Rows.Count))}");
+        }
+
+        foreach (var note in result.Notes)
+        {
+            _output.WriteLine($"  note {note.Kind} {note.Table}: {note.Count}");
+        }
+
+        Assert.Equal(1 + levels, result.Objects.Count);
+        Assert.All(result.Objects.Skip(1), sub =>
+        {
+            Assert.Equal("character_trait_levels_tables", sub.Id.Table);
+            Assert.StartsWith(newId.KeyValues[0] + "_", sub.Id.KeyValues[0], StringComparison.Ordinal);
+        });
+    }
+
+    [RealDataFact] public void No_value_ends_with_whitespace_and_texts_need_only_the_known_escapes()
+    {
+        var context = Shared.Value;
+        var store = new TableStore(context.Schema, context.Graph, MergeTestCacheBytes);
+        long cells = 0;
+        long trailing = 0;
+        long leading = 0;
+        long escapeSequences = 0;
+        long dialectEscapes = 0;
+        long controlCharacters = 0;
+        var examples = new List<string>();
+
+        void Note(string kind, string table, string field, string value)
+        {
+            if (examples.Count < 5)
+            {
+                examples.Add($"{kind} {table}.{field}: '{CellText.ShortenForDetail(value)}'");
+            }
+        }
+
+        foreach (var name in context.Schema.Tables.Keys)
+        {
+            var table = store.Get(name, context.Order, CancellationToken.None);
+            if (table.Definition is null)
+            {
+                continue;
+            }
+
+            foreach (var row in table.Rows)
+            {
+                for (var i = 0; i < table.Definition.Fields.Count; i++)
+                {
+                    var field = table.Definition.Fields[i];
+                    if (field.Type is not (FieldType.StringU8 or FieldType.StringU16 or FieldType.OptionalStringU8))
+                    {
+                        continue;
+                    }
+
+                    cells++;
+                    var text = row.Cells[i] as string ?? string.Empty;
+                    if (text.Length > 0 && text[^1] is ' ' or '\t')
+                    {
+                        trailing++;
+                        Note("trailing", name, field.Name, text);
+                    }
+
+                    if (text.Length > 0 && text[0] == ' ')
+                    {
+                        leading++;
+                    }
+
+                    if (text.Contains("\\t", StringComparison.Ordinal) || text.Contains("\\n", StringComparison.Ordinal))
+                    {
+                        escapeSequences++;
+                    }
+
+                    // The dialect escape (two backslashes and a t or n): the block refuses it as a control character.
+                    if (text.Contains("\\\\t", StringComparison.Ordinal) || text.Contains("\\\\n", StringComparison.Ordinal))
+                    {
+                        dialectEscapes++;
+                        Note("dialect escape", name, field.Name, text);
+                    }
+
+                    if (text.Contains('\t') || text.Contains('\n'))
+                    {
+                        controlCharacters++;
+                        Note("control", name, field.Name, text);
+                    }
+                }
+            }
+        }
+
+        var loc = new LocStore().Get(context.Order, CancellationToken.None);
+        var locKeys = loc.KeysWithPrefix(string.Empty);
+        long locWithTab = 0;
+        long locTrailing = 0;
+        foreach (var key in locKeys)
+        {
+            loc.TryGet(key, out var entry);
+            if (entry!.Text.Contains('\t'))
+            {
+                locWithTab++;
+                Note("loc tab", "loc", key, entry.Text);
+            }
+
+            if (entry.Text.Length > 0 && entry.Text[^1] == ' ')
+            {
+                locTrailing++;
+            }
+        }
+
+        _output.WriteLine($"Text cells: {cells}; ending with space or tab: {trailing}; starting with a space: {leading}; holding a literal backslash-t or backslash-n: {escapeSequences}; holding a real tab or line break: {controlCharacters}");
+        _output.WriteLine($"Loc texts: {locKeys.Count}; with a tab: {locWithTab}; ending with a space: {locTrailing}");
+        foreach (var example in examples)
+        {
+            _output.WriteLine("  " + example);
+        }
+
+        // Assumption 4 as the spec first worded it ("no value ends with a space") does not hold: the block trims the end of a value and
+        // ObjectDiff treats a stored value that only differs by that as unchanged, so the trailing count is a measurement, not an assertion.
+        // What the block cannot carry at all would be a real tab or line break and the dialect escape inside a value.
+        Assert.Equal(0, controlCharacters);
+        Assert.Equal(0, dialectEscapes);
     }
 
     [RealDataFact] public void The_second_build_of_a_building_does_not_decode_again()
