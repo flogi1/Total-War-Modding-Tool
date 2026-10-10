@@ -7,9 +7,11 @@ namespace TotalWarModTool.App.Tests;
 
 public class ThemeTests
 {
-    [Fact] public void Palette_has_20_tokens_with_valid_hex_values()
+    [Fact] public void Palette_has_22_tokens_with_valid_hex_values()
     {
-        Assert.Equal(20, ThemePalette.All.Count);
+        Assert.Equal(22, ThemePalette.All.Count);
+        Assert.Contains(ThemePalette.All, t => t.Key == "ObjectTrailing" && t.Light == "#6B7280" && t.Dark == "#8B949E");
+        Assert.Contains(ThemePalette.All, t => t.Key == "ObjectError" && t.Light == "#C62828" && t.Dark == "#F28B82");
         Assert.All(ThemePalette.All, t => { Assert.Matches("^#[0-9A-F]{6}$", t.Light); Assert.Matches("^#[0-9A-F]{6}$", t.Dark); });
         Assert.Equal(ThemePalette.All.Count, ThemePalette.All.Select(t => t.Key).Distinct().Count());
     }

@@ -30,5 +30,7 @@ public static class ThemePalette
         new("ObjectMod", "#1565C0", "#6FA8DC"),
         new("ObjectProject", "#AD1457", "#E57FB3"),
         new("ObjectLocText", "#5D4037", "#C9A27E"),
+        new("ObjectTrailing", "#6B7280", "#8B949E"),
+        new("ObjectError", "#C62828", "#F28B82"),
     ];
 }

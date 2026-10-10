@@ -737,6 +737,14 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   (Aktualisieren fragt dann „Übernehmen, Verwerfen, Abbrechen“).
 - **Schließen des Objekt-Tabs** lässt seine Schritte im Verlauf (bestätigt, wie in 5.9 beschrieben).
 
+#### Festlegungen aus Plan 3b
+
+- **Neue Tokens:** `ObjectTrailing` (hell `#6B7280`, dunkel `#8B949E`) und `ObjectError` (hell `#C62828`,
+  dunkel `#F28B82`) in `ThemePalette`; nur dort stehen Farbwerte.
+- **Geänderte Zeilen** werden rein syntaktisch gefärbt (`LineSyntax`), ohne Links und ohne Anhängsel.
+- `ObjectText.Render`, `TextLine`, `RenderOptions` und `SpanKind.Collapsed` sind aus `Objects` entfernt; die
+  Anzeige läuft nur noch über `BlockText`.
+
 ## 6. Verworfene Alternativen
 
 | Entscheidung | Grund | Verworfen |
