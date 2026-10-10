@@ -788,6 +788,9 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Faltungstext.
   Damit das gilt, steht der `TrailingGenerator` vor dem Generator der Faltung (`ElementGenerators.Insert(0, …)`): Dessen
   Element hat Text und beendet die Zeile, ein Anhängsel dahinter käme nie dran.
+  Der Cursor landet auch nach Ende, Mausklick rechts vom Text und Hoch/Runter nicht hinter dem Anhängsel: AvalonEdit setzt eine
+  visuelle Spalte hinter dem Anhängsel selbst auf den Halt davor zurück (durch Tests für Ende, Umschalt+Ende und eine gesetzte
+  Position belegt, kein eigener Code).
 
 ## 6. Verworfene Alternativen
 

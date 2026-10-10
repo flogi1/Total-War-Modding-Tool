@@ -372,6 +372,14 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Eine Faltzeile hat einen zusätzlichen Cursor-Halt zwischen Anhängsel und Faltungstext (gleicher Dokument-Offset, ein Rechtsdruck springt nur optisch)
 - Englisch „1 errors in the text.“ bei genau einem Fehler (wie „1 warnings“); eine Pluralform braucht die Lokalisierung
 - Das Faltsymbol am linken Rand nutzt die Standardfarben von AvalonEdit; mit den Theme-Tokens färben, falls es im dunklen Theme stört
+- Beim Tabwechsel baut `OnDataContextChanged` die `BlockLineMap` zweimal (einmal über `ShowTabText`, einmal direkt). `ApplyResult` meldet `Block` vor `Text` und baut so erst gegen den alten Dokumenttext. Mit ungeübernommenem Text kostet jeder Aufbau ein LCS (bis 8 MB) und einen Faltlauf
+- Bei der empire-Fraktion (2138 Zeilen) liegt ein voller Abgleich über `MaxAlignedPairs` (4,57 Mio. > 4 Mio.). Mit Änderungen oben und unten bekommt der Mittelteil nach einem Tabwechsel keine Farben und Anhängsel
+- Unterstreichungen in gefalteten Zeilen sind unsichtbar, die Faltung zeigt keine Markierung (z. B. die erste Stelle eines doppelten Schlüssels)
+- Nach jedem Tastendruck ist „Übernehmen“ 300 ms aktiv, auch wenn die letzte Prüfung Fehler hatte; der Tooltip flackert
+- `FoldingElementGenerator.TextBrush` ist nicht gesetzt: Die Box „+ N weitere Zeilen“ nutzt das feste Grau von AvalonEdit statt eines Theme-Tokens
+- Die Zuordnung der Faltungen (per `StartOffset`) und der Abgleich in `RememberFoldState` liegen im Code-behind; besser rein in `BlockFolding`
+- Ein Abschnitt, der durch Übernehmen über 20 Zeilen wächst, ist danach gefaltet und verbirgt die gerade getippten Zeilen
+- Bei mehrzeiliger Auswahl sind die Anhängsel voll markierter Zeilen optisch mit markiert (Kopieren liefert trotzdem nur Text)
 
 == Aus Teil 4.2a Plan 3a (App) zurückgestellt ==
 
