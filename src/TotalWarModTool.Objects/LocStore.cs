@@ -107,7 +107,8 @@ public sealed class LocStore
         var texts = new Dictionary<string, LocText>(StringComparer.Ordinal);
         var problems = new List<SourceProblem>();
         var transient = false;
-        foreach (var listing in listings)
+        // A loc file of a later source with the same pack path replaces an earlier file as a whole: the earlier one is not read at all.
+        foreach (var (listing, entries) in listings.Zip(SourceReader.SurvivingEntries(listings)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var problem in listing.Problems)
@@ -116,7 +117,7 @@ public sealed class LocStore
                 transient |= problem.Transient;
             }
 
-            foreach (var entry in listing.Entries)
+            foreach (var entry in entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var (rows, problem) = _reader.ReadLoc(listing.Source, entry, cancellationToken);

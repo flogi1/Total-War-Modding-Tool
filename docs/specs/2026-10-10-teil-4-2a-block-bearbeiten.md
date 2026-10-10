@@ -428,6 +428,15 @@ jeder Task im selben Commit ergänzt):
   Regel 3 gilt nur bei einer Wurzel mit einem Schlüsselwert und genau einem Schlüsselfeld der Zeile;
   ein Unterobjekt bekommt den Schlüssel `neuerWurzelschlüssel + Rest`, und sein Feld auf die Wurzel
   zeigt auf den neuen Schlüssel. Hinweise der Unterobjekte stehen im Ergebnis des Objekts.
+- Dateiersetzung: Eine Datei einer späteren Quelle mit demselben Pack-Pfad (ohne Rücksicht auf
+  Schreibweise; Projektdateien über `ProjectLayout` auf ihren Pack-Pfad abgebildet, `Data__.tsv` gleich
+  `db/x_tables/data__`) ersetzt die frühere Datei ganz. `TableStore` liest die ersetzte Datei nicht,
+  `LocStore` ebenso für Loc-Dateien. Die Zeilen anderer Dateien derselben Tabelle bleiben und werden wie
+  bisher zeilenweise überschrieben. Eine ersetzte Datei gilt nicht als überschrieben: ihre Quelle steht
+  nicht in `RowProvenance.Overridden`.
+- `RowProvenance.OverriddenEntries` ist eine init-Eigenschaft (Standard leer), kein Konstruktorparameter:
+  bestehende Aufrufe bauen unverändert, `with { OverriddenEntries = … }` setzt sie. Sie hält zu jeder
+  Quelle in `Overridden` den Eintragspfad (bei Quellen mit mehreren Dateien den der ersten Zeile).
 
 ### 5.4 Übernehmen: Zielregeln
 

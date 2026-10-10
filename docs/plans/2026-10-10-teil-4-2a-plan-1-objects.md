@@ -457,7 +457,7 @@ Festlegungen:
 - `RowProvenance.OverriddenEntries`: `KeyState` bekommt neben `History` eine Liste der Eintragspfade; `AddRow` füllt beide.
 - `ProjectLayout.FromRelativeFile` erwartet den Pfad relativ zu `pack\`; `EntryPath` eines Projekteintrags beginnt mit `pack\`, also davor abschneiden. Pfadtrenner vor dem Vergleich auf `/` normalisieren.
 
-- [ ] **Step 1: Failing Tests** in `TableStoreTests` (Temp-Ordner, `TestSources`):
+- [x] **Step 1: Failing Tests** in `TableStoreTests` (Temp-Ordner, `TestSources`):
 
 ```csharp
 [Fact] public void A_project_file_with_the_same_pack_path_replaces_the_vanilla_file()  // Vanilla data__ mit u1,u2; Projekt Data__.tsv mit u2 (geändert): Rows nur u2 aus Projekt, Overridden leer (die Vanilla-Datei ist weg, nicht überschrieben), u1 fehlt.
@@ -469,8 +469,10 @@ Festlegungen:
 
 In `LocStoreTests`: `[Fact] public void A_project_loc_file_replaces_the_pack_loc_file()` – Pack `text/db/data__.loc` mit k1, k2; Projekt `data__.loc.tsv` mit k2: `TryGet(k1)` false, k2 aus Projekt. Dazu ein Test, dass `PackPathOf` für `pack\sub\a.loc.tsv` `text/db/a.loc` liefert (über `ProjectLayout`; prüfen, was `FromRelativeFile` für Unterordner liefert, und das Ergebnis im Test festhalten).
 
-- [ ] **Step 2: RED**, **Step 3: Implementieren**, **Step 4: GREEN** – `dotnet test tests/TotalWarModTool.Objects.Tests`, dann `dotnet build TotalWarModTool.slnx` (App baut mit dem neuen optionalen Parameter).
-- [ ] **Step 5: Commit** – `git commit -m "feat: let a later file with the same pack path replace the earlier one and keep overridden entry paths"`.
+- [x] **Step 2: RED**, **Step 3: Implementieren**, **Step 4: GREEN** – `dotnet test tests/TotalWarModTool.Objects.Tests`, dann `dotnet build TotalWarModTool.slnx` (App baut mit dem neuen optionalen Parameter).
+- [x] **Step 5: Commit** – `git commit -m "feat: let a later file with the same pack path replace the earlier one and keep overridden entry paths"`.
+
+> **Status Task 5: erledigt (2026-10-10).** Objects-Tests 238 grün, 5 übersprungen; Build ohne Warnung. Abweichungen (Rulings): `OverriddenEntries` ist eine init-Eigenschaft statt Konstruktorparameter; die Tests liegen in `FileReplacementTests.cs`; `TestSources.WritePack` benennt den Eintrag nach der Pack-Datei (statt immer `data__`), sonst ersetzten sich die Test-Packs der alten Store-Tests gegenseitig ganz (11 Tests rot, Absicht war zeilenweises Überschreiben); `TestSources.WritePackEntries` für gleichnamige Dateien. App-Tests nicht gelaufen (Regel): `ObjectsTestSchema.WriteModPack` nutzt wie der Vanilla-Pack `db/x_tables/data__`, die Mod-Datei ersetzt dort jetzt die Vanilla-Datei ganz; der volle Lauf muss zeigen, ob `ObjectsControllerTests` davon berührt sind.
 
 ---
 

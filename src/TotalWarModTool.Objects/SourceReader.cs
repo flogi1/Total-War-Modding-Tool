@@ -48,6 +48,55 @@ internal sealed class SourceReader
         }
     }
 
+    /// <summary>
+    /// The pack path of an entry as the game sees it: pack entries as is; project files relative to pack\ through ProjectLayout, so
+    /// db\x_tables\a.tsv gives db/x_tables/a and a.loc.tsv gives a.loc. Compared ordinal ignore case.
+    /// </summary>
+    internal static string PackPathOf(EntryRef entry)
+    {
+        if (entry.FullPath is null)
+        {
+            return entry.EntryPath.Replace('\\', '/');
+        }
+
+        var relative = entry.EntryPath;
+        var folder = ProjectFile.PackFolder;
+        if (relative.Length > folder.Length && relative.StartsWith(folder, StringComparison.OrdinalIgnoreCase) && relative[folder.Length] is '\\' or '/')
+        {
+            relative = relative[(folder.Length + 1)..];
+        }
+
+        return ProjectLayout.FromRelativeFile(relative).PackPath;
+    }
+
+    /// <summary>
+    /// The entries of every listing that the game would load: a file of a later listing with the same pack path replaces an earlier one as a
+    /// whole, so the earlier entry is left out. The result has one list per listing, in the order of the listings.
+    /// </summary>
+    internal static IReadOnlyList<IReadOnlyList<EntryRef>> SurvivingEntries(IReadOnlyList<SourceListing> listings)
+    {
+        var result = new IReadOnlyList<EntryRef>[listings.Count];
+        var later = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = listings.Count - 1; i >= 0; i--)
+        {
+            var entries = listings[i].Entries;
+            var paths = entries.Select(PackPathOf).ToList();
+            var kept = new List<EntryRef>(entries.Count);
+            for (var j = 0; j < entries.Count; j++)
+            {
+                if (!later.Contains(paths[j]))
+                {
+                    kept.Add(entries[j]);
+                }
+            }
+
+            result[i] = kept;
+            later.UnionWith(paths);
+        }
+
+        return result;
+    }
+
     public SourceListing ListTable(TableSource source, string tableName, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(source);

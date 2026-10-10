@@ -19,7 +19,11 @@ public sealed record SourceProblem(TableSource Source, string EntryPath, SourceP
 /// Overridden lists the sources whose row with the same key this row replaced, earliest first. EntryPath is the pack entry ("db/x_tables/data__")
 /// or the project file below the project folder ("pack\db\x_tables\a.tsv") the row was read from; empty only for a row built without a listing.
 /// </summary>
-public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate, string EntryPath = "");
+public sealed record RowProvenance(TableSource Source, IReadOnlyList<TableSource> Overridden, bool OlderLayout, bool Duplicate, string EntryPath = "")
+{
+    /// <summary>The entry path of every source in <see cref="Overridden"/>, same order and count (the pack entry or the project file below the project folder); empty for rows nothing overrides.</summary>
+    public IReadOnlyList<string> OverriddenEntries { get; init; } = [];
+}
 
 /// <summary>One merged row. Cells is shared with the cache (and may be the array the decoder produced): it must not be modified.</summary>
 public sealed record MergedRow(object?[] Cells, RowProvenance Provenance);

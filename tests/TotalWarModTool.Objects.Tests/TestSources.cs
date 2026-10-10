@@ -6,7 +6,7 @@ namespace TotalWarModTool.Objects.Tests;
 /// <summary>Writes packs and project folders for the store tests.</summary>
 internal static class TestSources
 {
-    /// <summary>One entry db/&lt;table&gt;/data__ per table, encoded with the definition of that version.</summary>
+    /// <summary>One entry db/&lt;table&gt;/&lt;pack file name without extension&gt; per table, encoded with the definition of that version. The name differs per pack, so packs override each other row by row; use WritePackEntries for same-named files.</summary>
     public static string WritePack(string path, GameSchema schema, params (string Table, int Version, object?[][] Rows)[] tables) =>
         WritePack(path, schema, tables, []);
 
@@ -18,12 +18,25 @@ internal static class TestSources
         foreach (var (table, version, rows) in tables)
         {
             var definition = schema.Find(table, version) ?? throw new ArgumentException($"{table} v{version} is not in the test schema");
-            builder.AddEntry($"db/{table}/data__", DbTableEncoder.Encode(definition, version, guid: null, rows));
+            builder.AddEntry($"db/{table}/{Path.GetFileNameWithoutExtension(path)}", DbTableEncoder.Encode(definition, version, guid: null, rows));
         }
 
         foreach (var (locPath, rows) in locs)
         {
             builder.AddEntry($"text/{locPath}.loc", LocEncoder.Encode(rows));
+        }
+
+        return builder.WriteTo(path);
+    }
+
+    /// <summary>One entry db/&lt;table&gt;/&lt;name&gt; per item, so a pack can hold several files of one table.</summary>
+    public static string WritePackEntries(string path, GameSchema schema, params (string Name, string Table, int Version, object?[][] Rows)[] entries)
+    {
+        var builder = new PackBuilder();
+        foreach (var (name, table, version, rows) in entries)
+        {
+            var definition = schema.Find(table, version) ?? throw new ArgumentException($"{table} v{version} is not in the test schema");
+            builder.AddEntry($"db/{table}/{name}", DbTableEncoder.Encode(definition, version, guid: null, rows));
         }
 
         return builder.WriteTo(path);

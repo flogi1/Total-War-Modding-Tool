@@ -32,8 +32,14 @@ public sealed class TableStore
         /// <summary>Every source that had rows of the key before the current one, in order.</summary>
         public List<TableSource> History { get; } = [];
 
+        /// <summary>The entry path of the first row of each source in <see cref="History"/>, same order.</summary>
+        public List<string> HistoryEntries { get; } = [];
+
         /// <summary>The sources the current rows replaced.</summary>
         public IReadOnlyList<TableSource> Overridden { get; set; } = [];
+
+        /// <summary>The entry paths of <see cref="Overridden"/>, same order.</summary>
+        public IReadOnlyList<string> OverriddenEntries { get; set; } = [];
     }
 
     private readonly GameSchema _schema;
@@ -194,6 +200,8 @@ public sealed class TableStore
         var problems = new List<SourceProblem>();
         var transient = false;
         var mappings = new Dictionary<TableDefinition, int[]?>(ReferenceEqualityComparer.Instance);
+        // A file of a later source with the same pack path replaces an earlier file as a whole: the earlier one is not read at all.
+        var surviving = SourceReader.SurvivingEntries(listings);
 
         for (var sourceIndex = 0; sourceIndex < listings.Count; sourceIndex++)
         {
@@ -205,7 +213,7 @@ public sealed class TableStore
                 transient |= problem.Transient;
             }
 
-            foreach (var entry in listing.Entries)
+            foreach (var entry in surviving[sourceIndex])
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (definition is null)
@@ -277,7 +285,7 @@ public sealed class TableStore
             }
 
             state.Positions.Add(rows.Count);
-            rows.Add(new MergedRow(cells, new RowProvenance(source, state.Overridden, olderLayout, true, entryPath)));
+            rows.Add(new MergedRow(cells, new RowProvenance(source, state.Overridden, olderLayout, true, entryPath) { OverriddenEntries = state.OverriddenEntries }));
             return;
         }
 
@@ -289,11 +297,14 @@ public sealed class TableStore
 
         var first = state.Positions[0];
         state.History.Add(listings[state.SourceIndex].Source);
+        state.HistoryEntries.Add(rows[first]!.Provenance.EntryPath);
         var overridden = state.History.ToArray();
-        rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false, entryPath));
+        var overriddenEntries = state.HistoryEntries.ToArray();
+        rows[first] = new MergedRow(cells, new RowProvenance(source, overridden, olderLayout, false, entryPath) { OverriddenEntries = overriddenEntries });
         state.Positions = [first];
         state.SourceIndex = sourceIndex;
         state.Overridden = overridden;
+        state.OverriddenEntries = overriddenEntries;
     }
 
     /// <summary>For every target field the index of the field of the same name (a changed type is converted in <see cref="Remap"/>) in the source definition, -1 when there is none. Null when a target field has an unsupported type.</summary>
