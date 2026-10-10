@@ -368,4 +368,62 @@ public class ObjectTabViewModelTests
         schema.MarkSchemaStale();
         Assert.Equal(Texts.TabStaleSchema, schema.StaleText);
     }
+
+    [Fact] public void A_result_sets_the_baseline_text_and_the_text()
+    {
+        var tab = Tab();
+        var changed = new List<string?>();
+        tab.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        var result = Result();
+        tab.ApplyResult(result);
+        var expected = ObjectText.RenderBlock(result.View, result.Category).Text;
+        Assert.Equal(expected, tab.BaselineText);
+        Assert.Equal(expected, tab.Text);
+        Assert.False(tab.HasUnappliedText);
+        Assert.False(tab.IsModified);
+        Assert.Equal(expected.Split('\n')[0].Length, tab.HeadLineLength);
+        Assert.True(tab.HeadLineLength > 0);
+        Assert.NotNull(tab.Block);
+        Assert.Contains("Text", changed);
+        Assert.Contains("BaselineText", changed);
+    }
+
+    [Fact] public void A_changed_text_is_unapplied_and_marks_the_tab_modified()
+    {
+        var tab = ReadyTab();
+        var changed = new List<string?>();
+        tab.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        Assert.True(tab.HasUnappliedText);
+        Assert.True(tab.IsModified);
+        Assert.Contains("HasUnappliedText", changed);
+        Assert.Contains("IsModified", changed);
+        changed.Clear();
+        tab.Text = tab.BaselineText;
+        Assert.False(tab.HasUnappliedText);
+        Assert.False(tab.IsModified);
+        Assert.Contains("HasUnappliedText", changed);
+        Assert.Contains("IsModified", changed);
+    }
+
+    [Fact] public void Discard_sets_the_text_back_to_the_baseline()
+    {
+        var tab = ReadyTab();
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.DiscardText();
+        Assert.Equal(tab.BaselineText, tab.Text);
+        Assert.False(tab.HasUnappliedText);
+    }
+
+    [Fact] public void Moving_to_another_object_clears_the_text()
+    {
+        var tab = ReadyTab();
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        tab.NavigateTo(Id("b"), false);
+        Assert.Equal(string.Empty, tab.Text);
+        Assert.Equal(string.Empty, tab.BaselineText);
+        Assert.Null(tab.Block);
+        Assert.Equal(0, tab.HeadLineLength);
+        Assert.False(tab.HasUnappliedText);
+    }
 }

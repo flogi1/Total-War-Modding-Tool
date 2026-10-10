@@ -13,6 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AvalonEdit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TotalWarModTool.Editing\TotalWarModTool.Editing.csproj" />
     <ProjectReference Include="..\TotalWarModTool.GameProfiles\TotalWarModTool.GameProfiles.csproj" />
     <ProjectReference Include="..\TotalWarModTool.Localization\TotalWarModTool.Localization.csproj" />

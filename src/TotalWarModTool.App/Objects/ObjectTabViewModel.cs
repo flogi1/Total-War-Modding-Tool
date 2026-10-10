@@ -31,6 +31,11 @@ public sealed class ObjectTabViewModel : TabViewModel
     private ObjectTabState _state = ObjectTabState.Idle;
     private ObjectBuildResult? _result;
     private IReadOnlyList<ObjectLine> _lines = [];
+    private string _text = string.Empty;
+    private string _baselineText = string.Empty;
+    private BlockText? _block;
+    private int _headLineLength;
+    private bool _hasUnappliedText;
     private string _status = string.Empty;
     private string? _warningsText;
     private string? _notice;
@@ -77,6 +82,33 @@ public sealed class ObjectTabViewModel : TabViewModel
     /// <summary>Every warning of the view as "Kind: Name: Detail" lines (data, escaped), for the tool tip of the status; null without warnings.</summary>
     public string? WarningsText => _warningsText;
 
+    /// <summary>The text of the editor. Set by the view on every change; set by the tab when a new result comes or the text is discarded.</summary>
+    public string Text
+    {
+        get => _text;
+        set
+        {
+            if (SetProperty(ref _text, value ?? string.Empty))
+            {
+                UpdateUnapplied();
+            }
+        }
+    }
+
+    /// <summary>The block text of the last result (ObjectText.RenderBlock(...).Text); empty without a result.</summary>
+    public string BaselineText => _baselineText;
+
+    /// <summary>The block of the last result, for the views of Plan 3b; null without a result.</summary>
+    public BlockText? Block => _block;
+
+    /// <summary>Text differs from <see cref="BaselineText"/> (ordinal). Also what <see cref="IsModified"/> reports: the header shows the mark of unsaved changes.</summary>
+    public bool HasUnappliedText => _hasUnappliedText;
+
+    public override bool IsModified => _hasUnappliedText;
+
+    /// <summary>The length of the head line of the text (first line without its line break); 0 without a result. The view makes it read-only.</summary>
+    public int HeadLineLength => _headLineLength;
+
     /// <summary>
     /// What the user must know, one line each, joined with line breaks: the state (Idle, Building, Cancelled, Failed), object not found, unsaved
     /// source, root pack added, used_mods.txt missing, category file unreadable, row source gone, row not found. Null when there is nothing.
@@ -118,6 +150,9 @@ public sealed class ObjectTabViewModel : TabViewModel
     protected override string PackStaleText => Texts.ObjectsStale;
 
     private bool IsBuilding => _state == ObjectTabState.Building;
+
+    /// <summary>Sets <see cref="Text"/> back to <see cref="BaselineText"/>.</summary>
+    public void DiscardText() => Text = _baselineText;
 
     /// <summary>Renders again with the section expanded; never builds.</summary>
     public void ExpandSection(int section)
@@ -202,6 +237,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         _state = ObjectTabState.Ready;
         OnPropertyChanged(nameof(State));
         RenderLines();
+        SetBlock(ObjectText.RenderBlock(result.View, result.Category));
         SetProperty(ref _warningsText, WarningsOf(result), nameof(WarningsText));
         ClearStale();
         RefreshDerived();
@@ -290,6 +326,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         _lines = [];
         _status = string.Empty;
         _warningsText = null;
+        SetBlock(null);
         OnPropertyChanged(nameof(Position));
         OnPropertyChanged(nameof(Current));
         OnPropertyChanged(nameof(History));
@@ -317,6 +354,30 @@ public sealed class ObjectTabViewModel : TabViewModel
         OnPropertyChanged(nameof(State));
         RefreshNotice();
         RaiseCommands();
+    }
+
+    // The block of a new result (or none): baseline, head line and the editor text follow it; typed text of the old result is dropped.
+    private void SetBlock(BlockText? block)
+    {
+        _block = block;
+        OnPropertyChanged(nameof(Block));
+        var baseline = block?.Text ?? string.Empty;
+        if (SetProperty(ref _baselineText, baseline, nameof(BaselineText)))
+        {
+            UpdateUnapplied();
+        }
+
+        var lineEnd = baseline.IndexOf('\n');
+        SetProperty(ref _headLineLength, lineEnd < 0 ? baseline.Length : lineEnd, nameof(HeadLineLength));
+        Text = baseline;
+    }
+
+    private void UpdateUnapplied()
+    {
+        if (SetProperty(ref _hasUnappliedText, !string.Equals(_text, _baselineText, StringComparison.Ordinal), nameof(HasUnappliedText)))
+        {
+            OnPropertyChanged(nameof(IsModified));
+        }
     }
 
     private void RenderLines()
