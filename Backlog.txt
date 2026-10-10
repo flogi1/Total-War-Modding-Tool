@@ -1,9 +1,88 @@
 Backlog Total War Modding Tool
-Stand: 2026-10-09
+Stand: 2026-10-10
 
 Alles, was nicht jetzt gebaut wird. Nummern der Teile wie in docs/specs/2026-10-02-fundament.md, Abschnitt 1.2.
 Reihenfolge seit 2026-10-03: Teil 2 (Spec docs/specs/2026-10-03-teil-2-projekte-bearbeiten-bauen.md),
 dann Teil 4 (Objekt-Ansicht), dann Teil 3 (Error-Log und Spielstart).
+
+== Sortierung für die Härtungs-Phase (Stand 2026-10-10) ==
+
+Die Einträge unten bleiben unverändert an ihrem Platz. Dieser Abschnitt ordnet sie nur und nennt jeden Eintrag
+mit einem Stichwort aus seiner Zeile (per Suche auffindbar). Was hier nicht vorkommt, gehört in Gruppe 4.
+
+Wann: nach Abschluss von Teil 4.2 (a und b), vor Teil 3. Davor ein bis zwei Wochen eigener Gebrauch mit echten Mods;
+was dabei wehtut, rückt in Gruppe 2 auf. Eine Spec „Härtung“ mit den Gruppen als Plänen. Gruppe 1 ist Voraussetzung
+für die erste öffentliche Version, nicht für Teil 3. Erledigte Einträge werden aus dem Backlog gelöscht.
+
+Gruppe 1: Pflicht vor der ersten Veröffentlichung
+  - Remote festlegen, CI, „Fehler melden“ im Crash-Dialog, bereinigte öffentliche Historie, .gitattributes für *.bat
+  - Release-Tool und Self-Update (eigene Specs); Sprachdateien aus einem Nutzerordner, die Updates überleben;
+    Migrationskette (kommt mit der ersten echten Formatänderung)
+  - Schwärzung von Pfaden (Schrägstrich, file:///, umgeleitete AppData-Ordner, Build-Rechner in Stack-Traces)
+  - Debug-Menü, Befehle und Texte aus dem Release-Build entfernen; die zwei Debug-Auslöser für Hintergrund-Absturz
+    und fehlgeschlagenen Start vorher entscheiden
+  - Crash-Dialog: „Anwendung beenden“ bei sich wiederholenden Fehlern; fataler Fehler nicht von einem wartenden
+    nicht-fatalen Dialog verdeckt; Fehlschlag von „Details kopieren“ melden
+  - Englische Library-Meldungen (Bau und Import, Ablehnungsgründe beim Übernehmen) und die Art-Kennung (Enum) dafür
+  - Tests der App brauchen einen interaktiven Desktop (rund 40 s): für CI einplanen
+  - Robustheit gegen fremde Packs, weil Workshop-Packs fremd sind: Speicherbedarf der Kollisionsprüfung beim Import
+    (feindlicher 10-MB-Index rund 1,5 GB), zstd-Frame belegt Zielpuffer vor dem Fehlschlag, LZ4-Checksummen
+
+Gruppe 2: Datenverlust, Vertrauen, Hänger (bei Gebrauch zuerst prüfen)
+  - Windows-Abmeldung oder Herunterfahren ohne Rückfrage nach ungespeicherten Änderungen (`SessionEnding`)
+  - Sicherung ungespeicherter Änderungen in %LocalAppData%, Wiederherstellen nach Absturz
+  - Ein Pack, das beim Start nur gesperrt ist, verliert seine Tabs dauerhaft; Session nicht speichern, wenn Tabs
+    wegen „nicht lesbar“ wegfielen
+  - Änderungserkennung: `FileFingerprint` unterscheidet gleich lange Schreibvorgänge im selben Tick nicht (Tests
+    flackerten); Fingerprint vor dem Lesen nehmen; Undo und Redo eines Dateischritts gleich groß innerhalb der
+    Zeitauflösung; Link-Prüfung des Baus „prüfen, dann schreiben“
+  - Bearbeitbarer Tab mit veraltetem Schema speichert mit der alten Definition, kein Neuladen
+  - Ein falscher JSON-Typ in `projects.json` verwirft die ganze Liste; `JsonFileStore` schreibt Nicht-ASCII-Zeichen
+    als Escapes (Git-Diff von `twmt-project.json`)
+  - Papierkorb ansehen und leeren; schreibgeschützter Papierkorb-Eintrag wird nie aufgeräumt; welche Schritte
+    nach einem gescheiterten Dateischritt mit entfernt werden (Dateiname entscheidet)
+  - Aktion nach dem Namensdialog abgelehnt: Eingabe geht verloren
+  - UI-Thread blockiert bis rund 1 s: `twmt-project.json` und `projects.json` lesen und speichern, Einstellungen und
+    Session speichern, Einfügen großer Mengen, Undo und Redo großer Dateien, Textansicht großer Tabellen
+  - Stille Zustände ohne Hinweis: Aktualisieren nach geändertem Spielordner abgebrochen, ungültige Spielordner-Meldung
+    bleibt stehen, Tabs fehlender Packs ohne Markierung, Einstellungsfenster ohne Hinweis bei nicht gespeicherten
+    Einstellungen, Sprachdatei fehlerhaft ohne Hinweis
+  - Datei-Link unter `pack\`: wird gepackt, lässt sich nicht öffnen; als Link-Problem melden
+
+Gruppe 3: Tests und Schulden, bevor Teil 6 darauf aufbaut
+  - Alle „Tests ergänzen“-Zeilen (Profil-Loader, Schema, Tabellen, Session und Explorer, Vorlagen der Menüs,
+    `PackWriter` bei vollem Ziel, `rpfm_cli`-Gegenprobe für Loc, Projektdatei-Fehler ohne Seam)
+  - Tests, die still bestehen oder flackern: als übersprungen ausweisen; `The_empire_builds_in_under_two_seconds` ist
+    knapp; Fälle ohne zweites Laufwerk oder Administratorrechte; `FakeProjectDialogs` Endlosschleife
+  - Echtdaten-Messungen: Junction- und Satzabschnitte mit leerem Schlüssel, Abnahme Vanilla-Pack-Reihenfolge
+  - Doppelte Hilfsfunktionen zusammenführen (Wiederholschleifen, Surrogat-Prüfung, `Shorten`); `TableTsv.cs` aufteilen;
+    `.twmt-tmp` und `MaxObjectHistory`/`MaxHistory` als gemeinsame Konstante
+  - `InternalsVisibleTo(App.Tests)` in `Objects.csproj` entfernen, sobald die Fabrik für `LocTable` existiert
+
+Gehört zu einem späteren Feature (dort mit erledigen, nicht in der Härtung)
+  - Teil 4.2 (und die Pläne 2 bis 4 von 4.2a): alle Zeilen „Aus Teil 4.2a Plan 1“ (Kopierregel, Leerzeichen am Ende,
+    Block-Randfälle inklusive „Wert mit führenden Leerzeichen geht verloren“, `ObjectDiff`), „Für Plan 2“, Suche im
+    Arbeitsbereich, Prüfung von Referenzen und doppelten Schlüsseln, Assistenten, editierbare Textansicht, Maske
+  - Teil 4.3 und „Aus Plan 1/2“ von Teil 4: Kategorie-Dateien in Schichten, Ergebnis-Cache, Maustasten, Scroll-Position,
+    Cache-Obergrenzen, Namensquelle `TryDisplayName`, Loc-Schreibweise, Pluralformen, Tooltips
+  - Raster-Überarbeitung (eigenes Feature): Sortieren und Filtern (auch im bearbeitbaren Raster), Spaltenreihenfolge
+    `ca_order`, Farbspalten, breite Tabellen, Zellbereich kopieren, Suchen und Ersetzen in Tabellen, Verlauf der
+    Schritte, Scroll-Position und Spaltenbreiten merken, Kopfzeile und Anführungszeichen beim Einfügen
+  - Teil 6: Schema-Patches, Tabelle auf neuere Schema-Version, neue Tabelle in älterer Schema-Version, offene Tabs nach
+    Schema-Änderung neu dekodieren, „Neu laden“ für Nur-Lese-Tabs, erneuter Import
+  - Datei-Verwaltung (eigenes Feature): Ordnerknoten-Menü, mehrere Dateien, Verschieben, Explorer-Kontextmenü, Pack-Name
+    und Abhängigkeiten ändern, ignorierte Dateien anzeigen
+  - Teil 3: Mod im Launcher aktivieren; Teil 8: Workshop und GitHub
+  - Leistung, erst bei Messung oder Klage: kompakte Speicherform, Index-Cache auf Platte, Index pro Referenzfeld,
+    Textdateien nur anlesen, Dokument auf dem Pool-Thread bauen
+
+Gruppe 4: Liegen lassen, bis jemand es meldet
+  - Alles, was oben nicht steht (Kosmetik, Spezialfälle, Randfälle der Benennung und Dateisysteme, Barrierefreiheit,
+    Themes, Fensterposition)
+  - Streichkandidaten (bei Start der Härtung mit dem Nutzer entscheiden, nicht ohne Rückfrage löschen):
+    weitere reservierte Gerätenamen; Abonnent von `RowsDocument.Changed`, der wirft (es gibt keinen);
+    `CreatableTables` ab 152 Zeichen (im Schema keine); Block, pathologische Werte (kein echter Fall bekannt);
+    Import großer Einträge über 1 GiB als Stream; verschlüsselte Packs; Kompression beim Schreiben von Packs
 
 == Teile mit eigener Spec ==
 
