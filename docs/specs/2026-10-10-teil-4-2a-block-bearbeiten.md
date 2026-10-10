@@ -572,6 +572,8 @@ den Papierkorb statt in den Speicher (Backlog, Annahme 5).
 
 - **Löschen und Dateikopie.** Eine Projektdatei ohne Zeilen bleibt bestehen (Kopfzeilen; kein Löschen von Dateien in Plan 2). Überschriebene Projektschichten werden über den Schlüssel bedient (ohne Zellenvergleich). In einer Kopie werden alle Zeilen mit dem Schlüssel entfernt. Kopie- und Zieldatei-Fragen werden gemeinsam gesammelt. `DeletedKeys` sind die Schlüsselwerte mit `|` verbunden (ohne Schlüsselfelder die erste Zelle); das weicht von `ObjectId.JoinedKey` ab, das ohne Trennzeichen verbindet, und ist für die Anzeige gedacht.
 
+- **Schreibplan, Spieltexte.** Loc-Regel 1 nimmt auch eine Kopie, die den Schlüssel hält. Eine angehängte Loc-Zeile hat `Tooltip false`; Ersetzen behält `Tooltip`. Die Loc-Frage steht unter dem Schlüssel `*loc` (`WriteAnswers.LocKey`) und gilt für alle Textänderungen ohne Datei.
+
 ### 5.7 Editor
 
 Der Objekt-Tab nutzt AvalonEdit:

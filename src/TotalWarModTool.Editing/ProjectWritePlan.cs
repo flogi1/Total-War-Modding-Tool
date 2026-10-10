@@ -75,6 +75,24 @@ public static class ProjectWritePlan
         public bool ToCurrentKnown { get; set; }
     }
 
+    /// <summary>The mutable state of one loc file while the text changes are applied.</summary>
+    private sealed class LocWork
+    {
+        public required string RelativeFile { get; init; }
+
+        public required PlannedFileKind Kind { get; init; }
+
+        public required FileFingerprint? Previous { get; init; }
+
+        public required string? PreviousText { get; init; }
+
+        public required string PackPath { get; init; }
+
+        public required List<LocRow> Rows { get; init; }
+
+        public bool Changed { get; set; }
+    }
+
     private sealed class Run
     {
         private readonly ObjectChanges _changes;
@@ -88,6 +106,7 @@ public static class ProjectWritePlan
         private readonly List<TargetFileQuestion> _targetQuestions = [];
         private readonly List<FileCopyQuestion> _copyQuestions = [];
         private readonly Dictionary<string, FileWork> _work = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, LocWork> _locWork = new(StringComparer.OrdinalIgnoreCase);
 
         public Run(ObjectChanges changes, ProjectSnapshot snapshot, GameSchema schema, ReferenceGraph graph, string projectName, WriteAnswers answers)
         {
@@ -116,6 +135,7 @@ public static class ProjectWritePlan
                 ApplyTable(group.Key, group.ToList());
             }
 
+            ApplyTexts();
             AskForCopies();
 
             var files = new List<PlannedFile>();
@@ -174,6 +194,18 @@ public static class ProjectWritePlan
                 }
 
                 files.Add(new PlannedFile(work.RelativeFile, work.Kind, work.Previous, work.PreviousText, written.Text, work.SourceEntry));
+            }
+
+            foreach (var work in _locWork.Values.Where(static w => w.Changed))
+            {
+                var written = TableTsv.WriteLoc(work.PackPath, work.Rows);
+                if (written.Text is null)
+                {
+                    _errors.Add(new WriteError(WriteErrorKind.TableNotWritable, 0, work.RelativeFile, written.Detail ?? "the loc file cannot be written"));
+                    continue;
+                }
+
+                files.Add(new PlannedFile(work.RelativeFile, work.Kind, work.Previous, work.PreviousText, written.Text));
             }
 
             return files;
@@ -304,14 +336,16 @@ public static class ProjectWritePlan
             return GetWork(chosen);
         }
 
-        private FileWork? NewTableFile(string table, TableDefinition current, int line)
+        /// <summary>The trimmed project name when it is a valid file name part, else the fallback.</summary>
+        private string NewFileName()
         {
             var name = _projectName.Trim();
-            if (NewFiles.NameProblem(name) is not null)
-            {
-                name = FallbackFileName;
-            }
+            return NewFiles.NameProblem(name) is null ? name : FallbackFileName;
+        }
 
+        private FileWork? NewTableFile(string table, TableDefinition current, int line)
+        {
+            var name = NewFileName();
             var schemaName = _schema.Tables.Keys.FirstOrDefault(k => string.Equals(k, table, StringComparison.OrdinalIgnoreCase)) ?? table;
             var created = NewFiles.Table(_schema, schemaName, name);
             if (created.File is null)
@@ -469,6 +503,157 @@ public static class ProjectWritePlan
             }
 
             return set;
+        }
+
+        /// <summary>Spec 5.4 (loc): the file by key, else the only project loc file that is not a copy, else a new file, else the answer of the App.</summary>
+        private void ApplyTexts()
+        {
+            if (_changes.Texts.Count == 0)
+            {
+                return;
+            }
+
+            var holders = new Dictionary<TextChange, SnapshotLocFile>();
+            var waiting = new List<TextChange>();
+            foreach (var text in _changes.Texts)
+            {
+                var holder = _snapshot.Locs
+                    .OrderBy(static f => f.RelativeFile, StringComparer.Ordinal)
+                    .FirstOrDefault(f => f.Loc.Rows.Any(r => string.Equals(r.Key, text.Key, StringComparison.Ordinal)));
+                if (holder is null)
+                {
+                    waiting.Add(text);
+                }
+                else
+                {
+                    holders[text] = holder;
+                }
+            }
+
+            LocWork? target = null;
+            var targetResolved = false;
+            foreach (var text in _changes.Texts)
+            {
+                LocWork? work;
+                if (holders.TryGetValue(text, out var holder))
+                {
+                    work = GetLocWork(holder);
+                }
+                else
+                {
+                    if (!targetResolved)
+                    {
+                        target = ResolveLocTarget(waiting);
+                        targetResolved = true;
+                    }
+
+                    work = target;
+                }
+
+                if (work is null)
+                {
+                    continue;
+                }
+
+                var index = work.Rows.FindIndex(r => string.Equals(r.Key, text.Key, StringComparison.Ordinal));
+                if (index >= 0)
+                {
+                    work.Rows[index] = work.Rows[index] with { Text = text.Text };
+                }
+                else
+                {
+                    work.Rows.Add(new LocRow(text.Key, text.Text, false));
+                }
+
+                work.Changed = true;
+            }
+        }
+
+        private LocWork GetLocWork(SnapshotLocFile file)
+        {
+            if (_locWork.TryGetValue(file.RelativeFile, out var existing))
+            {
+                return existing;
+            }
+
+            var work = new LocWork
+            {
+                RelativeFile = file.RelativeFile,
+                Kind = PlannedFileKind.Changed,
+                Previous = file.Fingerprint,
+                PreviousText = file.Text,
+                PackPath = file.Loc.PackPath,
+                Rows = [.. file.Loc.Rows],
+            };
+            _locWork[file.RelativeFile] = work;
+            return work;
+        }
+
+        private LocWork? ResolveLocTarget(List<TextChange> waiting)
+        {
+            var candidates = _snapshot.Locs.Where(static f => !f.IsCopy).OrderBy(static f => f.RelativeFile, StringComparer.Ordinal).ToList();
+            if (candidates.Count == 1)
+            {
+                return GetLocWork(candidates[0]);
+            }
+
+            var firstLine = waiting.Count > 0 ? waiting[0].Line : 0;
+            if (candidates.Count == 0)
+            {
+                return NewLocFile(firstLine);
+            }
+
+            var answer = _answers.TargetFiles.FirstOrDefault(p => string.Equals(p.Key, WriteAnswers.LocKey, StringComparison.Ordinal));
+            if (answer.Key is null)
+            {
+                _targetQuestions.Add(new TargetFileQuestion(WriteAnswers.LocKey, true, candidates.Select(static f => f.RelativeFile).ToList(),
+                    waiting.Select(static t => t.Line).ToList()));
+                return null;
+            }
+
+            var chosen = candidates.FirstOrDefault(f => string.Equals(f.RelativeFile, answer.Value, StringComparison.OrdinalIgnoreCase));
+            if (chosen is null)
+            {
+                Fail(WriteErrorKind.NoAnswer, firstLine, answer.Value, "the answer is not one of the candidate loc files");
+                return null;
+            }
+
+            return GetLocWork(chosen);
+        }
+
+        private LocWork? NewLocFile(int line)
+        {
+            var name = NewFileName();
+            var created = NewFiles.Loc(name);
+            if (created.File is null)
+            {
+                Fail(WriteErrorKind.TableNotWritable, line, null, created.Reason ?? "the loc file cannot be created");
+                return null;
+            }
+
+            var relativeFile = created.File.RelativeFile;
+            if (_locWork.TryGetValue(relativeFile, out var existing))
+            {
+                return existing;
+            }
+
+            // A loc file with this name already exists in the project (as a copy): the tool takes it (Spec 5.4).
+            if (_snapshot.Locs.FirstOrDefault(f => string.Equals(f.RelativeFile, relativeFile, StringComparison.OrdinalIgnoreCase)) is { } there)
+            {
+                return GetLocWork(there);
+            }
+
+            var work = new LocWork
+            {
+                RelativeFile = relativeFile,
+                Kind = PlannedFileKind.Created,
+                Previous = null,
+                PreviousText = null,
+                PackPath = ProjectLayout.FromRelativeFile(relativeFile).PackPath,
+                Rows = [],
+            };
+            _locWork[relativeFile] = work;
+            return work;
         }
 
         /// <summary>
