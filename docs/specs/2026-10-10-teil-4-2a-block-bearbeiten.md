@@ -564,6 +564,10 @@ Zeilen (rund 2 MB Text). Der Schritt hält `Previous` und `Next`; bei 50 solchen
 200 MB. Obergrenze: Die History begrenzt Schritte nicht; wird das zum Problem, kommt `Previous` in
 den Papierkorb statt in den Speicher (Backlog, Annahme 5).
 
+#### Festlegungen aus Plan 2
+
+- **Snapshot.** `ProjectSnapshot` hält Text und geparste Tabelle jeder Projektdatei der betroffenen Tabellen (Kopien eingeschlossen, markiert mit `IsCopy`) und die adoptierten Pack-Einträge für Dateikopien. Die Kopie-Erkennung bekommt die App als `PackEntryExists`. Der Leser liest Pack-Einträge über `PackReader` direkt (ohne Retry); ein gesperrtes Pack ist ein Fehler vor dem Schreiben (Spec 7).
+
 ### 5.7 Editor
 
 Der Objekt-Tab nutzt AvalonEdit:

@@ -6,6 +6,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TotalWarModTool.Editing\TotalWarModTool.Editing.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Objects\TotalWarModTool.Objects.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Projects\TotalWarModTool.Projects.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Schema\TotalWarModTool.Schema.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
     <ProjectReference Include="..\..\src\TotalWarModTool.UndoRedo\TotalWarModTool.UndoRedo.csproj" />
