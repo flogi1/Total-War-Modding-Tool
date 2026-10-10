@@ -36,7 +36,7 @@ public class DocumentsControllerExternalTests
         public void ChangeOutside(string relativeFile, string text)
         {
             var path = PathOf(relativeFile);
-            var before = File.GetLastWriteTimeUtc(path);
+            var before = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.UtcNow;   // a deleted file written again has no time to build on
             File.WriteAllText(path, text);
             File.SetLastWriteTimeUtc(path, before.AddMinutes(5));
         }
@@ -106,6 +106,12 @@ public class DocumentsControllerExternalTests
         await workspace.LoadAsync();
         var projects = game.NewProjects(workspace, projectsRunner);
         var project = game.NewProject(projects, "Alpha", files);
+        foreach (var (relativeFile, _) in files)
+        {
+            // The files start in the past, so that every later write (by the app or by a test) has another time whatever the resolution of the clock is.
+            File.SetLastWriteTimeUtc(Path.Combine(project.Folder, "pack", relativeFile), DateTime.UtcNow.AddMinutes(-5));
+        }
+
         var tabs = new TabsViewModel(game.Texts);
         var history = new ActionHistory();
         var dialogs = new FakeEditDialogs();
@@ -219,7 +225,7 @@ public class DocumentsControllerExternalTests
             await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
             Assert.Equal(setup.Game.Texts.TabStaleDeleted, a.StaleText);
 
-            File.WriteAllText(setup.PathOf(FileA), TextOf(FileA, 43));
+            setup.ChangeOutside(FileA, TextOf(FileA, 43));
             await setup.Controller.CheckExternalChangesAsync().WaitAsync(Guard);
 
             Assert.Equal(setup.Game.Texts.TabStaleChanged, a.StaleText);
@@ -1037,7 +1043,7 @@ public class DocumentsControllerExternalTests
             a.Rows[0][Value] = "50";
             setup.DeleteOutside(FileA);
             setup.Dialogs.CreateAgainAnswer = true;
-            setup.Dialogs.WhileAsking = () => File.WriteAllText(setup.PathOf(FileA), TextOf(FileA, 77));
+            setup.Dialogs.WhileAsking = () => setup.ChangeOutside(FileA, TextOf(FileA, 77));
 
             Assert.False(await setup.Controller.SaveAsync([a]));
 
@@ -1084,7 +1090,7 @@ public class DocumentsControllerExternalTests
             a.Rows[0][Value] = "50";
             setup.DeleteOutside(FileA);
             setup.Dialogs.CreateAgainAnswers.Enqueue(true);
-            setup.Dialogs.WhileAsking = () => File.WriteAllText(setup.PathOf(FileA), TextOf(FileA, 77));   // written again while the question is open
+            setup.Dialogs.WhileAsking = () => setup.ChangeOutside(FileA, TextOf(FileA, 77));   // written again while the question is open
 
             Assert.False(await setup.Controller.SaveAsync([a]).WaitAsync(Guard));
             Assert.Equal(TextOf(FileA, 77), setup.Read(FileA));
