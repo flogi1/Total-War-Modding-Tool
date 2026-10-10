@@ -257,6 +257,7 @@ public sealed class EditableRowsTabViewModel : RowsTabViewModel
         OnPropertyChanged(nameof(IsModified));
         RaiseReloadChanged();
         OnPropertyChanged(nameof(IsTableEntry));
+        ClearPendingSelection();
         SelectedRows = [];
     }
 

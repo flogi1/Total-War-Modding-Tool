@@ -105,12 +105,17 @@ public sealed partial class ObjectsController
             (tabKey, tabEntry) = (pack.Path, entry);
         }
 
-        // The open may have failed or been refused; then the selected tab is another one and the row counts as not found.
-        var found = _tabs.SelectedTab is RowsTabViewModel rows
-            && SamePath(rows.PackPath, tabKey)
-            && string.Equals(rows.EntryPath, tabEntry, StringComparison.OrdinalIgnoreCase)
-            && rows.SelectRowByKey(keyValues);
-        tab.SetJumpNotice(found ? JumpOutcome.None : JumpOutcome.RowNotFound);
+        // The open may have failed or been refused (the runner was busy, the tab list kept the old tab); then the selected tab is another one,
+        // the open said why, and nothing is claimed about the row.
+        if (_tabs.SelectedTab is not RowsTabViewModel rows
+            || !SamePath(rows.PackPath, tabKey)
+            || !string.Equals(rows.EntryPath, tabEntry, StringComparison.OrdinalIgnoreCase))
+        {
+            tab.SetJumpNotice(JumpOutcome.None);
+            return;
+        }
+
+        tab.SetJumpNotice(rows.SelectRowByKey(keyValues) ? JumpOutcome.None : JumpOutcome.RowNotFound);
     }
 
     private ObjectTabViewModel NewTab(IReadOnlyList<ObjectRef> history, int position) =>

@@ -67,20 +67,6 @@ public class ObjectsControllerTests
         return project;
     }
 
-    // Records the rows that the next rows tab added to the list asks its view to select.
-    private static List<IReadOnlyList<int>> WatchSelections(TabsViewModel tabs)
-    {
-        var requested = new List<IReadOnlyList<int>>();
-        tabs.Tabs.CollectionChanged += (_, e) =>
-        {
-            foreach (var tab in e.NewItems?.OfType<RowsTabViewModel>() ?? [])
-            {
-                tab.SelectionRequested += (_, rows) => requested.Add(rows);
-            }
-        };
-        return requested;
-    }
-
     [Fact] public async Task Show_opens_a_tab_builds_it_and_selects_it()
     {
         using var setup = await CreateAsync();
@@ -460,21 +446,56 @@ public class ObjectsControllerTests
         var fromVanilla = Show(setup, table, "k2");
         var fromProject = Show(setup, table, "k1");
         setup.Tabs.CloseWithoutAsking(table);
-        var requested = WatchSelections(setup.Tabs);
 
         await setup.Controller.JumpAsync(fromVanilla);
 
+        // No view here: the tab holds the row as its selection and as a request that waits for its grid (TabsViewTests apply it).
         var opened = Assert.IsType<TableTabViewModel>(setup.Tabs.SelectedTab);
         Assert.Equal((setup.VanillaPath, XEntry), (opened.PackPath, opened.EntryPath));
-        Assert.Equal(new[] { 1 }, Assert.Single(requested));
+        Assert.Equal(new[] { 1 }, opened.SelectedRows);
+        Assert.Equal(new[] { 1 }, opened.PendingSelection);
         Assert.DoesNotContain(setup.Texts.ObjectsNoticeRowNotFound, fromVanilla.Notice ?? string.Empty);
 
         await setup.Controller.JumpAsync(fromProject);
 
         var editable = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
         Assert.Equal((project.Id, "db/x_tables/a.tsv"), (editable.ProjectId, editable.EntryPath));
-        Assert.Equal(new[] { 1 }, requested[^1]);
-        Assert.Equal(2, requested.Count);
+        Assert.Equal(new[] { 1 }, editable.SelectedRows);
+        Assert.Equal(new[] { 1 }, editable.PendingSelection);
+        Assert.DoesNotContain(setup.Texts.ObjectsNoticeRowNotFound, fromProject.Notice ?? string.Empty);
+    }
+
+    [Fact] public async Task Jump_whose_table_cannot_be_opened_now_claims_no_missing_row()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        setup.Tabs.CloseWithoutAsking(table);
+        setup.Runner.IsRunning = true;                                                 // the open is refused (its own path says why)
+
+        await setup.Controller.JumpAsync(tab);
+
+        Assert.Same(tab, setup.Tabs.SelectedTab);
+        Assert.DoesNotContain(setup.Texts.ObjectsNoticeRowNotFound, tab.Notice ?? string.Empty);
+        Assert.DoesNotContain(setup.Texts.ObjectsNoticeRowSourceGone, tab.Notice ?? string.Empty);
+    }
+
+    [Fact] public async Task Jump_to_a_row_that_the_open_table_no_longer_holds_says_so()
+    {
+        using var setup = await CreateAsync();
+        var project = NewProject(setup, "Alpha", [["k1", "Project label"]]);
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        await setup.Main.Main.OpenProjectFileAsync(project.Id, @"db\x_tables\a.tsv");
+        var editable = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        editable.Rows[0][0] = "renamed";                                               // the key of the row, not saved
+        setup.Tabs.SelectedTab = tab;
+
+        await setup.Controller.JumpAsync(tab);
+
+        Assert.Same(editable, setup.Tabs.SelectedTab);
+        Assert.Contains(setup.Texts.ObjectsNoticeRowNotFound, tab.Notice);
+        Assert.Null(editable.PendingSelection);
     }
 
     [Fact] public async Task Jump_to_a_row_whose_pack_is_gone_says_so()

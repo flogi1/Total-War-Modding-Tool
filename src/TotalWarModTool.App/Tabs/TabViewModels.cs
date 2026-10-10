@@ -316,8 +316,23 @@ public abstract class RowsTabViewModel : TabViewModel
     /// </summary>
     public event EventHandler<IReadOnlyList<int>>? SelectionRequested;
 
-    /// <summary>Asks the view to select these rows.</summary>
-    protected void RequestSelection(IReadOnlyList<int> rows) => SelectionRequested?.Invoke(this, rows);
+    /// <summary>
+    /// The rows of the last request that no grid has shown yet; null when there is none. A request made while no grid shows the tab (the
+    /// jump to a row asks right after it opened or selected the tab, before the tab control made its grid) waits here; the grid applies
+    /// and clears it when it shows the tab.
+    /// </summary>
+    public IReadOnlyList<int>? PendingSelection { get; private set; }
+
+    /// <summary>Called by the grid that applied <see cref="PendingSelection"/>, and when the rows are replaced.</summary>
+    public void ClearPendingSelection() => PendingSelection = null;
+
+    /// <summary>Asks the view to select these rows; they are the selection of the tab from now on, and pending until a grid shows them.</summary>
+    protected void RequestSelection(IReadOnlyList<int> rows)
+    {
+        PendingSelection = rows;
+        SelectedRows = rows;
+        SelectionRequested?.Invoke(this, rows);
+    }
 
     /// <summary>Selects the first row whose key equals <paramref name="keyValues"/> (ordinal); false when there is none or the table has no key column.</summary>
     public bool SelectRowByKey(IReadOnlyList<string> keyValues)
@@ -454,7 +469,6 @@ public abstract class RowsTabViewModel : TabViewModel
 
     /// <summary>The selected rows that exist, ascending and without repeats. The selection is set by the view and can be stale after a change.</summary>
     protected List<int> ValidSelection() => _selectedRows.Where(IsRowIndex).Distinct().Order().ToList();
-
 
     private static List<int> KeyColumns(IReadOnlyList<FieldDefinition> columns)
     {

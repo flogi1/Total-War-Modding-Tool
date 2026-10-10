@@ -57,7 +57,7 @@ public sealed partial class TableGrid : DataGrid
 
         _commitPendingEdit = CommitPendingEdit;
         _cancelPendingEdit = DiscardEdit;
-        _selectionRequested = (_, rows) => ApplySelection(rows);
+        _selectionRequested = (_, _) => ApplyPendingSelection();
         InitializeEditing();
     }
 

@@ -70,9 +70,9 @@ public class TabsViewTests
         }
     }
 
-    private static OpenedEntry TableEntry(string[] columns, object?[][] rows)
+    private static OpenedEntry TableEntry(string[] columns, object?[][] rows, bool firstIsKey = false)
     {
-        var definition = new TableDefinition(0, columns.Select(c => new FieldDefinition(c, FieldType.StringU8, "StringU8", false, null)).ToList());
+        var definition = new TableDefinition(0, columns.Select((c, i) => new FieldDefinition(c, FieldType.StringU8, "StringU8", firstIsKey && i == 0, null)).ToList());
         var table = new DecodedTable(TableDecodeStatus.Ok, "units_tables", 0, false, definition, rows, null);
         return new OpenedEntry("db/units_tables/data__", EntryKind.Table, 1, 1, CompressionFormat.None, EntryProblem.None, null, false, table, null, null);
     }
@@ -622,6 +622,60 @@ public class TabsViewTests
             Assert.True(table.CopyRowsCommand.CanExecute(null));
             Assert.True(setup.Grid.HandleKey(Key.C, ModifierKeys.Control, false));
             Assert.Equal("unit_key\tcost\nc\t3\n", clipboard.Text);
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    // The jump to a row: the table tab is selected and asked for the row before the tab control made its grid (another template was shown).
+    [Fact] public void A_row_selected_by_key_while_the_tab_is_not_shown_is_selected_when_its_grid_comes() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            setup.ViewModel.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"], ["b", "2"], ["c", "3"]], firstIsKey: true), null);
+            var table = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+            setup.ViewModel.Add(Pack, TextEntry("a.txt"), null);
+            Pump(setup.Window);
+            Assert.Empty(Descendants<TableGrid>(setup.View));
+
+            setup.ViewModel.SelectedTab = table;
+            Assert.True(table.SelectRowByKey(["b"]));
+            Pump(setup.Window);
+
+            Assert.Same(table.Rows[1], Assert.Single(setup.Grid.SelectedItems.Cast<object>()));
+            Assert.Equal([1], table.SelectedRows);
+            Assert.Null(table.PendingSelection);                                            // applied once
+        }
+        finally
+        {
+            setup.Window.Close();
+        }
+    });
+
+    // One grid shows both table tabs (the same template): the data context changes before the rows of the new tab reach the grid.
+    [Fact] public void A_row_selected_by_key_on_a_hidden_table_tab_is_selected_when_the_grid_switches_to_it() => Sta.Run(() =>
+    {
+        var setup = Create();
+        try
+        {
+            setup.ViewModel.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"], ["b", "2"], ["c", "3"]], firstIsKey: true), null);
+            var hidden = Assert.IsType<TableTabViewModel>(setup.ViewModel.SelectedTab);
+            setup.ViewModel.Add(Pack, TableEntry(["unit_key", "cost"], [["x", "1"]], firstIsKey: true), null);
+            Pump(setup.Window);
+            var grid = setup.Grid;
+            Assert.True(hidden.SelectRowByKey(["c"]));
+
+            setup.ViewModel.SelectedTab = hidden;
+            Pump(setup.Window);
+
+            Assert.Same(grid, setup.Grid);                                                  // the same grid, another data context
+            Assert.Same(hidden.Rows, setup.Grid.ItemsSource);
+            Assert.Same(hidden.Rows[2], Assert.Single(setup.Grid.SelectedItems.Cast<object>()));
+            Assert.Equal([2], hidden.SelectedRows);
+            Assert.Null(hidden.PendingSelection);
         }
         finally
         {

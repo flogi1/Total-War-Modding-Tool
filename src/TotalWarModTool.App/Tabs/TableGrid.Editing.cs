@@ -59,12 +59,39 @@ public sealed partial class TableGrid
         }
 
         model.SelectionRequested += _selectionRequested;
-        model.SelectedRows = IndexesOfSelection();
+        if (model.PendingSelection is null)
+        {
+            model.SelectedRows = IndexesOfSelection();
+            return;
+        }
+
+        // A request that came while no grid showed the tab. The data context changes before the bindings bring the rows of the tab, so it is
+        // applied once they are there.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (ReferenceEquals(_attached, model))
+            {
+                ApplyPendingSelection();
+            }
+        });
+    }
+
+    // Selects the rows that the linked view model asked for and that no grid has shown yet.
+    private void ApplyPendingSelection()
+    {
+        if (_attached is not { PendingSelection: { } rows } model)
+        {
+            return;
+        }
+
+        model.ClearPendingSelection();
+        ApplySelection(rows);
     }
 
     // Cuts the link. An edit that is still going on cannot be shown any more: its value is committed, and only a value that cannot be
     // committed is dropped, with a notice (the tab list does not let the tab go while its cell holds such a value, so this is the way
-    // of a tab that is closed or replaced by the app). The view model forgets the selection, which this grid no longer shows.
+    // of a tab that is closed or replaced by the app). The view model forgets the selection, which this grid no longer shows; a pending
+    // request stays for the next grid that shows the tab.
     private void Detach()
     {
         if (_attached is not { } model)
