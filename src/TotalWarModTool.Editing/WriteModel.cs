@@ -73,3 +73,41 @@ public sealed record ProjectSnapshot(IReadOnlyList<SnapshotTableFile> Tables, IR
 {
     public static readonly ProjectSnapshot Empty = new([], [], [], []);
 }
+
+public enum PlannedFileKind { Changed, Created, Copy }
+
+/// <summary>One file the writer will write. Previous is the fingerprint of the snapshot (null for Created and Copy: the file does not exist), PreviousText its text (null then). SourceEntry names the pack entry a Copy comes from.</summary>
+public sealed record PlannedFile(string RelativeFile, PlannedFileKind Kind, FileFingerprint? Previous, string? PreviousText, string NewText, string? SourceEntry = null);
+
+/// <summary>Several project files of one table (or, with IsLoc, several loc files) could take the change: the App asks and answers with one of Candidates (relative files, ordinal). Lines are the block lines of the changes that wait for it.</summary>
+public sealed record TargetFileQuestion(string Table, bool IsLoc, IReadOnlyList<string> Candidates, IReadOnlyList<int> Lines);
+
+/// <summary>Deleting a foreign row copies its file: the App shows the copy (RelativeFile), the source (Source, EntryPath), the row count of the source and the keys (JoinedKey of the key fields, or the first cell for a keyless table) that the copy will lack, and asks once for all copies.</summary>
+public sealed record FileCopyQuestion(TableSource Source, string EntryPath, string RelativeFile, int RowCount, IReadOnlyList<string> DeletedKeys);
+
+/// <summary>TargetFiles maps the Table of a TargetFileQuestion (or LocKey for the loc question) to the chosen relative file. CopiesConfirmed true answers every FileCopyQuestion.</summary>
+public sealed record WriteAnswers(IReadOnlyDictionary<string, string> TargetFiles, bool CopiesConfirmed)
+{
+    public const string LocKey = "*loc";
+
+    public static readonly WriteAnswers None = new(new Dictionary<string, string>(), false);
+}
+
+public enum WriteErrorKind
+{
+    SnapshotProblem, KeyAlreadyInFile, RowNotInFile, FieldNotInFileVersion, InvalidValue, ColourChannelOutOfRange, TableNotWritable, NoAnswer,
+}
+
+/// <summary>Line is the block line of the change (0 when none applies), RelativeFile the file (null when none applies). Detail is short technical English.</summary>
+public sealed record WriteError(WriteErrorKind Kind, int Line, string? RelativeFile, string Detail);
+
+public sealed record WriteSummary(int RowsSet, int RowsInserted, int RowsDeleted, int TextsSet, int TextsInserted, int FilesChanged, int FilesCreated, int Copies);
+
+/// <summary>Files is empty while Questions or Errors are not: nothing is written then. Files are sorted ordinally by RelativeFile.</summary>
+public sealed record WritePlan(IReadOnlyList<PlannedFile> Files, IReadOnlyList<TargetFileQuestion> TargetQuestions,
+    IReadOnlyList<FileCopyQuestion> CopyQuestions, IReadOnlyList<WriteError> Errors, WriteSummary Summary)
+{
+    public bool HasQuestions => TargetQuestions.Count > 0 || CopyQuestions.Count > 0;
+
+    public bool HasErrors => Errors.Count > 0;
+}

@@ -568,6 +568,8 @@ den Papierkorb statt in den Speicher (Backlog, Annahme 5).
 
 - **Snapshot.** `ProjectSnapshot` hält Text und geparste Tabelle jeder Projektdatei der betroffenen Tabellen (Kopien eingeschlossen, markiert mit `IsCopy`) und die adoptierten Pack-Einträge für Dateikopien. Die Kopie-Erkennung bekommt die App als `PackEntryExists`. Der Leser liest Pack-Einträge über `PackReader` direkt (ohne Retry); ein gesperrtes Pack ist ein Fehler vor dem Schreiben (Spec 7).
 
+- **Schreibplan, Tabellen.** Der Name der neuen Datei ist der getrimmte Projektname oder `twmt` (kein weiteres Bereinigen). Eine Zeile wird in der Datei über ihre Schlüsselwerte und `PreviousCells` gefunden (bei mehreren Treffern die erste mit allen gleichen Zellen). Die Farbkanalprüfung (`CellText.IsColourChannelValue`) läuft vor dem Schreiben; geprüft werden alle Felder eines `Insert` und die geänderten Felder eines `Set`. Eine Datei ohne Änderung wird nicht geschrieben. `Files` bleibt leer, solange eine Frage oder ein Fehler offen ist.
+
 ### 5.7 Editor
 
 Der Objekt-Tab nutzt AvalonEdit:
