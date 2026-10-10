@@ -79,6 +79,17 @@ public class ObjectDiffTests
     }
 
     [Fact]
+    public void A_cleared_value_does_not_get_its_trailing_space_back()
+    {
+        var view = View(RootRow(note: "alpha "));
+
+        var changes = Diff(view, Rendered(view).Replace("note = alpha", "note = ", StringComparison.Ordinal));
+
+        var row = Assert.Single(changes.Rows);
+        Assert.Equal("", row.Cells[3]);
+    }
+
+    [Fact]
     public void A_set_and_a_delete_carry_the_previous_cells()
     {
         var view = WithEffects(EffectRow("e1"), EffectRow("e2", "city", "4"));

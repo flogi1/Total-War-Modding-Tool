@@ -483,7 +483,7 @@ public static class ObjectDiff
         private static string KeepTrailingWhitespace(string baseline, string parsed)
         {
             var trimmed = baseline.TrimEnd();
-            return trimmed.Length < baseline.Length && (parsed.Length == 0 || !char.IsWhiteSpace(parsed[^1]))
+            return trimmed.Length < baseline.Length && parsed.Length > 0 && !char.IsWhiteSpace(parsed[^1])
                 ? parsed + baseline[trimmed.Length..]
                 : parsed;
         }

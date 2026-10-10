@@ -442,6 +442,16 @@ public static class ProjectWritePlan
                 return;
             }
 
+            // An edit of a field the file cannot hold would vanish without a trace.
+            if (change.Kind == RowChangeKind.Set)
+            {
+                foreach (var name in change.ChangedFields.Where(n => IndexOf(work.Definition, n) < 0))
+                {
+                    Fail(WriteErrorKind.FieldNotInFileVersion, change.Line, work.RelativeFile, $"the field '{name}' is not in version {work.Version} of the file");
+                    return;
+                }
+            }
+
             var mapping = RowLayout.MapFields(work.Definition, current);
             if (mapping is null)
             {

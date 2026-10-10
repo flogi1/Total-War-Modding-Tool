@@ -91,6 +91,18 @@ public class ProjectWritePlanTests
     }
 
     [Fact]
+    public void An_override_set_of_a_field_the_file_version_lacks_is_an_error()
+    {
+        var file = TableFile(A, X, 1, [["k2", "b1", "n"]]);
+
+        var plan = Plan(Changes([SetX("k1", "n", "9", FromVanilla, line: 4, changed: "extra")]), Snapshot(file));
+
+        var error = Assert.Single(plan.Errors);
+        Assert.Equal((WriteErrorKind.FieldNotInFileVersion, 4, A), (error.Kind, error.Line, error.RelativeFile));
+        Assert.Empty(plan.Files);
+    }
+
+    [Fact]
     public void An_insert_without_a_project_file_creates_one_named_after_the_project()
     {
         var plan = Plan(Changes([InsertX("k9")]), Snapshot(), "Flo Mod");
