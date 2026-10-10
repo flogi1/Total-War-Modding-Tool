@@ -444,4 +444,61 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    // 25 rows in one section: it folds after the fifth row.
+    private static ObjectBuildResult LongResult()
+    {
+        var order = new LoadOrder([Vanilla], null, []);
+        var rows = Enumerable.Range(0, 25).Select(i => Row("r" + i)).ToArray();
+        var view = new ObjectView(Id("a"), Row("v"), [], [new ObjectSection("a_tables", "building", false, rows)], [], order, [Table]);
+        return new ObjectBuildResult(view, order, null, new Dictionary<string, string> { [Table] = "sig" }, "loc",
+            new LocTable(new Dictionary<string, LocText>(), []));
+    }
+
+    [Fact] public void Long_sections_are_folded_with_a_more_rows_title_and_unfolding_is_remembered() => Sta.Run(() =>
+    {
+        var tab = Tab(LongResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var folding = Assert.Single(view.Foldings.AllFoldings);
+            Assert.True(folding.IsFolded);
+            Assert.Equal(Texts.ObjectsMoreRows(20), folding.Title);
+            Assert.Empty(tab.ExpandedSections);
+
+            folding.IsFolded = false;
+            Pump(window);
+            Assert.Contains(0, tab.ExpandedSections);
+
+            tab.ApplyResult(LongResult());
+            Pump(window);
+            var rebuilt = Assert.Single(view.Foldings.AllFoldings);
+            Assert.False(rebuilt.IsFolded);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
+
+    [Fact] public void A_folding_follows_an_insert_above_it() => Sta.Run(() =>
+    {
+        var tab = Tab(LongResult());
+        var (view, window) = Create(tab);
+        try
+        {
+            var before = Assert.Single(view.Foldings.AllFoldings).StartOffset;
+
+            view.Editor.Document.Insert(view.Editor.Document.GetLineByNumber(2).Offset, "  new = 1\n");
+            Pump(window);
+
+            var folding = Assert.Single(view.Foldings.AllFoldings);
+            Assert.Equal(before + "  new = 1\n".Length, folding.StartOffset);
+            Assert.True(folding.IsFolded);
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

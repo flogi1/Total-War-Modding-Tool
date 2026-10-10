@@ -762,6 +762,12 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   zeigt die Diagnosen der Zeile (Art, bei `InvalidValue` und `ReferenceNotFound` dazu der maskierte `Detail`), darunter
   bei einer unveränderten Zeile den Spielnamen des Links unter dem Mauszeiger (ohne Namen: die Kurzform der Tabelle)
   oder „Ziel unbekannt“ bei einem Warnwert. Eine geänderte Zeile hat nur die Tooltips ihrer Diagnosen.
+- **Falten:** Ein Abschnitt mit mehr als 20 Zeilen (Zeilen im Sinn der Zeilenblöcke des Abschnitts) ist ab der
+  sechsten Zeile gefaltet: von hinter der letzten Textzeile der fünften Zeile bis zum Ende der letzten Zeile des
+  Abschnitts, mit dem Text „+ N weitere Zeilen“. Die Faltungen sind `FoldingManager`-Segmente und folgen deshalb
+  dem Text. Der Faltzustand liegt im Tab (`ExpandedSections`, Abschnittsindizes des Objekts); die View meldet eine
+  Änderung über `TextView.VisualLinesChanged` zurück (der `FoldingManager` hat kein eigenes Ereignis). Er bleibt über
+  `ApplyResult` und wird bei einem Objektwechsel geleert.
 - **Theme-Wechsel zur Laufzeit:** Der Editor färbt über `TryFindResource` beim Zeichnen; ein Wechsel wirkt beim
   nächsten Redraw (Scrollen, Tippen, neuer Block), siehe Backlog.
 - **Anhängsel im Editor:** gedämpft (`ObjectTrailing`); Herkunft, überschriebene Quellen, Duplikat- und

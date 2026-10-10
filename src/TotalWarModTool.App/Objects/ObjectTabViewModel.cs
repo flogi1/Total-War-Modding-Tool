@@ -37,6 +37,7 @@ public sealed class ObjectTabViewModel : TabViewModel
     private BlockText? _block;
     private (string Text, ObjectChanges Changes)? _checked;
     private readonly Dictionary<ObjectId, string?> _displayNames = [];
+    private readonly HashSet<int> _expandedSections = [];
     private int _headLineLength;
     private bool _hasUnappliedText;
     private string _status = string.Empty;
@@ -109,6 +110,21 @@ public sealed class ObjectTabViewModel : TabViewModel
 
     /// <summary>The text of a section title key (the loc key of a category rule) in the current language; for the trailing of the editor.</summary>
     public string TranslateTitle(string key) => _translate(key);
+
+    /// <summary>
+    /// The sections (indexes into the view's sections) the user unfolded. Stays across <see cref="ApplyResult"/> (the same object, sections in the
+    /// same order); a move to another object clears it. An index the new block does not have does no harm.
+    /// </summary>
+    public IReadOnlySet<int> ExpandedSections => _expandedSections;
+
+    /// <summary>Remembers that the section is unfolded or folded again. Set by the view when the user folds or unfolds.</summary>
+    public void SetSectionExpanded(int section, bool expanded)
+    {
+        if (expanded ? _expandedSections.Add(section) : _expandedSections.Remove(section))
+        {
+            OnPropertyChanged(nameof(ExpandedSections));
+        }
+    }
 
     /// <summary>Display name of a link target from the loc table of the last build (data, escaped); null when none or without a built result.</summary>
     public string? DisplayNameOf(ObjectId target)
@@ -478,6 +494,7 @@ public sealed class ObjectTabViewModel : TabViewModel
         _state = ObjectTabState.Idle;
         _status = string.Empty;
         _warningsText = null;
+        _expandedSections.Clear();
         SetBlock(null);
         OnPropertyChanged(nameof(Position));
         OnPropertyChanged(nameof(Current));

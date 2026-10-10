@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
+using ICSharpCode.AvalonEdit.Folding;
 using ICSharpCode.AvalonEdit.Rendering;
 
 namespace TotalWarModTool.App;
@@ -25,6 +26,8 @@ public sealed partial class ObjectEditorView : UserControl
     private ObjectTabViewModel? _tab;
     private BlockLineMap? _map;
     private readonly DiagnosticRenderer _diagnostics;
+    private readonly FoldingManager _foldings;
+    private bool _updatingFoldings;
     private readonly ToolTip _hoverToolTip = new();
     private bool _settingText;
 
@@ -63,6 +66,9 @@ public sealed partial class ObjectEditorView : UserControl
             _tab?.Check();
         };
 
+        _foldings = FoldingManager.Install(Editor.TextArea);
+        Editor.TextArea.TextView.VisualLinesChanged += (_, _) => RememberFoldState();
+
         Editor.TextChanged += OnEditorTextChanged;
         DataContextChanged += OnDataContextChanged;
 
@@ -72,6 +78,9 @@ public sealed partial class ObjectEditorView : UserControl
 
     /// <summary>The editor, for tests and for Plan 3b (colorizer, element generator, folding).</summary>
     internal TextEditor Editor => TextBox;
+
+    /// <summary>The foldings of the long sections, for tests.</summary>
+    internal FoldingManager Foldings => _foldings;
 
     /// <summary>The underlines of the diagnostics, for tests.</summary>
     internal DiagnosticRenderer Diagnostics => _diagnostics;
@@ -176,7 +185,62 @@ public sealed partial class ObjectEditorView : UserControl
         _map = _tab?.Block is { } block && string.Equals(Editor.Text, block.Text, StringComparison.Ordinal)
             ? new BlockLineMap(Editor.Document, block)
             : null;
+        UpdateFoldings();
         Editor.TextArea.TextView.Redraw();
+    }
+
+    // One folding per long section of the block, folded unless the tab remembers the section as unfolded. They follow the text as segments.
+    private void UpdateFoldings()
+    {
+        var foldings = new List<(SectionFolding Folding, NewFolding New)>();
+        if (_map is not null && _tab?.Block is { } block && Editor.Document.TextLength > 0)
+        {
+            var document = Editor.Document;
+            var starts = new int[document.LineCount + 1];
+            for (var i = 0; i < document.LineCount; i++)
+            {
+                starts[i] = document.GetLineByNumber(i + 1).Offset;
+            }
+
+            starts[^1] = document.TextLength;
+            foreach (var folding in BlockFolding.Compute(block, starts))
+            {
+                foldings.Add((folding, new NewFolding(folding.StartOffset, folding.EndOffset) { Name = _tab.Texts.ObjectsMoreRows(folding.HiddenRows) }));
+            }
+        }
+
+        _updatingFoldings = true;
+        try
+        {
+            _foldings.UpdateFoldings(foldings.Select(f => f.New), -1);
+            foreach (var section in _foldings.AllFoldings.ToList())
+            {
+                var folding = foldings.FirstOrDefault(f => f.Folding.StartOffset == section.StartOffset).Folding;
+                section.Tag = folding?.Section;
+                section.IsFolded = folding is null || _tab?.ExpandedSections.Contains(folding.Section) != true;
+            }
+        }
+        finally
+        {
+            _updatingFoldings = false;
+        }
+    }
+
+    // The user folded or unfolded a section: the tab remembers it, so that it survives a rebuild after an apply.
+    private void RememberFoldState()
+    {
+        if (_updatingFoldings || _tab is null)
+        {
+            return;
+        }
+
+        foreach (var section in _foldings.AllFoldings)
+        {
+            if (section.Tag is int index && _tab.ExpandedSections.Contains(index) == section.IsFolded)
+            {
+                _tab.SetSectionExpanded(index, !section.IsFolded);
+            }
+        }
     }
 
     // The head line [0, HeadLineLength] cannot be edited inside; inserting at its end stays allowed so that the user can begin a new line there.

@@ -614,4 +614,24 @@ public class ObjectTabViewModelTests
         tab.Text += "x";
         Assert.Equal("Fire", tab.DisplayNameOf(fire));
     }
+
+    [Fact] public void Expanded_sections_survive_a_new_result_and_not_a_move()
+    {
+        var tab = ReadyTab();
+        Assert.Empty(tab.ExpandedSections);
+
+        tab.SetSectionExpanded(1, true);
+        tab.SetSectionExpanded(1, true);
+        Assert.Equal([1], tab.ExpandedSections);
+
+        tab.ApplyResult(Result());
+        Assert.Equal([1], tab.ExpandedSections);
+
+        tab.SetSectionExpanded(1, false);
+        Assert.Empty(tab.ExpandedSections);
+
+        tab.SetSectionExpanded(0, true);
+        tab.NavigateTo(Id("b"), false);
+        Assert.Empty(tab.ExpandedSections);
+    }
 }
