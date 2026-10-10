@@ -151,6 +151,13 @@ public sealed partial class ObjectsController : IRowObjectOpener
         {
             case { Status: OperationStatus.Completed, Value: { } result }:
                 tab.ApplyResult(result);
+
+                // The stores were dropped while the build ran: the result shows what the old schema made of the data, keep the mark.
+                if (!ReferenceEquals(stores, _stores))
+                {
+                    tab.MarkSchemaStale();
+                }
+
                 break;
             case { Status: OperationStatus.Cancelled }:
                 tab.ApplyCancelled();
