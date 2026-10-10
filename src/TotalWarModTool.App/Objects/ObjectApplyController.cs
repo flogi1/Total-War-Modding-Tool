@@ -257,6 +257,18 @@ public sealed class ObjectApplyController
     // typed since the apply is not thrown away: the tab keeps it and is marked as outdated instead.
     private void OnContentsStepApplied(object? sender, FileContentsStep step)
     {
+        try
+        {
+            SelectAndRebuild(step);
+        }
+        finally
+        {
+            CheckObjectTabsDetached();
+        }
+    }
+
+    private void SelectAndRebuild(FileContentsStep step)
+    {
         if (TabOf(step) is not { } tab)
         {
             return;
@@ -270,6 +282,20 @@ public sealed class ObjectApplyController
         }
 
         tab.BuildHandler?.Invoke(tab);
+    }
+
+    // Every other object tab built from the files of the step is outdated now; the tab of the step is rebuilt (or marked) above and skipped
+    // by the check while it builds.
+    private async void CheckObjectTabsDetached()
+    {
+        try
+        {
+            await _objects.CheckStaleAsync();
+        }
+        catch (Exception ex) when (IsEdgeFailure(ex))
+        {
+            _log.Error("Checking the object tabs after an undo or redo failed unexpectedly.", ex);
+        }
     }
 
     /// <summary>The text of a failed write for the dialog: the kind and the file; for a failed rollback every file with its state.</summary>
@@ -484,15 +510,19 @@ public sealed class ObjectApplyController
         var created = plan.Files.Where(file => file.Kind != PlannedFileKind.Changed).Select(file => file.RelativeFile).ToList();
         tab.SetApplyResult(summary, created, changes.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Warning));
         FilesChanged?.Invoke(this, project.Id);
-        await _documents.CheckExternalChangesAsync();
 
-        // The disk changed, so the object is built again; its result replaces the text. A build that did not run (another operation) leaves the old
-        // result, which no longer matches the disk.
+        // The disk changed, so the object is built again; its result replaces the text. The build comes first: it locks the window before its
+        // first await, while the check of the open files below lets input through, and text typed in that gap would be replaced by the rebuild.
+        // A build that did not run (another operation) leaves the old result, which no longer matches the disk.
         await _objects.BuildAsync(tab);
         if (ReferenceEquals(tab.Result, result))
         {
             tab.MarkStale();
         }
+
+        // The other open tabs: the grids of the files notice the change at once, and the object tabs built from them are marked outdated.
+        await _documents.CheckExternalChangesAsync();
+        await _objects.CheckStaleAsync();
     }
 
     // Runs inside run A on a pool thread: nothing here touches the UI.

@@ -653,6 +653,13 @@ public class ObjectApplyControllerTests
         Edit(again, LabelLine, "  label = Changed");
         setup.Dialogs.UnappliedAnswer = SaveChoice.Save;
         setup.Tabs.Close(again);
+
+        // The apply ends with a check on a pool thread (no UI thread in the test), so the close follows a moment later.
+        for (var i = 0; i < 100 && setup.Tabs.Tabs.Contains(again); i++)
+        {
+            await Task.Delay(20);
+        }
+
         Assert.DoesNotContain(again, setup.Tabs.Tabs);
         Assert.Equal(2, setup.RowsOf(ProjectFileA).Count);
         Assert.True(setup.History.CanUndo);
@@ -723,5 +730,63 @@ public class ObjectApplyControllerTests
         Assert.False(setup.Apply.RequestAppClose(() => { }));
 
         Assert.Empty(setup.Dialogs.UnappliedAsks);
+    }
+
+    // The second object tab: k2 of the same table, built and ready, selected afterwards.
+    private static async Task<ObjectTabViewModel> ShowK2Async(Setup setup)
+    {
+        var table = Assert.IsType<TableTabViewModel>(setup.Tabs.Tabs.OfType<TableTabViewModel>().First());
+        var index = Enumerable.Range(0, 100).First(i => table.KeyOfRow(i) is { } rowKey && rowKey.KeyValues.SequenceEqual(new[] { "k2" }));
+        setup.Objects.Show(table, table.KeyOfRow(index)!);
+        var tab = Assert.IsType<ObjectTabViewModel>(setup.Tabs.SelectedTab);
+        Assert.Equal("k2", tab.Current.JoinedKey);
+        Assert.Equal(ObjectTabState.Ready, tab.State);
+        await Task.CompletedTask;
+        return tab;
+    }
+
+    [Fact] public async Task Other_object_tabs_are_marked_stale_after_an_apply_and_after_its_undo()
+    {
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        var first = await ShowK1Async(setup);
+        var other = await ShowK2Async(setup);
+        Assert.False(other.IsStale);
+        Edit(first, LabelLine, "  label = Changed");
+
+        await ApplyAsync(first);
+
+        Assert.True(other.IsStale);                                             // the apply wrote the file that k2 was built from
+        await setup.Objects.BuildAsync(other);
+        Assert.False(other.IsStale);
+
+        setup.Main.Documents!.UndoCommand.Execute(null);
+        for (var i = 0; i < 100 && !other.IsStale; i++)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.True(other.IsStale);                                             // and so did the undo
+    }
+
+    [Fact] public async Task The_rebuild_after_an_apply_starts_before_the_open_files_are_checked()
+    {
+        // Between the end of the write and the start of the rebuild the window is not locked: nothing slow may run in between.
+        using var setup = await CreateAsync(AFile(["k2", "Project label"]));
+        await setup.Main.Main.OpenProjectFileAsync(setup.Project.Id, ProjectFileA);
+        var grid = Assert.IsType<EditableRowsTabViewModel>(setup.Tabs.SelectedTab);
+        var tab = await ShowK1Async(setup);
+        Edit(tab, LabelLine, "  label = Changed");
+        bool? checkedBeforeBuild = null;
+        setup.Runner.BeforeRun = title =>
+        {
+            if (title == setup.Texts.ObjectsBuilding("k1") && checkedBeforeBuild is null && setup.History.CanUndo)
+            {
+                checkedBeforeBuild = grid.IsStaleOutside;
+            }
+        };
+
+        await ApplyAsync(tab);
+
+        Assert.False(checkedBeforeBuild);
     }
 }
