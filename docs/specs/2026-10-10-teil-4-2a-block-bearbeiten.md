@@ -679,8 +679,9 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   1 000 000 000 bis 2 147 483 647 (beide inklusive). Ein Wert, den `taken(Tabelle, Feld, Wert)` meldet
   (die App prüft gegen die Ladereihenfolge über `MergedTable.FindByField`) oder den der Allocator
   schon vergeben hat (über alle Tabellen und Felder), wird neu gezogen; nach 100 Ziehungen für einen
-  Aufruf wirft er `InvalidOperationException`. Die Prüfung der eingefügten Schlüssel in
-  `ObjectCopy.TakenKeys` folgt mit der App-Schicht.
+  Aufruf wirft er `InvalidOperationException`. Die eingefügten Schlüssel einer Kopie meldet
+  `ObjectCopy.TakenKeys` (siehe „Änderungen und belegte Schlüssel einer Kopie“); die App prüft sie vor dem Schreiben
+  (siehe „Schlüsselprüfung zweistufig“).
 - **Kategorie-Datei:** `"copy"` ist optional; fehlt es oder ist es `null`, gilt wie bisher die
   allgemeine Regel. Jeder andere Wert ist ein Problem der Datei („copy must be "owned".“). Zusammen mit
   `"hidden": true` ist es ein Problem („a hidden section cannot be copied.“). Das Profil
@@ -1011,7 +1012,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
    - **Plan 3b: Darstellung im Editor.** Färbung, Anhängsel, Falten, Fehleranzeige (Unterstreichung mit
      entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`. **Umgesetzt und abgenommen** (manuelle Checkliste und voller Testlauf mit dem Nutzer grün, 2026-10-10).
 4. **Plan 4: App Kopieren und Assistenten.** „Kopieren als“, „Neues Gebäude“, „Neuer Trait“, Texte,
-   manuelle Checkliste mit Spielstart.
+   manuelle Checkliste mit Spielstart. **Umgesetzt**, Abnahme und voller Testlauf mit dem Nutzer offen.
 
 ## 10. Annahmen, die der erste echte Lauf prüft
 
@@ -1019,7 +1020,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 |---|---|---|
 | 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3a mit Spielstart (2026-10-10): **bestätigt** für die gelöschte Einheit (Angabe des Nutzers: Pack gebaut, installiert, Spiel gestartet, die Einheit fehlt). Abnahme Plan 4: neues Gebäude baubar offen. |
 | 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. Plan 3b misst `Parse` plus Differenz (`The_empire_block_diffs_fast`, Messung 2026-10-10 (WH3 Vanilla, Fraktion `wh_main_emp_empire`, 2138 Zeilen, warm): Parse plus Differenz 8,5 ms, Grenze 50 ms eingehalten); Färben pro sichtbarer Zeile: Abnahme 3b. |
-| 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
+| 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. Ergebnis Plan 4 (Tasks 1, 4 und 7): auf Echtdaten bestätigt, nachdem die erlaubten Einheiten über `"copy": "owned"` in die Regel kamen, siehe „Ergebnisse des Echtdaten-Laufs von Plan 4“. Offen bleibt die Abnahme im Spiel (Annahmen 1, 7 und 8) und die Subkultur als Volk. |
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a (2026-10-10, zehn Dateikopien großer Tabellen, Speicher beobachtet): **bestätigt**, unter 200 MB (Angabe des Nutzers, ohne genaue Zahl). Plan 2 hält `Previous` und `Next` im Schritt; ein Auslagern in den Papierkorb ist nicht nötig. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
@@ -1037,8 +1038,8 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Nicht kopiert (Regel 4, Hinweis): `technologies` (3 Zeilen, wie erwartet) **und
   `building_units_allowed` (4 Zeilen)**. Die erlaubten Einheiten gehören zum Gebäude, die Tabelle hat
   aber einen eigenen Schlüssel `key` ohne Präfix und ist von `technologies` nach Form nicht zu
-  unterscheiden. Die Regel trifft hier also nicht alle nötigen Zeilen; das ist eine Entscheidung für den
-  Nutzer (Ausnahme pro Tabelle in der Kategorie-Datei, Regel erweitern oder so lassen), Plan 4.
+  unterscheiden. Die Regel trifft hier also nicht alle nötigen Zeilen. Entschieden (Abschnitt 11, vor Plan 4):
+  Ausnahme pro Tabelle in der Kategorie-Datei, `"copy": "owned"`, siehe „Festlegungen aus Plan 4“ unter 5.8.
   Trait `wh2_dlc09_trait_settra_title`: 3 Stufen mit Präfix-Schlüssel werden Unterobjekte, jede mit
   3 bis 4 Effekten in `trait_level_effects`, so wie die Regel es will. Der Trait
   `wh2_dlc09_dummy_trait_dynasty_1` hat 4 Stufen ohne Präfix im Schlüssel; sie werden als Hinweis gemeldet.
@@ -1051,6 +1052,21 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   unkritisch), 8 enthalten einen Tab. Folgen: siehe die Festlegungen aus Plan 1 unter 5.3
   (`ControlCharacter` nur für die Dialekt-Folge, Differenz ignoriert Leerzeichen am Ende, gleichnamige
   Spalte und Feld, Abschnittskopf ohne Feld).
+
+### Ergebnisse des Echtdaten-Laufs von Plan 4 (2026-10-10, WH3 Vanilla und aktive Mods, schreibt nichts)
+
+- **Annahme 3, Task 1 (Kaserne `wh_main_emp_barracks_2` mit `"copy": "owned"`):** `building_units_allowed` (4 Zeilen) wird
+  kopiert, jede Zeile mit neuem `key`; der einzige Hinweis ist `technologies` (3 Zeilen, Regel 4). Ein Trait kopiert
+  weiter ohne Zufallsschlüssel.
+- **Annahme 3, Task 4 (Assistent „Neues Gebäude“):** `wh_main_sc_emp_empire` hat 105 Vorlagen, alle mit Namen (der Spike vor
+  Plan 4 zählte 107; der Unterschied ist nicht untersucht). Die Kaserne `wh_main_emp_barracks_3` als Stufe hinter sich selbst: eine
+  Upgrade-Zeile, `level` höchste Stufe plus 1, 7 Inserts in `building_units_allowed`, kein belegter Schlüssel. Mit neuer Kette:
+  2 Objekte, 39 Zeilen, `level` 0, Kette `<schlüssel>_chain`, kein Hinweis auf die Stufentabelle, kein belegter Schlüssel.
+- **Annahme 3, Task 7 (Assistent „Neuer Trait“, `The_trait_wizard_copies_a_trait_with_its_levels_without_taken_keys`):**
+  `wh2_dlc09_trait_settra_title` ergibt 4 Objekte (Trait und 3 Stufen), 14 Zeilen und 9 Texte, kein belegter Schlüssel. Von 790
+  Traits haben 169 einen Spieltext.
+- **Offen bis zur Abnahme mit Spielstart:** Annahme 1 (neues Gebäude baubar), 7 (Kette mit den `cai_*`-Zeilen der Vorlage) und 8
+  (Technologien der Vorlage bleiben erforschbar), ebenso die Subkultur als Volk (Annahme 3).
 
 ### Ergebnis des Spikes vor Plan 4 (2026-10-10, WH3 Vanilla und die aktiven Mods, schreibt nichts)
 

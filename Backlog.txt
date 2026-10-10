@@ -44,6 +44,7 @@ Gruppe 2: Datenverlust, Vertrauen, Hänger (bei Gebrauch zuerst prüfen)
   - Aktion nach dem Namensdialog abgelehnt: Eingabe geht verloren
   - UI-Thread blockiert bis rund 1 s: `twmt-project.json` und `projects.json` lesen und speichern, Einstellungen und
     Session speichern, Einfügen großer Mengen, Undo und Redo großer Dateien, Textansicht großer Tabellen
+  - UI-Thread: Schlüsselprüfung im Dialog „Kopieren als“ bei einer Tabelle, die nicht im Cache ist (Plan 4)
   - Stille Zustände ohne Hinweis: Aktualisieren nach geändertem Spielordner abgebrochen, ungültige Spielordner-Meldung
     bleibt stehen, Tabs fehlender Packs ohne Markierung, Einstellungsfenster ohne Hinweis bei nicht gespeicherten
     Einstellungen, Sprachdatei fehlerhaft ohne Hinweis
@@ -387,6 +388,24 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Schlüsselform von `FileCopyQuestion.DeletedKeys` (Plan 2) ist jetzt in der Kopie-Frage sichtbar; in der Abnahme prüfen, ob sie lesbar ist
 - Die zweite Berechnung des Plans (mit den Antworten) läuft auf dem UI-Thread; bei der Kopie einer sehr großen Tabelle kann das kurz einfrieren. Dann in einen eigenen Runner-Lauf oder in Lauf B verlegen
 - Ein fehlgeschlagener Rollback (`RollbackFailed`) ist in der App nur über den Meldungstext getestet, weil `ProjectWriter` keinen Haken zum Erzwingen bietet; ein Test mit einer Datei, die nach dem Schreiben gesperrt wird, wäre möglich, wenn `ProjectWriter` einen Test-Haken bekommt
+
+== Aus Teil 4.2a Plan 4 zurückgestellt ==
+
+- Vorlagen über Fraktions-Varianten: Eine Stufe, deren Kultur-Varianten nur eine Fraktion tragen (weder Kultur noch Subkultur), ist keine Vorlage des Assistenten „Neues Gebäude“, und für eine solche Stufe fehlt auch der Name in der Stufenliste (`BuildingCatalog.TemplatesOf`, `StagesOf`); Fraktion als dritte Zuordnung aufnehmen oder im Dialog sagen, dass sie fehlen
+- Kategorie-Datei für Ketten: „Neue Kette“ kopiert die `cai_construction_system_*`-Zeilen der Vorlage-Kette mit (16 Synergien, 1 Gebäudewert, ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette); eine Kategorie-Datei für `building_chains_tables` mit versteckten `cai_*`-Abschnitten anlegen, falls der Spielstart (Annahme 7) Probleme zeigt
+- Die Schlüsselprüfung des Dialogs „Kopieren als“ holt die Tabelle mit `stores.Tables.Get` auf dem UI-Thread und fragt bei jedem Tastendruck; ist die Tabelle nicht im Cache (Aufbau verdrängt oder sehr große Tabelle), friert der Dialog kurz ein. Tabelle vor dem Dialog in einem Runner-Lauf laden oder die Prüfung entprellen
+- Weitere Assistenten nach demselben Muster (Datei `wizards.json` des Profils, Katalog, Dialog, `ObjectWizardController`): zum Beispiel Einheit, Technologie, Fraktion; jeweils eigene Spec
+- Gemeinsame Vorlagenauswahl: `NewTraitViewModel` und `NewTraitWindow` wiederholen Filter und Auswahl von `NewBuildingViewModel` und `NewBuildingWindow`; beim nächsten Assistenten eine geteilte Komponente (Filterfeld, Liste, Schlüsselfeld mit Vorschlag) herausziehen
+- `CopyOwned` würfelt jedes Zahl-Schlüsselfeld einer Zeile, das nicht das Feld auf die Wurzel ist; ein späterer zusammengesetzter Schlüssel mit einem Verweis als Zahlfeld bekäme damit einen Zufallswert statt des Verweises. Erst nötig, wenn ein Abschnitt mit `"copy": "owned"` so ein Feld hat; dann das Feld in der Kategorie-Datei ausnehmen
+- Trait ohne eigenen Spieltext: Der Name einer Vorlage wird über das Präfix `<trait>_` gesucht und findet auch den Text eines längeren Traits (`brave` findet `brave_heart_1`); den Namen über den genauen Schlüssel `<trait>_<stufe>` der Stufen des Traits bilden
+- `BuildingCatalog` liest eine nicht lesbare `level` still als 0, und `BuildingWizard.Compose` ignoriert `chainCopy`, wenn eine Stufe gewählt ist (`after != null`), ohne Hinweis; beides melden statt still ignorieren
+- `ObjectCopy.TakenKey` vergleicht `KeyValues` über die Listenreferenz, nicht über die Werte; wer `TakenKeys` je vergleicht oder entdoppelt, muss die Werte einzeln vergleichen. Werte-Gleichheit nachrüsten, sobald ein Aufrufer sie braucht
+- Eine leere Kopie sagt „Nothing to write: the text has no change.“ und spricht damit von einem Text, den es bei einer Kopie nicht gibt; eigener Text für die Kopie. Das Log von `ShowPlanErrors` sagt bei Kopien „apply“
+- `ObjectApplyController.CopyAsync` schreibt den übersetzten Sperrgrund (`CopyDisabledReason`) ins Log, und `ObjectWizardController` vergleicht für die Ursache im Log den übersetzten Text (`environment == _texts.ProjectBusy`); Log-Ursachen als feste englische Wörter oder Enum, `ObjectCopyAsTests` (prüft den Logtext) dann anpassen
+- `ObjectWizardController.ExistsIn` baut den Kettenschlüssel selbst statt über `BuildingWizard.ChainIdFor`; `BuildingWizard` baut den Spieltext-Schlüssel (`TableSuffix`, `StripSuffix`, `LocKey`) neu statt den von `ObjectBuilder` zu nutzen; `TraitWizard.StripSuffix` und `ShortName` im Controller sind doppelt
+- `ObjectWizardController` setzt `_running`, ohne den Menüzustand mit `Refresh()` zu aktualisieren; der Zweig „busy“ ist ungetestet
+- Aufräumen: `WizardDefinitions.Parse` (Gebäude- und Trait-Block doppelt und verschachtelt) flach ziehen; `RememberOrigin`, `CheckAfterWriteAsync` und `CreatedFiles` von `ObjectApplyController` können `private` werden; `ObjectTabViewModel` (rund 800 Zeilen) und `ObjectApplyController` (rund 630 Zeilen) aufteilen, bevor ein weiterer Assistent dazukommt
+- Tests ergänzen (Plan 4): `RandomIntegerKeysTests.A_value_is_never_handed_out_twice` mit einem `Random`, der immer denselben Wert liefert; `WizardDefinitions` mit nicht-String `nameSuffix`, Wurzel oder Abschnitt, der kein Objekt ist, fehlendem `nameText`, IO-Fehler und einzelnem Surrogat; die Tests `A_template_is_listed_once...` und die Rückfall-Vorauswahl des `BuildingCatalog` prüfen schwach; Vorlage ohne Kette im App-Test (Hinweis `NoChain`, keine Ketten-Datei); Verdrahtung der Hinweise in der Ergebniszeile, Ablehnung bei `_applying` und `CaptureOrder` Ende zu Ende; die Ergebniszeile im Haupttest des Assistenten „Neues Gebäude“ prüft nur `NotNull`
 
 == Wartet auf ein öffentliches Remote ==
 
