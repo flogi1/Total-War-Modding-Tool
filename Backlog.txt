@@ -412,6 +412,11 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Ein abgelehnter Schlüssel in Lauf A (belegter abgeleiteter Schlüssel) verliert die Eingabe des Assistenten (Volk, Vorlage, Stufe): der Dialog ist schon zu, die Meldung „Choose another key“ fordert einen Dialog, den es nicht mehr gibt. Gehört zum Eintrag „Aktion nach dem Namensdialog abgelehnt: Eingabe geht verloren“ (weiter oben); Meldung anpassen und Eingabe behalten (Dialog nach Ablehnung mit den alten Werten wieder öffnen)
 - Tests ergänzen (Plan 4): `RandomIntegerKeysTests.A_value_is_never_handed_out_twice` mit einem `Random`, der immer denselben Wert liefert; `WizardDefinitions` mit nicht-String `nameSuffix`, Wurzel oder Abschnitt, der kein Objekt ist, fehlendem `nameText`, IO-Fehler und einzelnem Surrogat; die Tests `A_template_is_listed_once...` und die Rückfall-Vorauswahl des `BuildingCatalog` prüfen schwach; Vorlage ohne Kette im App-Test (Hinweis `NoChain`, keine Ketten-Datei); Verdrahtung der Hinweise in der Ergebniszeile, Ablehnung bei `_applying` und `CaptureOrder` Ende zu Ende; die Ergebniszeile im Haupttest des Assistenten „Neues Gebäude“ prüft nur `NotNull`
 
+== Aus der Spec „Tabellenversion aus den Spieldateien“ zurückgestellt (2026-10-14) ==
+
+- Werkzeug, das eine Tabellendatei in eine andere Version umwandelt (z. B. eine veraltete Projektdatei oder die Tabelle einer alten Mod in die Spielversion); Felder per Name abbilden wie `RowLayout`, fehlende mit Standardwert, wegfallende in der Vorschau nennen
+- Warnung über veraltete fremde Mods in der Ladereihenfolge (Tabellen in anderer Version als im Spiel); heute nur „older layout“ in der Objekt-Ansicht
+
 == Wartet auf ein öffentliches Remote ==
 
 - Remote für das lokale Repo festlegen (bisher nur lokal)
