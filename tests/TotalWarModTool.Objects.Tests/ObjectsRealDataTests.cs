@@ -498,6 +498,8 @@ public class ObjectsRealDataTests
 
                 var twice = ObjectCopy.TakenKeys(changes, graph, (_, _) => false);
                 Assert.True(twice.Count == 0, $"{template.Key}: {string.Join("; ", twice.Select(t => t.Table + " " + string.Join("|", t.KeyValues)))}");
+                var textTwice = changes.Texts.GroupBy(t => t.Key, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+                Assert.True(textTwice.Count == 0, $"{template.Key}: texts twice {string.Join(", ", textTwice)}");
                 checkedTemplates++;
             }
         }
