@@ -27,6 +27,12 @@ public delegate string NewIntegerKey(string table, string field);
 /// <summary>A key an insert of a copy would write although the load order or another row of the same copy has it. Table with suffix; KeyValues in key field order.</summary>
 public sealed record TakenKey(string Table, IReadOnlyList<string> KeyValues);
 
+/// <summary>A key of Table (with suffix) that a copy renamed: a reference holding OldKey gets NewKey.</summary>
+public sealed record KeyRename(string Table, string OldKey, string NewKey);
+
+/// <summary>Keys of Table (with suffix) the copy does not bring along: a row that still references one of them is left out.</summary>
+public sealed record NotCopiedKeys(string Table, IReadOnlyCollection<string> Keys);
+
 /// <summary>"Copy as": an object written under a new key (spec 5.8). A pure function apart from the <c>build</c> callback.</summary>
 public static class ObjectCopy
 {
@@ -120,7 +126,8 @@ public static class ObjectCopy
 
     /// <summary>
     /// Every object of the copy diffed against a view without root (new ObjectView(object.Id, null, [], [], [], order, [])) with categoryOf(object.Id.Table),
-    /// concatenated in object order: Rows, Texts, Diagnostics. Pure.
+    /// concatenated in object order: Rows, Texts, Diagnostics. An insert whose table (ignoring case) and cells (ordinal) equal an earlier insert is
+    /// left out: the same row reached twice (from two sections or from both copies of a wizard) is written once. Pure.
     /// </summary>
     public static ObjectChanges Changes(CopyResult copy, LoadOrder order, Func<string, CategoryDefinition?> categoryOf, ReferenceGraph graph,
         ReferenceExists? referenceExists)
@@ -132,11 +139,13 @@ public static class ObjectCopy
         var rows = new List<RowChange>();
         var texts = new List<TextChange>();
         var diagnostics = new List<BlockDiagnostic>();
+        var inserted = new HashSet<string>(StringComparer.Ordinal);
         foreach (var parsed in copy.Objects)
         {
             var empty = new ObjectView(parsed.Id, null, [], [], [], order, []);
             var changes = ObjectDiff.Compute(empty, parsed, categoryOf(parsed.Id.Table), graph, referenceExists);
-            rows.AddRange(changes.Rows);
+            rows.AddRange(changes.Rows.Where(r => r.Kind != RowChangeKind.Insert
+                || inserted.Add(r.Table.ToLowerInvariant() + KeySeparator + string.Join(KeySeparator, r.Cells))));
             texts.AddRange(changes.Texts);
             diagnostics.AddRange(changes.Diagnostics);
         }
@@ -179,6 +188,64 @@ public static class ObjectCopy
         }
 
         return taken;
+    }
+
+    /// <summary>
+    /// Spec 5.8 (new chain): in every row of the sections of the copy, a field whose schema reference (latest definition of the section table)
+    /// resolves to the table of a rename and holds its OldKey gets NewKey, key field or not. A row with a field that then references
+    /// notCopied.Table and holds one of its keys is left out and noted as ForeignKeyRows on its table; a section left without rows is dropped.
+    /// Root fields stay. Tables compared ignoring case, values ordinal. Pure.
+    /// </summary>
+    public static CopyResult RetargetReferences(CopyResult copy, ReferenceGraph graph, IReadOnlyList<KeyRename> renames, NotCopiedKeys notCopied)
+    {
+        ArgumentNullException.ThrowIfNull(copy);
+        ArgumentNullException.ThrowIfNull(graph);
+        ArgumentNullException.ThrowIfNull(renames);
+        ArgumentNullException.ThrowIfNull(notCopied);
+        var notCopiedKeys = notCopied.Keys.ToHashSet(StringComparer.Ordinal);
+        var notes = copy.Notes.ToList();
+        var objects = new List<ParsedObject>();
+        foreach (var parsed in copy.Objects)
+        {
+            var sections = new List<ParsedSection>();
+            foreach (var section in parsed.Sections)
+            {
+                var rows = new List<ParsedRow>();
+                foreach (var row in section.Rows)
+                {
+                    var fields = new List<ParsedField>();
+                    var pointsAtNotCopied = false;
+                    foreach (var field in row.Fields)
+                    {
+                        var target = ReferencedTable(graph, section.SourceTable, field.Name);
+                        var rename = target is null
+                            ? null
+                            : renames.FirstOrDefault(r => string.Equals(r.Table, target, StringComparison.OrdinalIgnoreCase)
+                                && string.Equals(r.OldKey, field.Text, StringComparison.Ordinal));
+                        var text = rename?.NewKey ?? field.Text;
+                        pointsAtNotCopied |= string.Equals(target, notCopied.Table, StringComparison.OrdinalIgnoreCase) && notCopiedKeys.Contains(text);
+                        fields.Add(field with { Text = text });
+                    }
+
+                    if (pointsAtNotCopied)
+                    {
+                        AddNote(notes, CopyNoteKind.ForeignKeyRows, section.SourceTable, 1);
+                        continue;
+                    }
+
+                    rows.Add(row with { Fields = fields });
+                }
+
+                if (rows.Count > 0)
+                {
+                    sections.Add(section with { Rows = rows });
+                }
+            }
+
+            objects.Add(parsed with { Sections = sections });
+        }
+
+        return new CopyResult(objects, notes);
     }
 
     /// <summary>The copy with suffix appended to every text of the column: root texts of objects of the table and texts of rows of its sections.</summary>
@@ -307,6 +374,13 @@ public static class ObjectCopy
         }
 
         return newIntegerKey is not null && (field.Type is FieldType.I32 or FieldType.I64) ? newIntegerKey(section.SourceTable, field.Name) : field.Text;
+    }
+
+    /// <summary>The table (with suffix) that field of the latest definition of table references; null without reference or for an unknown table or field.</summary>
+    private static string? ReferencedTable(ReferenceGraph graph, string table, string field)
+    {
+        var reference = graph.Latest(table)?.Fields.FirstOrDefault(f => string.Equals(f.Name, field, StringComparison.OrdinalIgnoreCase))?.Reference;
+        return reference is null ? null : graph.ResolveTableName(reference.Table);
     }
 
     private static void AddNote(List<CopyNote> notes, CopyNoteKind kind, string table, int count)

@@ -8,6 +8,9 @@ public sealed record WizardChoice(string Key, string? Name);
 
 public sealed record BuildingStage(string LevelKey, long Level, string? Name);
 
+/// <summary>The template of a new chain: its level, its chain and the level keys of that chain (the template's among them).</summary>
+public sealed record TemplateChain(string LevelKey, string ChainKey, IReadOnlyList<string> StageKeys);
+
 /// <summary>The subcultures, templates and chains the building wizard offers, read once from the merged tables of a load order. Read-only.</summary>
 public sealed class BuildingCatalog
 {
@@ -264,13 +267,17 @@ public static class BuildingWizard
     /// <summary>
     /// The copy of a building: levelCopy (ObjectCopy.Rename of the template), chainCopy (Rename of the template's chain to ChainIdFor; null for a
     /// stage in an existing chain or a template without chain), after (null: new chain; else the stage the new building follows). The upgrade rows
-    /// of the template are dropped in both modes; the name texts get nameSuffix. Throws InvalidOperationException when the level lacks a field of the definition.
+    /// of the template are dropped in both modes; the name texts get nameSuffix. A new chain points the rows of both copies at the new level and
+    /// chain and leaves out rows about other stages of templateChain (ObjectCopy.RetargetReferences); templateChain is required with chainCopy.
+    /// Throws InvalidOperationException when the level lacks a field of the definition.
     /// </summary>
-    public static CopyResult Compose(BuildingWizardDefinition definition, CopyResult levelCopy, CopyResult? chainCopy, BuildingStage? after, string nameSuffix)
+    public static CopyResult Compose(BuildingWizardDefinition definition, CopyResult levelCopy, CopyResult? chainCopy, BuildingStage? after, string nameSuffix,
+        ReferenceGraph graph, TemplateChain? templateChain)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(levelCopy);
         ArgumentNullException.ThrowIfNull(nameSuffix);
+        ArgumentNullException.ThrowIfNull(graph);
 
         var level = levelCopy.Objects[0];
         var sections = level.Sections
@@ -289,6 +296,11 @@ public static class BuildingWizard
         }
         else if (chainCopy is not null)
         {
+            if (templateChain is null)
+            {
+                throw new ArgumentException("A chain copy needs the template chain.", nameof(templateChain));
+            }
+
             var root = SetField(level.Root, definition.ChainField, chainCopy.Objects[0].Id.KeyValues[0]);
             level = level with { Root = SetField(root, definition.LevelField, "0") };
             objects.Add(level with { Sections = sections });
@@ -308,6 +320,17 @@ public static class BuildingWizard
 
                 AddNote(notes, note);
             }
+
+            // Each copy renamed only its own root: the chain copy still names the template level, the level copy the template chain.
+            KeyRename[] renames =
+            [
+                new(definition.LevelTable, templateChain.LevelKey, level.Id.KeyValues[0]),
+                new(definition.ChainTable, templateChain.ChainKey, chainCopy.Objects[0].Id.KeyValues[0]),
+            ];
+            var retargeted = ObjectCopy.RetargetReferences(new CopyResult(objects, notes), graph, renames,
+                new NotCopiedKeys(definition.LevelTable, templateChain.StageKeys));
+            objects = retargeted.Objects.ToList();
+            notes = retargeted.Notes.ToList();
         }
         else
         {

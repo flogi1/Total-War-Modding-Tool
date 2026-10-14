@@ -390,4 +390,125 @@ public class ObjectCopyTests
         Assert.Equal("Label (copy)", Assert.Single(Assert.Single(Assert.Single(copy.Sections).Rows).Texts).Text);
         Assert.Equal("Root", Assert.Single(copy.Texts).Text);
     }
+
+    // ---- identical inserts of a copy ----
+
+    private static ParsedRow Row(params (string Name, string Text)[] fields) =>
+        new(fields.Select(f => new ParsedField(f.Name, f.Text, 0)).ToList(), [], 0);
+
+    private static ParsedObject RootWith(params ParsedSection[] sections) => Rename(Source([])).Objects[0] with { Sections = sections };
+
+    [Fact]
+    public void Identical_inserts_of_a_copy_are_written_once()
+    {
+        // The copy names itself at both ends of the upgrade: one row, reached from both sections.
+        var root = RootWith(
+            new ParsedSection("upgrades_tables", "from", [Row(("to", "b9"))], 0),
+            new ParsedSection("upgrades_tables", "to", [Row(("from", "b9"))], 0));
+
+        var changes = ObjectCopy.Changes(new CopyResult([root, root with { Sections = root.Sections.Take(1).ToList() }], []), Order, _ => null, Graph, null);
+
+        var upgrade = Assert.Single(changes.Rows, r => r.Table == "upgrades_tables");
+        Assert.Equal(["b9", "b9"], upgrade.Cells);
+        Assert.Single(changes.Rows, r => r.Table == Root && r.Cells[0] == "b9");
+    }
+
+    [Fact]
+    public void Inserts_that_differ_in_a_cell_are_all_kept()
+    {
+        var root = RootWith(
+            new ParsedSection("upgrades_tables", "from", [Row(("to", "b9"))], 0),
+            new ParsedSection("upgrades_tables", "to", [Row(("from", "b1"))], 0));
+
+        var changes = ObjectCopy.Changes(new CopyResult([root], []), Order, _ => null, Graph, null);
+
+        Assert.Equal([["b9", "b9"], ["b1", "b9"]], changes.Rows.Where(r => r.Table == "upgrades_tables").Select(r => r.Cells.ToArray()).ToArray());
+    }
+
+    // ---- references to renamed and not copied keys ----
+
+    private static readonly ReferenceGraph RetargetGraph = ReferenceGraph.Build(TestSchema.Build(
+        ("levels_tables", 1, [TestSchema.Field("level_name", key: true), TestSchema.Field("chain", reference: ("chains", "key"))]),
+        ("chains_tables", 1, [TestSchema.Field("key", key: true)]),
+        ("ranges_tables", 1,
+        [
+            TestSchema.Field("chain", key: true, reference: ("chains", "key")),
+            TestSchema.Field("start", key: true, reference: ("levels", "level_name")),
+            TestSchema.Field("end", key: true, reference: ("levels", "level_name")),
+            TestSchema.Field("level_note", reference: ("levels", "level_name")),
+            TestSchema.Field("plain"),
+        ])));
+
+    private static readonly KeyRename[] Renames = [new("levels_tables", "old_l", "new_l"), new("chains_tables", "old_c", "new_c")];
+
+    private static readonly NotCopiedKeys StagesOfOldChain = new("levels_tables", ["old_l", "l2", "l3"]);
+
+    private static ParsedObject LevelObject(params ParsedSection[] sections) =>
+        new(Id("levels_tables", "new_l"), [new ParsedField("level_name", "new_l", 0), new ParsedField("chain", "old_c", 0)], [], sections, []);
+
+    private static ParsedObject ChainObject(params ParsedSection[] sections) =>
+        new(Id("chains_tables", "new_c"), [new ParsedField("key", "new_c", 0)], [], sections, []);
+
+    [Fact]
+    public void References_to_a_renamed_key_get_the_new_key_by_their_schema_reference()
+    {
+        var copy = new CopyResult(
+        [
+            LevelObject(new ParsedSection("ranges_tables", "start", [Row(("chain", "old_c"), ("end", "old_l"), ("level_note", "old_l"), ("plain", "old_l"))], 0)),
+            ChainObject(new ParsedSection("ranges_tables", "chain", [Row(("start", "old_l"), ("end", "old_l"))], 0)),
+        ],
+        []);
+
+        var result = ObjectCopy.RetargetReferences(copy, RetargetGraph, Renames, StagesOfOldChain);
+
+        Assert.Equal([("chain", "new_c"), ("end", "new_l"), ("level_note", "new_l"), ("plain", "old_l")],
+            Fields(Assert.Single(Assert.Single(result.Objects[0].Sections).Rows)));
+        Assert.Equal([("start", "new_l"), ("end", "new_l")], Fields(Assert.Single(Assert.Single(result.Objects[1].Sections).Rows)));
+        Assert.Equal(copy.Objects[0].Root, result.Objects[0].Root);
+        Assert.Empty(result.Notes);
+    }
+
+    [Fact]
+    public void A_row_that_still_points_at_a_key_not_copied_is_dropped_with_a_note()
+    {
+        var copy = new CopyResult(
+        [
+            ChainObject(new ParsedSection("ranges_tables", "chain",
+            [
+                Row(("start", "old_l"), ("end", "l3")),
+                Row(("start", "l2"), ("end", "l2")),
+                Row(("start", ""), ("end", "")),
+                Row(("start", "x1"), ("end", "x2")),
+            ], 0)),
+        ],
+        [new CopyNote(CopyNoteKind.ForeignKeyRows, "ranges_tables", 1), new CopyNote(CopyNoteKind.HiddenSection, "h_tables", 2)]);
+
+        var result = ObjectCopy.RetargetReferences(copy, RetargetGraph, Renames, StagesOfOldChain);
+
+        Assert.Equal([[("start", ""), ("end", "")], [("start", "x1"), ("end", "x2")]],
+            Assert.Single(result.Objects[0].Sections).Rows.Select(Fields).ToArray());
+        Assert.Equal([new CopyNote(CopyNoteKind.ForeignKeyRows, "ranges_tables", 3), new CopyNote(CopyNoteKind.HiddenSection, "h_tables", 2)], result.Notes);
+    }
+
+    [Fact]
+    public void A_section_whose_rows_are_all_dropped_is_left_out()
+    {
+        var copy = new CopyResult([LevelObject(new ParsedSection("ranges_tables", "start", [Row(("end", "l2"))], 0))], []);
+
+        var result = ObjectCopy.RetargetReferences(copy, RetargetGraph, Renames, StagesOfOldChain);
+
+        Assert.Empty(result.Objects[0].Sections);
+        Assert.Equal(new CopyNote(CopyNoteKind.ForeignKeyRows, "ranges_tables", 1), Assert.Single(result.Notes));
+    }
+
+    [Fact]
+    public void A_field_of_a_table_the_schema_does_not_know_stays()
+    {
+        var copy = new CopyResult([LevelObject(new ParsedSection("unknown_tables", "x", [Row(("end", "l2"), ("start", "old_l"))], 0))], []);
+
+        var result = ObjectCopy.RetargetReferences(copy, RetargetGraph, Renames, StagesOfOldChain);
+
+        Assert.Equal([("end", "l2"), ("start", "old_l")], Fields(Assert.Single(Assert.Single(result.Objects[0].Sections).Rows)));
+        Assert.Empty(result.Notes);
+    }
 }

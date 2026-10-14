@@ -38,3 +38,5 @@
 ### Geändert
 
 ### Behoben
+
+- Neues Gebäude mit neuer Kette: Die mitkopierten Zeilen der Kette und der Stufe (etwa die AI-Bauwerte, Synergien und Freischaltungen `cai_construction_system_*`) zeigen jetzt auf die neue Stufe und die neue Kette statt auf Stufen der Vorlage-Kette. Zeilen, die andere Stufen der Vorlage-Kette betreffen (zum Beispiel ein Bereich von der Kopie bis zur dritten Kasernenstufe oder eine Abstufung), werden nicht mehr kopiert; die Ergebniszeile zählt sie unter „nicht kopiert“. Erzeugt eine Kopie dieselbe Zeile zweimal, wird sie nur einmal geschrieben, statt dass die Kopie mit „Die Kopie lässt sich nicht schreiben“ abbricht.

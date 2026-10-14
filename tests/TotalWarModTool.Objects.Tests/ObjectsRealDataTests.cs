@@ -358,6 +358,12 @@ public class ObjectsRealDataTests
         throw new InvalidOperationException(row.Table + " has no field " + field);
     }
 
+    private static TemplateChain TemplateOf(WizardRun run, string templateKey)
+    {
+        var chain = run.Catalog.ChainOf(templateKey)!;
+        return new TemplateChain(templateKey, chain, run.Catalog.StagesOf(chain).Select(s => s.LevelKey).ToList());
+    }
+
     private static CopyResult CopyBarracks3(WizardRun run, string newKey) => CopyLevel(run, "wh_main_emp_barracks_3", newKey);
 
     private static CopyResult CopyLevel(WizardRun run, string templateKey, string newKey)
@@ -393,7 +399,7 @@ public class ObjectsRealDataTests
         var after = Assert.Single(stages, s => s.LevelKey == "wh_main_emp_barracks_3");
         var levelCopy = CopyBarracks3(run, "twmt_test_barracks_4");
 
-        var composed = BuildingWizard.Compose(run.Definition, levelCopy, null, after, " (copy)");
+        var composed = BuildingWizard.Compose(run.Definition, levelCopy, null, after, " (copy)", graph, null);
         var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
         PrintComposed(composed, changes);
 
@@ -423,7 +429,7 @@ public class ObjectsRealDataTests
         var chainCopy = ObjectCopy.Rename(chainSource, BuildingWizard.ChainIdFor(run.Definition, "twmt_test_barracks_4"),
             id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, graph, NoIntegerKey);
 
-        var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)");
+        var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)", graph, TemplateOf(run, "wh_main_emp_barracks_3"));
         var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
         PrintComposed(composed, changes);
 
@@ -438,7 +444,7 @@ public class ObjectsRealDataTests
         Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
     }
 
-    [RealDataFact] public void A_new_chain_of_a_template_never_holds_a_stage_of_the_template_chain()
+    [RealDataFact] public void A_new_chain_of_a_template_never_holds_or_points_at_a_stage_of_the_template_chain()
     {
         var run = NewWizardRun();
         var graph = run.Context.Graph;
@@ -469,11 +475,29 @@ public class ObjectsRealDataTests
                     withStageSubObject++;
                 }
 
-                var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)");
+                var templateChain = TemplateOf(run, template.Key);
+                var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)", graph, templateChain);
 
                 var levels = composed.Objects.Where(o => string.Equals(o.Id.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)).ToList();
                 Assert.True(levels.Count == 1, $"{template.Key}: {levels.Count} objects of the level table");
                 Assert.Equal(newKey, levels[0].Id.KeyValues[0]);
+
+                // No copied row points at a stage of the template chain, and the copy holds no insert twice.
+                var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
+                var stages = templateChain.StageKeys.ToHashSet(StringComparer.Ordinal);
+                foreach (var row in changes.Rows.Where(r => !string.Equals(r.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var fields = graph.Latest(row.Table)!.Fields;
+                    for (var i = 0; i < fields.Count; i++)
+                    {
+                        var pointsAtLevel = fields[i].Reference is { } reference
+                            && string.Equals(graph.ResolveTableName(reference.Table), run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase);
+                        Assert.False(pointsAtLevel && stages.Contains(row.Cells[i]), $"{template.Key}: {row.Table}.{fields[i].Name} = {row.Cells[i]}");
+                    }
+                }
+
+                var twice = ObjectCopy.TakenKeys(changes, graph, (_, _) => false);
+                Assert.True(twice.Count == 0, $"{template.Key}: {string.Join("; ", twice.Select(t => t.Table + " " + string.Join("|", t.KeyValues)))}");
                 checkedTemplates++;
             }
         }
