@@ -6,6 +6,7 @@ using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.UndoRedo;
 using TotalWarModTool.Workspace;
 
@@ -45,7 +46,9 @@ public sealed class ProjectFilesController
     private readonly TimeProvider _time;
 
     // The creatable tables for the schema they were worked out for: working them out writes and reads every table of the schema once.
+    // The version table is part of the key: another game version can make another list.
     private GameSchema? _creatableFor;
+    private GameTableVersions? _creatableVersions;
     private IReadOnlyList<string> _creatable = [];
 
     /// <param name="trashRoot">The trash of the app (<see cref="AppPaths.TrashDirectory"/>): a fully qualified path.</param>
@@ -95,7 +98,13 @@ public sealed class ProjectFilesController
     /// loaded now; empty while that has not run for this schema, and while no schema is loaded. Never computes anything.
     /// </summary>
     public IReadOnlyList<string> CreatableTables =>
-        _projects.Schema?.Schema is { } schema && ReferenceEquals(schema, _creatableFor) ? _creatable : [];
+        _projects.Schema?.Schema is { } schema && GameVersions is { } versions && IsCreatableFor(schema, versions) ? _creatable : [];
+
+    // The game's table versions when they are complete, else null (nothing that needs them runs then).
+    private GameTableVersions? GameVersions => _workspace.TableVersions is { IsComplete: true, Versions: { } versions } ? versions : null;
+
+    private bool IsCreatableFor(GameSchema schema, GameTableVersions versions) =>
+        ReferenceEquals(schema, _creatableFor) && ReferenceEquals(versions, _creatableVersions);
 
     /// <summary>
     /// The tables a new file can be created for, sorted. Working them out writes and reads every table of the schema once, so it runs through
@@ -105,12 +114,12 @@ public sealed class ProjectFilesController
     /// </summary>
     public async Task<IReadOnlyList<string>?> GetCreatableTablesAsync()
     {
-        if (_projects.Schema?.Schema is not { } schema)
+        if (_projects.Schema?.Schema is not { } schema || GameVersions is not { } versions)
         {
             return [];
         }
 
-        if (ReferenceEquals(schema, _creatableFor))
+        if (IsCreatableFor(schema, versions))
         {
             return _creatable;
         }
@@ -121,20 +130,21 @@ public sealed class ProjectFilesController
         }
 
         // Not through RunAsync: a cancelled run has no list, whatever the work returned.
-        var outcome = await _runner.RunAsync(_texts.OperationPrepareTables, (_, _) => NewFiles.CreatableTables(schema));
+        var outcome = await _runner.RunAsync(_texts.OperationPrepareTables, (_, _) => NewFiles.CreatableTables(schema, versions));
         if (outcome.Status != OperationStatus.Completed || outcome.Value is not { } tables)
         {
             return null;
         }
 
         // Another schema was loaded meanwhile: this list is not the one that belongs to it.
-        if (!ReferenceEquals(_projects.Schema?.Schema, schema))
+        if (!ReferenceEquals(_projects.Schema?.Schema, schema) || !ReferenceEquals(GameVersions, versions))
         {
             return null;
         }
 
         _creatable = tables;
         _creatableFor = schema;
+        _creatableVersions = versions;
         return tables;
     }
 
@@ -169,6 +179,18 @@ public sealed class ProjectFilesController
 
         return _projects.CanStartOperation ? null : _texts.ProjectBusy;
     }
+
+    /// <summary>
+    /// Null when a new table can be created in the project; else the UI text that says why not. The game's table versions come first
+    /// (spec 5.5), then what <see cref="DisabledReason"/> says. A loc file needs no versions: use <see cref="DisabledReason"/> for it.
+    /// </summary>
+    public string? NewTableDisabledReason(Guid projectId) => _workspace.TableVersionsMissingReason ?? DisabledReason(projectId);
+
+    /// <summary>Null when a pack entry can be added to the project; else the UI text that says why not. As <see cref="NewTableDisabledReason"/>.</summary>
+    public string? AdoptDisabledReason(Guid projectId) => AdoptVersionsReason() ?? DisabledReason(projectId);
+
+    // An entry may be a table, and the version rule needs the game's versions for it.
+    private string? AdoptVersionsReason() => _workspace.TableVersionsMissingReason;
 
     /// <summary>
     /// Null when <paramref name="name"/> can be the name of a new or renamed file in <paramref name="relativeFolder"/> (below pack\, with '\';
@@ -208,12 +230,17 @@ public sealed class ProjectFilesController
             return refusal;
         }
 
+        if (GameVersions is not { } versions)
+        {
+            return Fail(_workspace.TableVersionsMissingReason ?? _texts.TableVersionsIncomplete);
+        }
+
         if (_projects.Schema?.Schema is not { } schema)
         {
             return Fail(_texts.FileNoSchema);
         }
 
-        return await WriteNewFileAsync(state, _texts.OperationCreateFile(Shown(name)), Shown(name), _ => NewFiles.Table(schema, tableName, name));
+        return await WriteNewFileAsync(state, _texts.OperationCreateFile(Shown(name)), Shown(name), _ => NewFiles.Table(schema, versions, tableName, name));
     }
 
     /// <summary>Creates an empty loc file <c>text\db\&lt;name&gt;.loc.tsv</c>. Null when nothing can be started right now or the run was cancelled or failed.</summary>
@@ -245,6 +272,11 @@ public sealed class ProjectFilesController
             return refusal;
         }
 
+        if (AdoptVersionsReason() is { } versionsReason)
+        {
+            return Fail(versionsReason);
+        }
+
         var content = await _workspace.ReadEntryBytesAsync(pack, entryPath);
         if (content is null)
         {
@@ -264,9 +296,15 @@ public sealed class ProjectFilesController
             return refusal;
         }
 
+        // The read ran through the runner: the versions are looked at again.
+        if (GameVersions is not { } versions)
+        {
+            return Fail(AdoptVersionsReason() ?? _texts.TableVersionsIncomplete);
+        }
+
         var schema = _projects.Schema?.Schema;
         var shownName = Shown(newName ?? entryPath[(entryPath.LastIndexOf('/') + 1)..]);
-        return await WriteNewFileAsync(state, _texts.OperationAddFile(shownName), shownName, _ => NewFiles.Adopt(entryPath, bytes, schema, newName));
+        return await WriteNewFileAsync(state, _texts.OperationAddFile(shownName), shownName, _ => NewFiles.Adopt(entryPath, bytes, schema, versions, newName));
     }
 
     /// <summary>

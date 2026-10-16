@@ -5,7 +5,7 @@
   "sections": [
     { "table": "building_culture_variants_tables", "titleKey": "objects.section.names", "mode": "list" },
     { "table": "building_effects_junction_tables", "titleKey": "objects.section.effects", "mode": "list" },
-    { "table": "building_units_allowed_tables", "titleKey": "objects.section.units", "mode": "sentence", "pattern": "allows {unit}" },
+    { "table": "building_units_allowed_tables", "titleKey": "objects.section.units", "mode": "sentence", "pattern": "allows {unit}", "copy": "owned" },
     { "table": "building_upgrades_junction_tables", "field": "from", "titleKey": "objects.section.upgradesTo", "mode": "sentence", "pattern": "upgrades to {to}" },
     { "table": "building_upgrades_junction_tables", "field": "to", "titleKey": "objects.section.upgradesFrom", "mode": "sentence", "pattern": "upgrades from {from}" },
     { "table": "building_level_required_technology_junctions_tables", "titleKey": "objects.section.requirements", "mode": "sentence", "pattern": "requires technology {technology_key}" },

@@ -1,5 +1,6 @@
 using TotalWarModTool.Schema;
 using static TotalWarModTool.Objects.Tests.BlockFixture;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -503,7 +504,7 @@ public class ObjectDiffTests
     [Fact]
     public void The_unsupported_type_keeps_the_text_as_it_is()
     {
-        var graph = ReferenceGraph.Build(TestSchema.Build(("odd_tables", 1, [TestSchema.Field("key", key: true), TestSchema.Field("weird", FieldType.Unsupported)])));
+        var graph = ReferenceGraph.Build(TestSchema.Build(("odd_tables", 1, [TestSchema.Field("key", key: true), TestSchema.Field("weird", FieldType.Unsupported)])), GameTableVersions.Empty);
         var id = new ObjectId("odd_tables", ["k"]);
         var root = new ObjectRow([Val("key", "k", key: true), Val("weird", "w", FieldType.Unsupported)], From(Vanilla), id, null);
         var view = new ObjectView(id, root, [], [], [], Order, ["odd_tables"]);

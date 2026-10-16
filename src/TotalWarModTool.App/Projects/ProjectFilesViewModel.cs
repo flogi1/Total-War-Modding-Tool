@@ -71,8 +71,11 @@ public sealed class ProjectFilesViewModel : ObservableObject
     /// </summary>
     public string? NewFileDisabledReason(Guid projectId) => _files.DisabledReason(projectId);
 
+    /// <summary>As <see cref="NewFileDisabledReason"/>, for a new table: the game's table versions must be usable (spec 5.5).</summary>
+    public string? NewTableDisabledReason(Guid projectId) => _files.NewTableDisabledReason(projectId);
+
     /// <summary>The text that says why a pack entry cannot be added to the active project (none is active, it cannot be used, another operation runs); null when it can.</summary>
-    public string? AdoptDisabledReason => _projects.Active is { } active ? _files.DisabledReason(active.Id) : _texts.ProjectNoneActive;
+    public string? AdoptDisabledReason => _projects.Active is { } active ? _files.AdoptDisabledReason(active.Id) : _texts.ProjectNoneActive;
 
     /// <summary>
     /// The text that says why a file of the project cannot be renamed or deleted right now (the project, another operation, or a tab of the
@@ -89,7 +92,7 @@ public sealed class ProjectFilesViewModel : ObservableObject
     /// <summary>Asks for a table and a name, creates the empty table and asks to open it.</summary>
     public async Task NewTableAsync(Guid projectId)
     {
-        if (!CanStart(projectId))
+        if (!CanStart(projectId, needsVersions: true))
         {
             return;
         }
@@ -148,7 +151,7 @@ public sealed class ProjectFilesViewModel : ObservableObject
             return;
         }
 
-        if (!CanStart(active.Id))
+        if (!CanStart(active.Id, needsVersions: true))
         {
             return;
         }
@@ -239,14 +242,14 @@ public sealed class ProjectFilesViewModel : ObservableObject
     // False when the command cannot start: another operation runs (nothing to say, as in the other commands), or the project cannot be used or,
     // for a rename or delete of relativeFile, a tab of that file holds work that would be lost (the reason is shown, and no question is
     // asked that could not be answered).
-    private bool CanStart(Guid projectId, string? relativeFile = null)
+    private bool CanStart(Guid projectId, string? relativeFile = null, bool needsVersions = false)
     {
         if (!_projects.CanStartOperation)
         {
             return false;
         }
 
-        if ((_files.DisabledReason(projectId) ?? (relativeFile is null ? null : _files.OpenTabReason(projectId, relativeFile))) is { } reason)
+        if (((needsVersions ? _files.NewTableDisabledReason(projectId) : _files.DisabledReason(projectId)) ?? (relativeFile is null ? null : _files.OpenTabReason(projectId, relativeFile))) is { } reason)
         {
             _dialogs.ShowMessage(_texts.ProjectMessageTitle, reason);
             return false;

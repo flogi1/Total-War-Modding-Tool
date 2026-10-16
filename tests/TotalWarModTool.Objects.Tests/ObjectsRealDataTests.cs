@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using TotalWarModTool.Editing;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
@@ -16,7 +17,7 @@ public class ObjectsRealDataTests
 
     public ObjectsRealDataTests(ITestOutputHelper output) => _output = output;
 
-    private sealed record Context(GameSchema Schema, ReferenceGraph Graph, LoadOrder Order);
+    private sealed record Context(GameSchema Schema, ReferenceGraph Graph, LoadOrder Order, GameTableVersions Versions);
 
     private static readonly Lazy<Context> Shared = new(CreateContext);
 
@@ -27,7 +28,10 @@ public class ObjectsRealDataTests
         var profile = GameProfileLoader.LoadAll(Path.Combine(root, "profiles")).Profiles.Single(p => p.Id == "warhammer_3");
         var catalog = PackCatalog.Scan(profile, RealData.Wh3Dir!, RealData.Wh3Workshop, null, CancellationToken.None);
         var order = LoadOrderResolver.Resolve(new LoadOrderRequest(profile, RealData.Wh3Dir!, catalog, null, null, null));
-        return new Context(schema, ReferenceGraph.Build(schema), order);
+        var versions = GameTableVersionsReader.Read(catalog.Packs, CancellationToken.None);
+        Assert.NotNull(versions.Versions);
+        Assert.Empty(versions.Problems);
+        return new Context(schema, ReferenceGraph.Build(schema, versions.Versions), order, versions.Versions);
     }
 
     private static ObjectBuilder NewBuilder(Context context, long maxCacheBytes = TableStore.DefaultMaxCacheBytes, TableStore? store = null) =>
@@ -137,6 +141,7 @@ public class ObjectsRealDataTests
         var present = 0;
         long rows = 0;
         long olderLayoutRows = 0;
+        long olderLayoutVanillaRows = 0;
         var problemsByKind = new Dictionary<SourceProblemKind, int>();
         foreach (var name in context.Schema.Tables.Keys)
         {
@@ -148,6 +153,7 @@ public class ObjectsRealDataTests
 
             rows += table.Rows.Count;
             olderLayoutRows += table.Rows.Count(r => r.Provenance.OlderLayout);
+            olderLayoutVanillaRows += table.Rows.Count(r => r.Provenance.OlderLayout && r.Provenance.Source.Kind == SourceKind.Vanilla);
             foreach (var problem in table.Problems)
             {
                 problemsByKind[problem.Kind] = problemsByKind.GetValueOrDefault(problem.Kind) + 1;
@@ -156,7 +162,7 @@ public class ObjectsRealDataTests
 
         watch.Stop();
         _output.WriteLine($"Merged {context.Schema.Tables.Count} schema tables ({present} with rows or problems), {rows} rows in {watch.ElapsedMilliseconds} ms");
-        _output.WriteLine($"Cache: {store.CachedTables} tables, {store.CachedBytes / (1024 * 1024)} MB; rows with an older layout: {olderLayoutRows}");
+        _output.WriteLine($"Cache: {store.CachedTables} tables, {store.CachedBytes / (1024 * 1024)} MB; rows with an older layout: {olderLayoutRows} ({olderLayoutVanillaRows} from vanilla sources)");
         foreach (var (kind, count) in problemsByKind.OrderBy(p => p.Key))
         {
             _output.WriteLine($"  problems {kind}: {count}");
@@ -169,6 +175,8 @@ public class ObjectsRealDataTests
 
         Assert.True(present > 0);
         Assert.True(rows > 0);
+        // The current definition is the game's version, so only mod files can have another layout.
+        Assert.Equal(0, olderLayoutVanillaRows);
         if (!hasMods)
         {
             Assert.Equal(0, olderLayoutRows);
@@ -179,6 +187,8 @@ public class ObjectsRealDataTests
 
     private static readonly Lazy<IReadOnlyDictionary<string, CategoryDefinition>> Categories = new(() =>
         CategoryDefinitions.LoadAll(Path.Combine(RepoRoot.Find(), "profiles", "warhammer_3", "objects")).ByRootTable);
+
+    private static string NoIntegerKey(string table, string field) => throw new InvalidOperationException("unexpected integer key for " + table + "." + field);
 
     private static CategoryDefinition? CategoryOf(string table) => Categories.Value.GetValueOrDefault(table);
 
@@ -274,11 +284,13 @@ public class ObjectsRealDataTests
     [RealDataFact] public void Copying_the_barracks_follows_the_copy_rule()
     {
         var context = Shared.Value;
-        var builder = NewBuilder(context);
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
         var source = builder.Build(Id("building_levels_tables", "wh_main_emp_barracks_2"), context.Order, null, CancellationToken.None);
         var newId = Id("building_levels_tables", "twmt_test_barracks");
+        var allocator = RandomIntegerKeys.Create(new Random(1), (t, f, v) => store.Get(t, context.Order, CancellationToken.None).FindByField(f, v).Count > 0);
 
-        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph);
+        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph, allocator);
         var copy = result.Objects[0];
         var empty = new ObjectView(newId, null, [], [], [], context.Order, []);
         var changes = ObjectDiff.Compute(empty, copy, CategoryOf("building_levels_tables"), context.Graph, null);
@@ -310,8 +322,247 @@ public class ObjectsRealDataTests
         Assert.Contains(copy.Sections, s => s.SourceTable == "building_effects_junction_tables");
         Assert.DoesNotContain(copy.Sections, s => s.SourceTable == "cai_construction_system_synergies_tables");
         Assert.Contains(result.Notes, n => n is { Kind: CopyNoteKind.ForeignKeyRows, Table: "technologies_tables" });
+        Assert.DoesNotContain(result.Notes, n => n.Table == "building_units_allowed_tables");
+        var sourceUnits = Assert.Single(source.Sections, s => s.SourceTable == "building_units_allowed_tables");
+        var copiedUnits = Assert.Single(copy.Sections, s => s.SourceTable == "building_units_allowed_tables");
+        Assert.Equal(sourceUnits.Rows.Count, copiedUnits.Rows.Count);
+        var sourceKeys = sourceUnits.Rows.Select(r => r.Fields.First(f => f.Name == "key").Text).ToHashSet(StringComparer.Ordinal);
+        Assert.All(copiedUnits.Rows, r => Assert.DoesNotContain(r.Fields.First(f => f.Name == "key").Text, sourceKeys));
         Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
         Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+
+        var copyChanges = ObjectCopy.Changes(result, context.Order, CategoryOf, context.Graph, null);
+        Assert.Equal(changes.Rows.Count, copyChanges.Rows.Count);
+        Assert.Empty(ObjectCopy.TakenKeys(copyChanges, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
+    }
+
+    private static BuildingWizardDefinition BuildingDefinition() =>
+        WizardDefinitionLoader.Load(Path.Combine(RepoRoot.Find(), "profiles", "warhammer_3", WizardDefinitionLoader.FileName)).Definitions!.Building!;
+
+    private sealed record WizardRun(BuildingWizardDefinition Definition, BuildingCatalog Catalog, ObjectBuilder Builder, TableStore Store, Context Context);
+
+    private static WizardRun NewWizardRun()
+    {
+        var context = Shared.Value;
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
+        var definition = BuildingDefinition();
+        var loc = new LocStore().Get(context.Order, CancellationToken.None);
+        var catalog = BuildingWizard.Catalog(definition, name => store.Get(name, context.Order, CancellationToken.None), loc);
+        return new WizardRun(definition, catalog, builder, store, context);
+    }
+
+    private static string Cell(RowChange row, ReferenceGraph graph, string field)
+    {
+        var fields = graph.Current(row.Table)!.Fields;
+        for (var i = 0; i < fields.Count; i++)
+        {
+            if (string.Equals(fields[i].Name, field, StringComparison.OrdinalIgnoreCase))
+            {
+                return row.Cells[i];
+            }
+        }
+
+        throw new InvalidOperationException(row.Table + " has no field " + field);
+    }
+
+    private static TemplateChain TemplateOf(WizardRun run, string templateKey)
+    {
+        var chain = run.Catalog.ChainOf(templateKey)!;
+        return new TemplateChain(templateKey, chain, run.Catalog.StagesOf(chain).Select(s => s.LevelKey).ToList());
+    }
+
+    private static CopyResult CopyBarracks3(WizardRun run, string newKey) => CopyLevel(run, "wh_main_emp_barracks_3", newKey);
+
+    private static CopyResult CopyLevel(WizardRun run, string templateKey, string newKey)
+    {
+        var source = run.Builder.Build(Id(run.Definition.LevelTable, templateKey), run.Context.Order, null, CancellationToken.None);
+        var allocator = RandomIntegerKeys.Create(new Random(1),
+            (t, f, v) => run.Store.Get(t, run.Context.Order, CancellationToken.None).FindByField(f, v).Count > 0);
+        return ObjectCopy.Rename(source, Id(run.Definition.LevelTable, newKey),
+            id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, run.Context.Graph, allocator);
+    }
+
+    private void PrintComposed(CopyResult composed, ObjectChanges changes)
+    {
+        _output.WriteLine($"Composed: {composed.Objects.Count} object(s), {changes.Rows.Count} rows, {changes.Texts.Count} texts");
+        foreach (var group in changes.Rows.GroupBy(r => r.Table))
+        {
+            _output.WriteLine($"  insert {group.Key}: {group.Count()}");
+        }
+
+        foreach (var note in composed.Notes)
+        {
+            _output.WriteLine($"  note {note.Kind} {note.Table}: {note.Count}");
+        }
+    }
+
+    [RealDataFact] public void The_building_wizard_copies_barracks_3_as_a_stage_after_it()
+    {
+        var run = NewWizardRun();
+        var graph = run.Context.Graph;
+        var chain = run.Catalog.ChainOf("wh_main_emp_barracks_3");
+        Assert.NotNull(chain);
+        var stages = run.Catalog.StagesOf(chain);
+        var after = Assert.Single(stages, s => s.LevelKey == "wh_main_emp_barracks_3");
+        var levelCopy = CopyBarracks3(run, "twmt_test_barracks_4");
+
+        var composed = BuildingWizard.Compose(run.Definition, levelCopy, null, after, " (copy)", graph, null);
+        var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
+        PrintComposed(composed, changes);
+
+        Assert.Empty(ObjectCopy.TakenKeys(changes, graph, (t, k) => run.Store.Get(t, run.Context.Order, CancellationToken.None).FindByKey(k).Count > 0));
+        var upgrade = Assert.Single(changes.Rows, r => r.Table == run.Definition.UpgradeTable);
+        Assert.Equal(RowChangeKind.Insert, upgrade.Kind);
+        Assert.Equal("wh_main_emp_barracks_3", Cell(upgrade, graph, run.Definition.UpgradeFromField));
+        Assert.Equal("twmt_test_barracks_4", Cell(upgrade, graph, run.Definition.UpgradeToField));
+        var level = Assert.Single(changes.Rows, r => r.Table == run.Definition.LevelTable);
+        Assert.Equal((after.Level + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), Cell(level, graph, run.Definition.LevelField));
+        Assert.Equal(stages.Max(s => s.Level), after.Level);
+        Assert.Equal(chain, Cell(level, graph, run.Definition.ChainField));
+        Assert.Contains(changes.Rows, r => r.Table == "building_units_allowed_tables");
+        Assert.Single(composed.Objects);
+        Assert.DoesNotContain(composed.Notes, n => n.Kind == CopyNoteKind.NoChain);
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [RealDataFact] public void The_building_wizard_copies_barracks_3_with_a_new_chain()
+    {
+        var run = NewWizardRun();
+        var graph = run.Context.Graph;
+        var chain = run.Catalog.ChainOf("wh_main_emp_barracks_3");
+        Assert.NotNull(chain);
+        var levelCopy = CopyBarracks3(run, "twmt_test_barracks_4");
+        var chainSource = run.Builder.Build(Id(run.Definition.ChainTable, chain), run.Context.Order, null, CancellationToken.None);
+        var chainCopy = ObjectCopy.Rename(chainSource, BuildingWizard.ChainIdFor(run.Definition, "twmt_test_barracks_4"),
+            id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, graph, NoIntegerKey);
+
+        var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)", graph, TemplateOf(run, "wh_main_emp_barracks_3"));
+        var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
+        PrintComposed(composed, changes);
+
+        Assert.Empty(ObjectCopy.TakenKeys(changes, graph, (t, k) => run.Store.Get(t, run.Context.Order, CancellationToken.None).FindByKey(k).Count > 0));
+        Assert.DoesNotContain(changes.Rows, r => r.Table == run.Definition.UpgradeTable);
+        var level = Assert.Single(changes.Rows, r => r.Table == run.Definition.LevelTable);
+        Assert.Equal("0", Cell(level, graph, run.Definition.LevelField));
+        Assert.Equal("twmt_test_barracks_4_chain", Cell(level, graph, run.Definition.ChainField));
+        Assert.Contains(changes.Rows, r => r.Table == run.Definition.ChainTable && Cell(r, graph, "key") == "twmt_test_barracks_4_chain");
+        Assert.DoesNotContain(composed.Notes, n => n.Table == run.Definition.LevelTable);
+        Assert.DoesNotContain(composed.Notes, n => n.Kind == CopyNoteKind.NoChain);
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [RealDataFact] public void Building_wizard_writes_building_levels_in_the_game_version()
+    {
+        var run = NewWizardRun();
+        var graph = run.Context.Graph;
+        var gameVersion = run.Context.Versions.VersionOf("building_levels_tables");
+        Assert.NotNull(gameVersion);
+        var chain = run.Catalog.ChainOf("wh_main_emp_barracks_1");
+        Assert.NotNull(chain);
+        var levelCopy = CopyLevel(run, "wh_main_emp_barracks_1", "twmt_test_barracks_1b");
+        var chainSource = run.Builder.Build(Id(run.Definition.ChainTable, chain), run.Context.Order, null, CancellationToken.None);
+        var chainCopy = ObjectCopy.Rename(chainSource, BuildingWizard.ChainIdFor(run.Definition, "twmt_test_barracks_1b"),
+            id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, graph, NoIntegerKey);
+        var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)", graph, TemplateOf(run, "wh_main_emp_barracks_1"));
+        var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
+
+        var plan = ProjectWritePlan.Compute(changes, ProjectSnapshot.Empty, run.Context.Schema, graph, "TwmtVersionTest", WriteAnswers.None);
+
+        _output.WriteLine($"Plan: {plan.Files.Count} files, {plan.Errors.Count} errors, game version of building_levels_tables {gameVersion}");
+        Assert.Empty(plan.Errors);
+        Assert.Empty(plan.TargetQuestions);
+        var levels = Assert.Single(plan.Files, f => f.RelativeFile.Contains("building_levels_tables", StringComparison.Ordinal));
+        var read = TableTsv.Read(levels.NewText, run.Context.Schema);
+        Assert.NotNull(read.Table);
+        Assert.Equal(gameVersion, read.Table.Version);
+        foreach (var file in plan.Files)
+        {
+            var parsed = TableTsv.Read(file.NewText, run.Context.Schema);
+            if (parsed.Table is { } table)
+            {
+                Assert.Equal(run.Context.Versions.VersionOf(table.TableName) ?? table.Version, table.Version);
+            }
+        }
+    }
+
+    [RealDataFact] public void A_new_chain_of_a_template_never_holds_or_points_at_a_stage_of_the_template_chain()
+    {
+        var run = NewWizardRun();
+        var graph = run.Context.Graph;
+        var subcultures = new List<string> { "wh_main_sc_emp_empire" };
+        subcultures.AddRange(run.Catalog.Subcultures.Select(s => s.Key).Where(k => k != "wh_main_sc_emp_empire").Take(2));
+        Assert.Equal(3, subcultures.Count);
+
+        var checkedTemplates = 0;
+        var withStageSubObject = 0;
+        foreach (var subculture in subcultures)
+        {
+            foreach (var template in run.Catalog.TemplatesOf(subculture).Take(30))
+            {
+                var chain = run.Catalog.ChainOf(template.Key);
+                if (chain is null)
+                {
+                    continue;
+                }
+
+                var newKey = "twmt_test_" + template.Key;
+                var levelCopy = CopyLevel(run, template.Key, newKey);
+                var chainSource = run.Builder.Build(Id(run.Definition.ChainTable, chain), run.Context.Order, null, CancellationToken.None);
+                var chainCopy = ObjectCopy.Rename(chainSource, BuildingWizard.ChainIdFor(run.Definition, newKey),
+                    id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, graph,
+                    RandomIntegerKeys.Create(new Random(2), (t, f, v) => run.Store.Get(t, run.Context.Order, CancellationToken.None).FindByField(f, v).Count > 0));
+                if (chainCopy.Objects.Any(o => string.Equals(o.Id.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)))
+                {
+                    withStageSubObject++;
+                }
+
+                var templateChain = TemplateOf(run, template.Key);
+                var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)", graph, templateChain);
+
+                var levels = composed.Objects.Where(o => string.Equals(o.Id.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)).ToList();
+                Assert.True(levels.Count == 1, $"{template.Key}: {levels.Count} objects of the level table");
+                Assert.Equal(newKey, levels[0].Id.KeyValues[0]);
+
+                // No copied row points at a stage of the template chain, and the copy holds no insert twice.
+                var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
+                var stages = templateChain.StageKeys.ToHashSet(StringComparer.Ordinal);
+                foreach (var row in changes.Rows.Where(r => !string.Equals(r.Table, run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var fields = graph.Current(row.Table)!.Fields;
+                    for (var i = 0; i < fields.Count; i++)
+                    {
+                        var pointsAtLevel = fields[i].Reference is { } reference
+                            && string.Equals(graph.ResolveTableName(reference.Table), run.Definition.LevelTable, StringComparison.OrdinalIgnoreCase);
+                        Assert.False(pointsAtLevel && stages.Contains(row.Cells[i]), $"{template.Key}: {row.Table}.{fields[i].Name} = {row.Cells[i]}");
+                    }
+                }
+
+                var twice = ObjectCopy.TakenKeys(changes, graph, (_, _) => false);
+                Assert.True(twice.Count == 0, $"{template.Key}: {string.Join("; ", twice.Select(t => t.Table + " " + string.Join("|", t.KeyValues)))}");
+                var textTwice = changes.Texts.GroupBy(t => t.Key, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+                Assert.True(textTwice.Count == 0, $"{template.Key}: texts twice {string.Join(", ", textTwice)}");
+                checkedTemplates++;
+            }
+        }
+
+        _output.WriteLine($"Checked {checkedTemplates} template(s) of {string.Join(", ", subcultures)}; chain copy held a stage as sub-object in {withStageSubObject}");
+        Assert.True(checkedTemplates > 0);
+    }
+
+    [RealDataFact] public void The_empire_has_templates()
+    {
+        var run = NewWizardRun();
+
+        var templates = run.Catalog.TemplatesOf("wh_main_sc_emp_empire");
+        var named = templates.Count(t => t.Name is not null);
+        _output.WriteLine($"Subcultures: {run.Catalog.Subcultures.Count}; templates of the empire: {templates.Count}, {named} with a name");
+
+        Assert.Contains(run.Catalog.Subcultures, s => s.Key == "wh_main_sc_emp_empire");
+        Assert.Contains(templates, t => t.Key == "wh_main_emp_barracks_3");
+        Assert.True(named > 0);
+        Assert.Equal(templates.Count, templates.Select(t => t.Key).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(templates, t => Assert.True(run.Catalog.HasLevel(t.Key)));
     }
 
     [RealDataFact] public void Copying_a_trait_copies_its_levels_as_sub_objects()
@@ -323,7 +574,7 @@ public class ObjectsRealDataTests
         var source = builder.Build(traitId, context.Order, null, CancellationToken.None);
         var newId = Id("character_traits_tables", "twmt_test_" + traitId.KeyValues[0]);
 
-        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph);
+        var result = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph, NoIntegerKey);
 
         var prefix = traitId.KeyValues[0] + "_";
         var levels = source.Sections.Where(s => s.SourceTable == "character_trait_levels_tables").SelectMany(s => s.Rows)
@@ -345,6 +596,45 @@ public class ObjectsRealDataTests
             Assert.Equal("character_trait_levels_tables", sub.Id.Table);
             Assert.StartsWith(newId.KeyValues[0] + "_", sub.Id.KeyValues[0], StringComparison.Ordinal);
         });
+
+        var changes = ObjectCopy.Changes(result, context.Order, CategoryOf, context.Graph, null);
+        Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(ObjectCopy.TakenKeys(changes, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
+    }
+
+    [RealDataFact] public void The_trait_wizard_copies_a_trait_with_its_levels_without_taken_keys()
+    {
+        var context = Shared.Value;
+        var store = new TableStore(context.Schema, context.Graph);
+        var builder = NewBuilder(context, store: store);
+        var definition = WizardDefinitionLoader.Load(Path.Combine(RepoRoot.Find(), "profiles", "warhammer_3", WizardDefinitionLoader.FileName)).Definitions!.Trait!;
+        Assert.Empty(definition.MissingIn(context.Graph));
+        var loc = new LocStore().Get(context.Order, CancellationToken.None);
+        var traits = store.Get(definition.TraitTable, context.Order, CancellationToken.None);
+
+        var templates = TraitWizard.Templates(definition, traits, loc);
+        var traitId = FirstTraitWithLevels(builder, store);
+        var source = builder.Build(traitId, context.Order, null, CancellationToken.None);
+        var newId = Id(definition.TraitTable, "twmt_test_" + traitId.KeyValues[0]);
+        var allocator = RandomIntegerKeys.Create(new Random(1), (t, f, v) => store.Get(t, context.Order, CancellationToken.None).FindByField(f, v).Count > 0);
+        var copy = ObjectCopy.Rename(source, newId, id => builder.Build(id, context.Order, null, CancellationToken.None), CategoryOf, context.Graph, allocator);
+
+        var composed = TraitWizard.Compose(definition, copy, " (copy)");
+        var changes = ObjectCopy.Changes(composed, context.Order, CategoryOf, context.Graph, null);
+        _output.WriteLine($"Traits: {templates.Count} templates, {templates.Count(t => t.Name is not null)} with a name; trait {traitId}: "
+            + $"{composed.Objects.Count} object(s), {changes.Rows.Count} rows, {changes.Texts.Count} texts");
+
+        Assert.Equal(traits.Rows.Count, templates.Count);
+        Assert.Contains(templates, t => t.Key == traitId.KeyValues[0]);
+        Assert.Contains(templates, t => t.Name is not null);
+        Assert.True(composed.Objects.Count > 1);
+        Assert.Contains(changes.Rows, r => r.Table == definition.TraitTable);
+        Assert.NotEmpty(changes.Texts);
+        Assert.Contains(changes.Texts, t => t.Text.EndsWith(" (copy)", StringComparison.Ordinal));
+        Assert.All(changes.Rows, r => Assert.Equal(RowChangeKind.Insert, r.Kind));
+        Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(ObjectCopy.TakenKeys(changes, context.Graph, (t, k) => store.Get(t, context.Order, CancellationToken.None).FindByKey(k).Count > 0));
     }
 
     [RealDataFact] public void No_value_holds_a_control_character_or_the_dialect_escape()

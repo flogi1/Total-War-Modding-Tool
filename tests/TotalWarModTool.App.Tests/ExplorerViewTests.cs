@@ -314,6 +314,7 @@ public class ExplorerViewTests
     private static async Task<FilesSetup> CreateWithFiles(Action<TestGame> arrange, Action<TestGame, ProjectsController>? projects = null)
     {
         var game = new TestGame(); arrange(game);
+        game.EnsureTableVersions();
         var controller = game.NewController();
         var p = game.NewProjects(controller);
         projects?.Invoke(game, p);
@@ -346,13 +347,17 @@ public class ExplorerViewTests
         return Enumerable.Range(0, menu.Items.Count).Select(i => Assert.IsType<MenuItem>(menu.ItemContainerGenerator.ContainerFromIndex(i))).ToList();
     }
 
+    // The group that holds a pack; the test game has a vanilla pack of its own (EnsureTableVersions) in another group.
+    private static GroupNode GroupOf(ExplorerViewModel vm, string pack) =>
+        vm.Groups.OfType<GroupNode>().Single(group => group.Children.OfType<PackNode>().Any(node => node.Name == pack));
+
     [Fact] public void The_menu_of_an_entry_reads_its_actions_each_time_it_opens() => Sta.RunAsync(async () =>
     {
         using var setup = await CreateWithFiles(g => g.AddPack("a.pack", ("readme.txt", "hello"u8.ToArray())));
         var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
-        var pack = vm.Groups.OfType<GroupNode>().Single().Children.OfType<PackNode>().Single();
+        var pack = GroupOf(vm, "a.pack").Children.OfType<PackNode>().Single(p => p.Name == "a.pack");
         pack.IsExpanded = true;
-        var groupContainer = ContainerOf(window, setup.Setup.Tree, vm.Groups[1]);
+        var groupContainer = ContainerOf(window, setup.Setup.Tree, GroupOf(vm, "a.pack"));
         var packContainer = ContainerOf(window, groupContainer, pack);
         var entry = pack.Children.OfType<EntryNode>().Single();
         var row = RowOf(ContainerOf(window, packContainer, entry), entry);
@@ -407,10 +412,10 @@ public class ExplorerViewTests
     {
         using var setup = await CreateWithFiles(g => g.AddPack("a.pack", ("a.loc", new byte[] { 1 })), (g, p) => g.NewProject(p, "Alpha"));
         var vm = setup.Setup.ViewModel; var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts;
-        var pack = vm.Groups.OfType<GroupNode>().Single().Children.OfType<PackNode>().Single();
+        var pack = GroupOf(vm, "a.pack").Children.OfType<PackNode>().Single(p => p.Name == "a.pack");
         pack.IsExpanded = true;
         var entry = pack.Children.OfType<EntryNode>().Single();
-        var row = RowOf(ContainerOf(window, ContainerOf(window, ContainerOf(window, setup.Setup.Tree, vm.Groups[1]), pack), entry), entry);
+        var row = RowOf(ContainerOf(window, ContainerOf(window, ContainerOf(window, setup.Setup.Tree, GroupOf(vm, "a.pack")), pack), entry), entry);
 
         var items = OpenMenu(window, row);
         try

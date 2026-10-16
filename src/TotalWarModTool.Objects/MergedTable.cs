@@ -62,7 +62,7 @@ public sealed class MergedTable
 
     public string TableName { get; }
 
-    /// <summary>Latest schema definition; null when the schema does not know the table (then Rows is empty).</summary>
+    /// <summary>The current definition (the game's version); null when the schema does not know the table (then Rows is empty).</summary>
     public TableDefinition? Definition { get; }
 
     public IReadOnlyList<int> KeyFields { get; }

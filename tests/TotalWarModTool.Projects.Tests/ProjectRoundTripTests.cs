@@ -17,10 +17,10 @@ public class ProjectRoundTripTests
     private static string ImportAndBuild(TempDir dir, string source, out ImportReport report, out BuildPlan plan)
     {
         var request = new ImportRequest(source, Path.Combine(dir.Path, "project"), "Round Trip", "warhammer_3", "round_trip.pack", Vanilla);
-        report = PackImporter.Import(request, TestData.Schema, null, CancellationToken.None);
+        report = PackImporter.Import(request, TestData.Schema, GameTableVersions.Empty, null, CancellationToken.None);
         Assert.Equal(ImportProblem.None, report.Problem);
 
-        plan = ProjectBuilder.ComputeBuild(request.TargetFolder, report.Project!, TestData.Schema, () => Guid.NewGuid().ToString(), null, CancellationToken.None);
+        plan = ProjectBuilder.ComputeBuild(request.TargetFolder, report.Project!, TestData.Schema, GameTableVersions.Empty, () => Guid.NewGuid().ToString(), null, CancellationToken.None);
         Assert.True(plan.Problems.Count == 0, string.Join("; ", plan.Problems.Take(5).Select(p => p.RelativeFile + ": " + p.Detail)));
         var built = ProjectBuilder.WriteBuild(request.TargetFolder, report.Project!, plan, DateTimeOffset.UnixEpoch, null, CancellationToken.None);
         Assert.Equal(BuildOutcome.Built, built.Outcome);

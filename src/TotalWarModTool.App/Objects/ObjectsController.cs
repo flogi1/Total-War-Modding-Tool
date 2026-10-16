@@ -7,6 +7,7 @@ using TotalWarModTool.Logging;
 using TotalWarModTool.Objects;
 using TotalWarModTool.Operations;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
@@ -68,6 +69,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
         _openEntry = openEntry;
         _openProjectFile = openProjectFile;
         _categories = LoadCategories(paths, workspace.Profile);
+        Wizards = LoadWizards(paths, workspace.Profile);
         _seenCatalog = workspace.Catalog;
 
         workspace.Changed += (_, _) => OnWorkspaceChanged();
@@ -97,6 +99,18 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     /// <summary>Set by the composition root: the question before a tab with unapplied text moves on or closes (ObjectApplyController.LeaveAsync). Copied to every tab made after it was set.</summary>
     internal Func<ObjectTabViewModel, Task<bool>>? LeaveHandler { get; set; }
+
+    /// <summary>Set by the composition root like ApplyHandler (ObjectApplyController.CopyAsync), copied to every new tab through RunGuardedAsync.</summary>
+    internal Func<ObjectTabViewModel, Task>? CopyHandler { get; set; }
+
+    /// <summary>The wizards of the game profile (wizards.json beside the category files); null when the file is missing or cannot be used (logged).</summary>
+    internal WizardDefinitions? Wizards { get; }
+
+    /// <summary>The selected tab when it is an object tab; null otherwise.</summary>
+    internal ObjectTabViewModel? SelectedObjectTab => _tabs.SelectedTab as ObjectTabViewModel;
+
+    /// <summary>The random source of new integer keys; Random.Shared unless a test sets a seeded one.</summary>
+    internal Random KeyRandom { get; set; } = Random.Shared;
 
     /// <summary>The answer of <see cref="DisabledReason"/> may have changed: the workspace changed, or an own operation ended.</summary>
     public event EventHandler? Changed;
@@ -131,7 +145,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
             return;
         }
 
-        var stores = _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath);
+        var stores = _stores ??= ObjectStores.Create(_workspace.Schema!, CurrentVersions(), context.InstallPath);
         var started = tab.Current;
         var category = _categories.GetValueOrDefault(started.Table);
         tab.SetCategoryProblem(_unreadableCategories.Contains(started.Table));
@@ -202,13 +216,27 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     private string? MissingReason()
     {
-        if (_workspace.Status != GameStatus.Found || _workspace.Catalog is null || _workspace.Location is null || _workspace.Profile is null)
+        if (_workspace.Status != GameStatus.Found || _workspace.Location is null || _workspace.Profile is null)
+        {
+            return _texts.ObjectsNoGame;
+        }
+
+        // Before the catalog: until the first load ended, the answer is "still being read", not "no game".
+        if (_workspace.TableVersionsMissingReason is { } versionsReason)
+        {
+            return versionsReason;
+        }
+
+        if (_workspace.Catalog is null)
         {
             return _texts.ObjectsNoGame;
         }
 
         return _workspace.Schema?.Schema is null ? _texts.ObjectsNoSchema : null;
     }
+
+    // The versions the stores are made for; only called after MissingReason() was null, which means they are complete.
+    private GameTableVersions CurrentVersions() => _workspace.TableVersions!.Versions!;
 
     private bool IsBusy => _runner.IsRunning || !_workspace.CanStartOperation;
 
@@ -217,7 +245,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     /// <summary>The stores of the current schema and game folder, made when missing; null without a game or a schema.</summary>
     internal ObjectStores? EnsureStores() =>
-        MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath) : null;
+        MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, CurrentVersions(), context.InstallPath) : null;
 
     /// <summary>
     /// The check while typing: parses the text of the tab against its result and diffs it, without reference checks (the apply checks those).
@@ -246,8 +274,29 @@ public sealed partial class ObjectsController : IRowObjectOpener
         }
     }
 
-    // Why no tab can apply now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.
-    private string? ApplyEnvironmentReason() =>
+    /// <summary>The category file of a root table; null when there is none.</summary>
+    internal CategoryDefinition? CategoryOf(string table) => _categories.GetValueOrDefault(table);
+
+    /// <summary>The load order without a root pack, as a closure that reads the files when it runs (inside the runner); null without a game.</summary>
+    internal Func<LoadOrder>? CaptureOrder() =>
+        CurrentContext() is { } context
+            ? () => LoadOrderResolver.Resolve(new LoadOrderRequest(context.Profile, context.InstallPath, context.Catalog, context.ProjectFolder,
+                context.ProjectName, null))
+            : null;
+
+    /// <summary>A new allocator for one copy: random integer keys that no row of the table in the load order has in the field.</summary>
+    internal NewIntegerKey IntegerKeys(ObjectStores stores, LoadOrder order, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(stores);
+        ArgumentNullException.ThrowIfNull(order);
+        return RandomIntegerKeys.Create(KeyRandom, (table, field, value) => stores.Tables.Get(table, order, ct).FindByField(field, value).Count > 0);
+    }
+
+    /// <summary>Why nothing can be built or copied now, whatever the project: no game, no schema, another operation runs; null when none of these.</summary>
+    internal string? EnvironmentReason() => MissingReason() ?? (IsBusy ? _texts.ProjectBusy : null);
+
+    /// <summary>Why no tab can apply or copy now, whatever its own state: no active usable project, or another operation runs. Null when none of the two.</summary>
+    internal string? ApplyEnvironmentReason() =>
         _projects?.Active is not { IsUsable: true } ? _texts.ObjectsApplyNoProject : IsBusy ? _texts.ProjectBusy : null;
 
     // The answers of ApplyEnvironmentReason may have changed for every open object tab.
@@ -277,11 +326,12 @@ public sealed partial class ObjectsController : IRowObjectOpener
     {
         if (_stores is { } stores
             && (SchemaDiffers(stores.Schema, _workspace.Schema)
-                || !string.Equals(stores.InstallPath, _workspace.Location?.InstallPath, StringComparison.OrdinalIgnoreCase)))
+                || !string.Equals(stores.InstallPath, _workspace.Location?.InstallPath, StringComparison.OrdinalIgnoreCase)
+                || VersionsDiffer(stores.GameVersions, _workspace.TableVersions)))
         {
             stores.Clear();
             _stores = null;
-            _log.Info("The stores of the object view were discarded: the schema or the game folder changed.");
+            _log.Info("The stores of the object view were discarded: the schema, the game folder or the game's table versions changed.");
             foreach (var tab in ObjectTabs)
             {
                 tab.MarkSchemaStale();
@@ -297,6 +347,10 @@ public sealed partial class ObjectsController : IRowObjectOpener
             StartStaleCheck();
         }
     }
+
+    // Equal content read again (a refresh) is no change. A missing or incomplete result drops the stores: the object view is disabled then anyway.
+    private static bool VersionsDiffer(GameTableVersions before, GameTableVersionsResult? after) =>
+        after is not { IsComplete: true, Versions: { } versions } || !before.SameAs(versions);
 
     // As MainViewModel decides it: a reload that resolves the same file with the same date is no change.
     private static bool SchemaDiffers(ResolvedSchema before, ResolvedSchema? after) =>
@@ -324,6 +378,22 @@ public sealed partial class ObjectsController : IRowObjectOpener
         }
 
         return loaded.ByRootTable;
+    }
+
+    private WizardDefinitions? LoadWizards(AppPaths paths, GameProfile? profile)
+    {
+        if (profile is null)
+        {
+            return null;
+        }
+
+        var loaded = WizardDefinitionLoader.Load(Path.Combine(paths.ProfilesDirectory, profile.Id, WizardDefinitionLoader.FileName));
+        if (loaded.Problem is { } problem)
+        {
+            _log.Warn($"The wizard file {WizardDefinitionLoader.FileName} was skipped: {DisplayText.Safe(problem)}");
+        }
+
+        return loaded.Definitions;
     }
 
     private static bool IsEdgeFailure(Exception ex) =>

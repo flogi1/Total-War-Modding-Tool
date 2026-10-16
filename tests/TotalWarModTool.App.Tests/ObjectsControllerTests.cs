@@ -572,4 +572,65 @@ public class ObjectsControllerTests
         Assert.Null(tab.CheckHandler!(tab));
         Assert.Null(setup.Controller.Stores);
     }
+
+    // ---- the table versions of the game (spec 5.5, 5.8) --------------------------------------------------------------------------
+
+    [Fact] public async Task Object_tabs_report_the_missing_versions()
+    {
+        using var setup = await CreateAsync(game => game.AddBrokenVanillaPack("broken.pack"));
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+
+        // The read was incomplete: nothing is shown, and no stores are made.
+        Assert.Equal(setup.Texts.TableVersionsIncomplete, setup.Controller.DisabledReason(table));
+        Assert.Equal(setup.Texts.TableVersionsIncomplete, setup.Controller.EnvironmentReason());
+        Assert.Null(setup.Controller.EnsureStores());
+
+        // Before the first load ended the versions are being read: the answer is "reading", not "no game".
+        var unloaded = setup.Game.NewController(profile: ObjectsTestSchema.Profile);
+        var main = setup.Game.NewMain(unloaded, withDocuments: true);
+        var waiting = new ObjectsController(unloaded, main.Projects, main.Documents, main.Main.Tabs, setup.Game.Runner, setup.Game.Paths, setup.Game.Log,
+            setup.Game.Texts, key => key, main.Main.OpenEntryAsync, main.Main.OpenProjectFileAsync);
+        Assert.Null(unloaded.TableVersions);
+        Assert.Equal(setup.Texts.TableVersionsReading, waiting.DisabledReason(table));
+    }
+
+    [Fact] public async Task Stores_are_dropped_only_when_the_versions_change()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        var stores = setup.Controller.Stores;
+        Assert.NotNull(stores);
+        var versions = setup.Workspace.TableVersions;
+
+        // The same content read again (a new result instance) keeps the stores and marks no tab stale.
+        await setup.Workspace.RefreshAsync();
+        Assert.NotSame(versions, setup.Workspace.TableVersions);
+        Assert.True(setup.Workspace.TableVersions!.Versions!.SameAs(versions!.Versions!));
+        Assert.Same(stores, setup.Controller.Stores);
+        Assert.False(tab.IsStale);
+
+        // Another table in the game's packs is another content: the stores are dropped and the tab is marked.
+        ObjectsTestSchema.WriteZPack(setup.Game, "extra.pack", [["z1"]]);
+        await setup.Workspace.RefreshAsync();
+        Assert.False(setup.Workspace.TableVersions!.Versions!.SameAs(versions.Versions!));
+        Assert.Null(setup.Controller.Stores);
+        Assert.True(tab.IsStale);
+    }
+
+    [Fact] public async Task Stores_are_dropped_when_the_versions_turn_from_complete_to_incomplete()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        Assert.NotNull(setup.Controller.Stores);
+        Assert.True(setup.Workspace.TableVersions!.IsComplete);
+
+        setup.Game.AddBrokenVanillaPack("broken.pack");
+        await setup.Workspace.RefreshAsync();
+
+        Assert.False(setup.Workspace.TableVersions!.IsComplete);
+        Assert.Null(setup.Controller.Stores);
+        Assert.True(tab.IsStale);
+    }
 }

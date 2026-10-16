@@ -20,6 +20,9 @@ public sealed partial class ProjectsController
     // A project name in a title or a log line shows at most this many characters, as in the view model.
     private const int MaxNameChars = 100;
 
+    // An import refused for outdated tables lists at most this many entries.
+    private const int MaxDetailLines = 15;
+
     private readonly ProjectListStore? _store;
     private readonly WorkspaceController _workspace;
     private readonly IOperationRunner _runner;

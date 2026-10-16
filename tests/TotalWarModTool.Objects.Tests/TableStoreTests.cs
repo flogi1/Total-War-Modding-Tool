@@ -1,6 +1,7 @@
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 using static TotalWarModTool.Objects.Tests.TestSchema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -13,7 +14,7 @@ public class TableStoreTests
         ("plain_tables", 1, [Field("x")]));
 
     private static TableStore NewStore(long maxCacheBytes = TableStore.DefaultMaxCacheBytes) =>
-        new(Schema, ReferenceGraph.Build(Schema), maxCacheBytes);
+        new(Schema, ReferenceGraph.Build(Schema, GameTableVersions.Empty), maxCacheBytes);
 
     private static object?[] U(string key, string name, int cost) => [key, name, cost];
 
@@ -81,6 +82,26 @@ public class TableStoreTests
         Assert.Equal(3, old.Cells.Length);
         Assert.Equal("", old.Cells[1]);
         Assert.Equal(5, old.Cells[2]);
+    }
+
+    [Fact]
+    public void A_vanilla_entry_in_the_game_version_is_not_older_layout()
+    {
+        using var tmp = new TempDir();
+        var vanilla = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema,
+            ("units_tables", 1, [["u1", 5]])));
+        var mod = TestSources.Mod(TestSources.WritePack(tmp.File("mod.pack"), Schema,
+            ("units_tables", 2, [U("u2", "Beta", 20)])));
+        var graph = ReferenceGraph.Build(Schema, new GameTableVersions(new Dictionary<string, int> { ["units_tables"] = 1 }));
+        var store = new TableStore(Schema, graph);
+
+        var table = store.Get("units_tables", TestSources.Order(vanilla, mod), None);
+
+        Assert.Empty(table.Problems);
+        Assert.Equal("u1,u2", Keys(table));
+        Assert.Equal(2, table.Definition!.Fields.Count);
+        Assert.False(table.Rows[0].Provenance.OlderLayout);
+        Assert.True(table.Rows[1].Provenance.OlderLayout);
     }
 
     [Fact]
@@ -388,7 +409,7 @@ public class TableStoreTests
         var mod = TestSources.Mod(TestSources.WritePack(tmp.File("mod.pack"), schema,
             ("conv_tables", 1, [["k1", 5]]),
             ("text_tables", 1, [["k1", "abc"], ["k2", "7"]])));
-        var store = new TableStore(schema, ReferenceGraph.Build(schema));
+        var store = new TableStore(schema, ReferenceGraph.Build(schema, GameTableVersions.Empty));
         var order = TestSources.Order(mod);
 
         var converted = store.Get("conv_tables", order, None);

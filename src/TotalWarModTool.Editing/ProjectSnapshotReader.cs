@@ -169,7 +169,8 @@ public static class ProjectSnapshotReader
                 continue;
             }
 
-            var adopted = NewFiles.Adopt(request.EntryPath, content.Bytes, schema, newName: null);
+            // Versions are checked by the write plan.
+            var adopted = NewFiles.Adopt(request.EntryPath, content.Bytes, schema, gameVersions: null, newName: null);
             if (adopted.File is null || adopted.File.Kind != ProjectFileKind.Table)
             {
                 problems.Add(new SnapshotProblem(SnapshotProblemKind.PackEntryNotAdoptable, request.EntryPath, request.Source,

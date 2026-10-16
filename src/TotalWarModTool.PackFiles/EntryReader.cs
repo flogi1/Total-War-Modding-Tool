@@ -21,6 +21,87 @@ internal static class EntryReader
         return content;
     }
 
+    public static EntryContent ReadPrefix(PackIndex index, PackEntry entry, int length, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var content = ReadPrefixCore(index, entry, length, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return content;
+    }
+
+    private static EntryContent ReadPrefixCore(PackIndex index, PackEntry entry, int length, CancellationToken cancellationToken)
+    {
+        if (CheckAccess(index, entry) is { } failure)
+        {
+            return failure;
+        }
+
+        if (!entry.IsCompressed)
+        {
+            return WithStream(index, entry, stream =>
+            {
+                var bytes = new byte[(int)Math.Min(length, entry.StoredSize)];
+                stream.ReadExactly(bytes);
+                return ChangedDuringRead(index) ? ChangedAfterRead() : new EntryContent(bytes, CompressionFormat.None, entry.StoredSize, EntryProblem.None, null);
+            });
+        }
+
+        if (entry.StoredSize == 0)
+        {
+            return new EntryContent([], CompressionFormat.None, 0, EntryProblem.None, null);
+        }
+
+        if (entry.StoredSize <= ProbeLength)
+        {
+            return Fail(EntryProblem.Corrupt, $"A compressed entry needs more than {ProbeLength} bytes but has {entry.StoredSize}.");
+        }
+
+        var zstd = WithStream(index, entry, stream =>
+        {
+            Span<byte> probe = stackalloc byte[ProbeLength];
+            stream.ReadExactly(probe);
+            var size = BitConverter.ToUInt32(probe[..SizePrefixLength]);
+            var format = DetectFormat(probe[SizePrefixLength..]);
+            if (format != CompressionFormat.Zstd)
+            {
+                // Not streamed: the caller falls back to the full read.
+                return new EntryContent(null, format, size, EntryProblem.None, null);
+            }
+
+            var wanted = (int)Math.Min(length, size);
+            var bytes = new byte[wanted];
+            try
+            {
+                stream.Seek(entry.Offset + SizePrefixLength, SeekOrigin.Begin);
+                using var decompression = new ZstdSharp.DecompressionStream(new BoundedStream(stream, entry.StoredSize - SizePrefixLength), leaveOpen: false);
+                var read = decompression.ReadAtLeast(bytes, wanted, throwOnEndOfStream: false);
+                if (read < wanted)
+                {
+                    return Fail(EntryProblem.Corrupt, $"The zstd frame produced {read} bytes but at least {wanted} were expected.", CompressionFormat.Zstd, size);
+                }
+            }
+            catch (ZstdSharp.ZstdException ex)
+            {
+                return Fail(EntryProblem.Corrupt, $"The zstd frame is damaged: {ex.Message}", CompressionFormat.Zstd, size);
+            }
+            catch (EndOfStreamException)
+            {
+                // The bounded stream ends at the entry end, so this is a cut-off frame, not a changed pack.
+                return Fail(EntryProblem.Corrupt, "The zstd frame ends before its content is complete.", CompressionFormat.Zstd, size);
+            }
+
+            return ChangedDuringRead(index) ? ChangedAfterRead() : new EntryContent(bytes, CompressionFormat.Zstd, size, EntryProblem.None, null);
+        });
+
+        if (zstd.Problem != EntryProblem.None || zstd.Format == CompressionFormat.Zstd)
+        {
+            return zstd;
+        }
+
+        var full = ReadCore(index, entry, cancellationToken, PackReader.DefaultMaxEntryBytes);
+        return full.Bytes is { } data && data.Length > length ? full with { Bytes = data[..length] } : full;
+    }
+
     /// <summary>Reads the size prefix and the format id of an entry (at most 8 bytes) and nothing else.</summary>
     public static EntryInfo ReadInfo(PackIndex index, PackEntry entry, CancellationToken cancellationToken)
     {
@@ -240,4 +321,35 @@ internal static class EntryReader
 
     private static EntryContent Fail(EntryProblem problem, string detail, CompressionFormat format = CompressionFormat.None, long size = 0) =>
         new(null, format, size, problem, detail);
+
+    /// <summary>Forward-only view of the next <c>length</c> bytes of a stream, so the decoder never reads into the next entry.</summary>
+    private sealed class BoundedStream(Stream inner, long length) : Stream
+    {
+        private long _remaining = length;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (_remaining == 0 || buffer.Length == 0)
+            {
+                return 0;
+            }
+
+            var read = inner.Read(buffer[..(int)Math.Min(buffer.Length, _remaining)]);
+            _remaining -= read;
+            return read;
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

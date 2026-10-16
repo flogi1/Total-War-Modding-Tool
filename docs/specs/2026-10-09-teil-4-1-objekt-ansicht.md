@@ -209,6 +209,7 @@ Alle Pfade kommen als Parameter (Root-Pfade), damit Tests in Temp-Ordnern laufen
 
 `ReferenceGraph.Build(GameSchema)`:
 - pro Tabelle die neueste Definition (höchste Version) als Grundlage;
+  Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 - `Incoming(table)`: Liste von `(SourceTable, FieldName, TargetColumn)` für jedes Feld mit
   `is_reference` auf diese Tabelle;
 - `IsJunction(table)`: genau zwei Referenzfelder und höchstens vier Felder;
@@ -247,6 +248,7 @@ Ladereihenfolge:
   angehängt.
 - Zusammenführung über Feldnamen: Einträge mit älterer Version (andere Definition) werden auf die
   neueste Definition abgebildet; fehlende Felder bleiben leer, die Zeile trägt `OlderLayout`.
+  Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 - Index pro Feld, das im Referenzgraphen als Quellfeld vorkommt: Wert → Zeilen. Damit ist der
   warme Aufbau eine Dictionary-Abfrage.
 - Nicht dekodierbare Einträge (Pack gesperrt, Tabelle ohne Schema, Version unbekannt, TSV kaputt)

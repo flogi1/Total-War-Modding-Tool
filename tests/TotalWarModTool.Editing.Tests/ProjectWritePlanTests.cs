@@ -28,6 +28,9 @@ public class ProjectWritePlanTests
     internal static WritePlan Plan(ObjectChanges changes, ProjectSnapshot snapshot, string projectName = "Proj", WriteAnswers? answers = null) =>
         ProjectWritePlan.Compute(changes, snapshot, MiniSchema, Graph, projectName, answers ?? WriteAnswers.None);
 
+    private static WritePlan PlanWithGame(ObjectChanges changes, ProjectSnapshot snapshot) =>
+        ProjectWritePlan.Compute(changes, snapshot, MiniSchema, GraphWithGame, "Proj", WriteAnswers.None);
+
     internal static object?[][] Rows(string text) => TableTsv.Read(text, MiniSchema).Table!.Rows.ToArray();
 
     private static RowChange SetX(string key, string note, string extra, RowProvenance provenance, int line = 3, string[]? previous = null, params string[] changed) =>
@@ -261,5 +264,67 @@ public class ProjectWritePlanTests
         var plan = Plan(changes, snapshot, answers: new WriteAnswers(new Dictionary<string, string> { [X] = A }, false));
 
         Assert.Equal([A, B], plan.Files.Select(f => f.RelativeFile).ToArray());
+    }
+
+    [Fact]
+    public void An_insert_into_a_project_file_in_another_version_is_an_error()
+    {
+        var file = TableFile(A, X, 1, [["k1", "b1", "n"]]);
+
+        var plan = PlanWithGame(Changes([InsertX("k9", line: 7), InsertX("k8", line: 8)]), Snapshot(file));
+
+        var error = Assert.Single(plan.Errors, e => e.Kind == WriteErrorKind.OutdatedTableVersion);
+        Assert.Equal(A, error.RelativeFile);
+        Assert.Equal(7, error.Line);
+        Assert.Contains("version 1", error.Detail);
+        Assert.Empty(plan.Files);
+    }
+
+    [Fact]
+    public void A_set_in_a_project_file_in_another_version_is_an_error_and_writes_nothing()
+    {
+        var file = TableFile(A, X, 1, [["k1", "b1", "n"]]);
+
+        var plan = PlanWithGame(Changes([SetX("k1", "x", "1", InA, line: 6)]), Snapshot(file));
+
+        var error = Assert.Single(plan.Errors, e => e.Kind == WriteErrorKind.OutdatedTableVersion);
+        Assert.Equal(A, error.RelativeFile);
+        Assert.DoesNotContain("Delete the file", error.Detail);
+        Assert.Empty(plan.Files);
+    }
+
+    [Fact]
+    public void A_delete_in_a_project_file_in_another_version_is_an_error()
+    {
+        var file = TableFile(A, X, 1, [["k1", "b1", "n"]]);
+        var delete = Change(RowChangeKind.Delete, X, ["k1", "b1", "n", "1"], ["k1", "b1", "n", "1"], InA, 4);
+
+        var plan = PlanWithGame(Changes([delete]), Snapshot(file));
+
+        var error = Assert.Single(plan.Errors, e => e.Kind == WriteErrorKind.OutdatedTableVersion);
+        Assert.Equal(A, error.RelativeFile);
+        Assert.Empty(plan.Files);
+    }
+
+    [Fact]
+    public void A_new_file_is_created_in_the_game_version()
+    {
+        var plan = PlanWithGame(Changes([InsertX("k9")]), Snapshot());
+
+        Assert.Empty(plan.Errors);
+        var planned = Assert.Single(plan.Files);
+        Assert.Equal(PlannedFileKind.Created, planned.Kind);
+        Assert.Equal(2, TableTsv.Read(planned.NewText, MiniSchema).Table!.Version);
+    }
+
+    [Fact]
+    public void A_file_of_a_table_the_game_lacks_takes_changes()
+    {
+        var file = TableFile(@"db\y_tables.tsv", Y, 1, [["b1", "a", "b"]]);
+
+        var plan = PlanWithGame(Changes([Change(RowChangeKind.Insert, Y, ["b1", "a", "b"], null, null, 2)]), Snapshot(file));
+
+        Assert.Empty(plan.Errors);
+        Assert.Single(plan.Files);
     }
 }

@@ -102,6 +102,7 @@ public class DocumentsControllerExternalTests
     private static async Task<Setup> CreateWithRunnerAsync(IOperationRunner? projectsRunner, params (string RelativeFile, string Text)[] files)
     {
         var game = new TestGame();
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         var projects = game.NewProjects(workspace, projectsRunner);

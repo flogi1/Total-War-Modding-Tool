@@ -35,7 +35,7 @@ public class ObjectBuilderTests
 
     private static ObjectBuilder NewBuilder()
     {
-        var graph = ReferenceGraph.Build(Schema);
+        var graph = ReferenceGraph.Build(Schema, GameTableVersions.Empty);
         return new ObjectBuilder(graph, new TableStore(Schema, graph), new LocStore());
     }
 

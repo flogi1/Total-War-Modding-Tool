@@ -49,7 +49,7 @@ public sealed class ObjectBuilder
         ArgumentNullException.ThrowIfNull(order);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var rootDefinition = _graph.Latest(id.Table);
+        var rootDefinition = _graph.Current(id.Table);
         var candidates = FindCandidates(id, rootDefinition);
         long total = candidates.Count + 2;
         long done = 0;
@@ -247,7 +247,7 @@ public sealed class ObjectBuilder
     /// </summary>
     private FieldValue SectionReference(Run run, FieldDefinition field, TableReference reference, string text)
     {
-        if (text.Length > 0 && _graph.Latest(_graph.ResolveTableName(reference.Table)) is null
+        if (text.Length > 0 && _graph.Current(_graph.ResolveTableName(reference.Table)) is null
             && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
         {
             return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText, field.IsKey);
@@ -271,7 +271,7 @@ public sealed class ObjectBuilder
             return null;
         }
 
-        var keyName = _graph.Latest(target)!.Fields[keyFields[0]].Name;
+        var keyName = _graph.Current(target)!.Fields[keyFields[0]].Name;
         return string.Equals(keyName, reference.Column, StringComparison.OrdinalIgnoreCase) ? new ObjectId(target, [text]) : null;
     }
 
@@ -293,7 +293,7 @@ public sealed class ObjectBuilder
             return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.Found, target, name, field.IsKey);
         }
 
-        if (_graph.Latest(targetTable) is null && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
+        if (_graph.Current(targetTable) is null && FindLocOnly(run.Loc!, reference.Table, text) is { } locText)
         {
             return new FieldValue(field.Name, field.Type, text, reference, ReferenceResolution.LocOnly, null, locText, field.IsKey);
         }

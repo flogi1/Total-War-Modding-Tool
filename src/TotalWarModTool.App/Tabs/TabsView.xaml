@@ -209,7 +209,7 @@
         </DataTemplate>
 
         <!--
-            An object: the buttons of the history, refresh, the jump to the row and apply, then the status (its tool tip lists the warnings); under
+            An object: the buttons of the history, refresh, the jump to the row, apply and "copy as", then the status (its tool tip lists the warnings); under
             it the result line of the last apply, the notice and, while the tab is outdated, what changed with a refresh button; then the editor
             with the block text. Alt+Left and Alt+Right move through the history, Ctrl+Enter applies, while the focus is in the tab.
         -->
@@ -236,6 +236,9 @@
                     <Button Command="{Binding ApplyCommand}" Padding="8,2" Margin="4,0,0,0" ToolTipService.ShowOnDisabled="True"
                             Content="{Binding DataContext.Texts.ObjectsApply, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
                             ToolTip="{Binding ApplyToolTip}" />
+                    <Button Command="{Binding CopyCommand}" Padding="8,2" Margin="4,0,0,0" ToolTipService.ShowOnDisabled="True"
+                            Content="{Binding DataContext.Texts.ObjectsCopyAs, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                            ToolTip="{Binding CopyToolTip}" />
                     <TextBlock Text="{Binding Status}" ToolTip="{Binding WarningsText}" Margin="12,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock x:Name="ResultLine" DockPanel.Dock="Top" Text="{Binding ResultLine}" Style="{StaticResource GridMessageLine}" />

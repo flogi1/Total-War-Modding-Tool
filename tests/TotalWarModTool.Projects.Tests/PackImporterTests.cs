@@ -1,3 +1,4 @@
+using TotalWarModTool.Tables;
 using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 
@@ -17,6 +18,51 @@ public class PackImporterTests
     private static ImportRequest Request(TempDir dir, string source, string packName = "my_mod.pack") =>
         new(source, Path.Combine(dir.Path, "project"), "My Mod", "warhammer_3", packName, Vanilla);
 
+    [Fact] public void Import_with_an_outdated_table_writes_nothing()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry(@"db\units_tables\my_mod", TestData.Units(("a", 1, 1f))).AddEntry(@"script\a.lua", TestData.Utf8("print(1)")));
+        var versions = new GameTableVersions(new Dictionary<string, int> { ["units_tables"] = 3 });
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, versions, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.OutdatedTables, report.Problem);
+        Assert.Null(report.Project);
+        Assert.StartsWith("db/units_tables/my_mod: ", report.Detail);
+        Assert.Contains("version 2, the game uses version 3", report.Detail);
+        var project = Path.Combine(dir.Path, "project");
+        Assert.False(Directory.Exists(project) && Directory.EnumerateFileSystemEntries(project).Any());
+        Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
+    }
+
+    [Fact] public void Outdated_detail_lists_only_the_importable_tables()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p
+            .AddEntry(@"db\units_tables\one", TestData.Units(("a", 1, 1f)))
+            .AddEntry(@"db\units_tables\two", TestData.Units(("b", 1, 1f)))
+            .AddEntry(@"db\units_tables\skipped.tsv", TestData.Units(("c", 1, 1f))));
+        var versions = new GameTableVersions(new Dictionary<string, int> { ["units_tables"] = 3 });
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, versions, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.OutdatedTables, report.Problem);
+        var lines = report.Detail!.Split('\n').Where(l => l.StartsWith("db/units_tables/", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, l => l.StartsWith("db/units_tables/one: ", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("db/units_tables/two: ", StringComparison.Ordinal));
+        Assert.DoesNotContain("skipped.tsv", report.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact] public void Import_with_tables_in_the_game_version_works()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p.AddEntry(@"db\units_tables\my_mod", TestData.Units(("a", 1, 1f))));
+        var versions = new GameTableVersions(new Dictionary<string, int> { ["units_tables"] = 2, ["other_tables"] = 5 });
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, versions, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.None, report.Problem);
+        Assert.Equal(1, report.Tables);
+    }
+
     [Fact] public void Imports_tables_loc_files_and_other_files()
     {
         using var dir = new TempDir();
@@ -27,7 +73,7 @@ public class PackImporterTests
             .AddEntry(@"script\a.lua", TestData.Utf8("print(1)")).AddEntry(@"db\other_tables\x", [1, 2, 3]));
         var before = File.ReadAllBytes(source);
         var seen = new List<OperationProgress>();
-        var report = PackImporter.Import(Request(dir, source), TestData.Schema, new SyncProgress(seen.Add), CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, GameTableVersions.Empty, new SyncProgress(seen.Add), CancellationToken.None);
 
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.Equal((1, 1, 2), (report.Tables, report.LocFiles, report.OtherFiles));
@@ -56,7 +102,7 @@ public class PackImporterTests
             .AddEntry(@"keep\File.txt", [1]).AddEntry(@"KEEP\file.TXT", [2])
             .AddEntry(@"node", [1]).AddEntry(@"node\child.txt", [1]));
         var preview = PackImporter.Preview(PackReader.ReadIndex(source).Index!);
-        var report = PackImporter.Import(Request(dir, source), TestData.Schema, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, GameTableVersions.Empty, null, CancellationToken.None);
 
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.Equal(["../../escape.txt", "C:/abs.txt", "a/con", "a/b.", "db/units_tables/x.tsv", "text/x.loc.tsv", "KEEP/file.TXT", "node/child.txt"], report.Skipped.Select(s => s.PackPath));
@@ -71,7 +117,7 @@ public class PackImporterTests
     {
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry(@"a\broken.bin", [1, 2, 3], compressed: true).AddEntry(@"a\fine.txt", [7]));
-        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None);
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.Equal("a/broken.bin", Assert.Single(report.Skipped).PackPath);
         Assert.True(File.Exists(Path.Combine(dir.Path, "project", "pack", "a", "fine.txt")));
@@ -81,12 +127,12 @@ public class PackImporterTests
     {
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
-        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(Request(dir, source, "nope"), null, null, CancellationToken.None).Problem);
-        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(Request(dir, source, "DATA.pack"), null, null, CancellationToken.None).Problem);
-        Assert.Equal(ImportProblem.SourceUnreadable, PackImporter.Import(Request(dir, dir.File("missing.pack")), null, null, CancellationToken.None).Problem);
+        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(Request(dir, source, "nope"), null, GameTableVersions.Empty, null, CancellationToken.None).Problem);
+        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(Request(dir, source, "DATA.pack"), null, GameTableVersions.Empty, null, CancellationToken.None).Problem);
+        Assert.Equal(ImportProblem.SourceUnreadable, PackImporter.Import(Request(dir, dir.File("missing.pack")), null, GameTableVersions.Empty, null, CancellationToken.None).Problem);
         Directory.CreateDirectory(Path.Combine(dir.Path, "project"));
         File.WriteAllText(Path.Combine(dir.Path, "project", "mine.txt"), "x");
-        Assert.Equal(ImportProblem.TargetNotEmpty, PackImporter.Import(Request(dir, source), null, null, CancellationToken.None).Problem);
+        Assert.Equal(ImportProblem.TargetNotEmpty, PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None).Problem);
         Assert.Equal(["mine.txt"], Directory.EnumerateFileSystemEntries(Path.Combine(dir.Path, "project")).Select(Path.GetFileName));
         Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
     }
@@ -96,7 +142,7 @@ public class PackImporterTests
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
         Directory.CreateDirectory(Path.Combine(dir.Path, "project"));
-        Assert.Equal(ImportProblem.None, PackImporter.Import(Request(dir, source), null, null, CancellationToken.None).Problem);
+        Assert.Equal(ImportProblem.None, PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None).Problem);
         Assert.True(File.Exists(Path.Combine(dir.Path, "project", "pack", "a.txt")));
     }
 
@@ -106,7 +152,7 @@ public class PackImporterTests
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]).AddEntry("b.txt", [2]).AddEntry("c.txt", [3]));
         using var cts = new CancellationTokenSource();
         var progress = new SyncProgress(p => { if (p.Done == 2) cts.Cancel(); });
-        Assert.ThrowsAny<OperationCanceledException>(() => PackImporter.Import(Request(dir, source), null, progress, cts.Token));
+        Assert.ThrowsAny<OperationCanceledException>(() => PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, progress, cts.Token));
         Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
     }
 
@@ -117,7 +163,7 @@ public class PackImporterTests
         // The parent of the target is a file, so nothing can be created below it.
         File.WriteAllText(dir.File("blocker"), "x");
         var request = Request(dir, source) with { TargetFolder = Path.Combine(dir.Path, "blocker", "project") };
-        var report = PackImporter.Import(request, null, null, CancellationToken.None);
+        var report = PackImporter.Import(request, null, GameTableVersions.Empty, null, CancellationToken.None);
         Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
         Assert.Null(report.Project);
         Assert.Equal(["blocker", "source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
@@ -128,7 +174,7 @@ public class PackImporterTests
         using var dir = new TempDir();
         var tooLong = new string('a', 120) + "/" + new string('b', 120) + ".txt";
         var source = Pack(dir, p => p.AddEntry(tooLong, [1]).AddEntry("a.txt", [2]));
-        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None);
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.Equal(tooLong, Assert.Single(report.Skipped).PackPath);
         Assert.Equal(["pack", "twmt-project.json"], Directory.EnumerateFileSystemEntries(Path.Combine(dir.Path, "project")).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
@@ -139,8 +185,8 @@ public class PackImporterTests
     {
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
-        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { ProjectName = " " }, null, null, CancellationToken.None));
-        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { GameId = "" }, null, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { ProjectName = " " }, null, GameTableVersions.Empty, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { GameId = "" }, null, GameTableVersions.Empty, null, CancellationToken.None));
         Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
     }
 
@@ -149,7 +195,7 @@ public class PackImporterTests
         using var dir = new TempDir();
         var source = Pack(dir, p => p
             .AddEntry(@"db\units_tables\x", TestData.Units(("unit_a", 100, 0.1f))).AddEntry(@"db\units_tables\x.tsv\y", [1]));
-        var report = PackImporter.Import(Request(dir, source), TestData.Schema, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, GameTableVersions.Empty, null, CancellationToken.None);
 
         Assert.Equal(ImportProblem.None, report.Problem);
         var skipped = Assert.Single(report.Skipped);
@@ -164,7 +210,7 @@ public class PackImporterTests
         using var dir = new TempDir();
         var source = Pack(dir, p => p
             .AddEntry(@"db\units_tables\x.tsv\y", [1]).AddEntry(@"db\units_tables\x", TestData.Units(("unit_a", 100, 0.1f))));
-        var report = PackImporter.Import(Request(dir, source), TestData.Schema, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, GameTableVersions.Empty, null, CancellationToken.None);
 
         Assert.Equal(ImportProblem.None, report.Problem);
         var skipped = Assert.Single(report.Skipped);
@@ -178,7 +224,7 @@ public class PackImporterTests
     {
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddDependency("").AddDependency("  ").AddDependency("base.pack").AddEntry("a.txt", [1]));
-        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None);
 
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.Equal(["base.pack"], report.Project!.Dependencies);
@@ -191,7 +237,7 @@ public class PackImporterTests
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
         var request = Request(dir, source) with { TargetFolder = Path.Combine(dir.Path, "missing", "project") };
-        var report = PackImporter.Import(request, null, null, CancellationToken.None);
+        var report = PackImporter.Import(request, null, GameTableVersions.Empty, null, CancellationToken.None);
         Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
         Assert.Contains("parent folder", report.Detail);
         Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
@@ -201,8 +247,8 @@ public class PackImporterTests
     {
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
-        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { SourcePack = "source.pack" }, null, null, CancellationToken.None));
-        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { TargetFolder = @"project" }, null, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { SourcePack = "source.pack" }, null, GameTableVersions.Empty, null, CancellationToken.None));
+        Assert.Throws<ArgumentException>(() => PackImporter.Import(Request(dir, source) with { TargetFolder = @"project" }, null, GameTableVersions.Empty, null, CancellationToken.None));
         Assert.Equal(["source.pack"], Directory.EnumerateFileSystemEntries(dir.Path).Select(Path.GetFileName));
     }
 
@@ -211,7 +257,7 @@ public class PackImporterTests
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
         var request = Request(dir, source, "DATA.pack") with { VanillaPackNames = new HashSet<string>(StringComparer.Ordinal) { "data.pack" } };
-        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(request, null, null, CancellationToken.None).Problem);
+        Assert.Equal(ImportProblem.InvalidPackName, PackImporter.Import(request, null, GameTableVersions.Empty, null, CancellationToken.None).Problem);
     }
 
     // One path of this many one-letter segments must cost next to nothing; before the length limit each of its prefixes was allocated.
@@ -234,7 +280,7 @@ public class PackImporterTests
     {
         using var dir = new TempDir();
         var source = Pack(dir, p => p.AddEntry(DeepPath(), [1]).AddEntry(DeepPath() + @"\b", [2]).AddEntry("ok.txt", [3]));
-        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None);
 
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.Equal(2, report.Skipped.Count);
@@ -249,7 +295,7 @@ public class PackImporterTests
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
         var project = Path.Combine(dir.Path, "project");
         // The code does not look at the target again; the move onto an existing folder fails and that is a write failure.
-        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None, () =>
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None, () =>
         {
             Directory.CreateDirectory(project);
             File.WriteAllText(Path.Combine(project, "theirs.txt"), "mine");
@@ -268,7 +314,7 @@ public class PackImporterTests
         var source = Pack(dir, p => p.AddEntry("a.txt", [1]));
         var project = Path.Combine(dir.Path, "project");
         Directory.CreateDirectory(project);
-        var report = PackImporter.Import(Request(dir, source), null, null, CancellationToken.None, () => File.WriteAllText(Path.Combine(project, "theirs.txt"), "mine"));
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, null, CancellationToken.None, () => File.WriteAllText(Path.Combine(project, "theirs.txt"), "mine"));
 
         Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
         Assert.Equal(["theirs.txt"], Directory.EnumerateFileSystemEntries(project).Select(Path.GetFileName));
@@ -292,7 +338,7 @@ public class PackImporterTests
             Directory.Delete(pack, recursive: true);
             File.WriteAllText(pack, "x");
         });
-        var report = PackImporter.Import(Request(dir, source), null, progress, CancellationToken.None);
+        var report = PackImporter.Import(Request(dir, source), null, GameTableVersions.Empty, progress, CancellationToken.None);
 
         Assert.Equal(ImportProblem.TargetUnwritable, report.Problem);
         Assert.Contains("'b.txt'", report.Detail);

@@ -737,4 +737,25 @@ public class ObjectEditorViewTests
             window.Close();
         }
     });
+
+    [Fact] public void The_context_menu_of_the_editor_offers_copy_as() => Sta.Run(() =>
+    {
+        var tab = Tab();
+        var (view, window) = Create(tab);
+        try
+        {
+            var menu = Assert.IsType<System.Windows.Controls.ContextMenu>(view.Editor.ContextMenu);
+            menu.PlacementTarget = view.Editor;
+            menu.IsOpen = true;
+            Pump(window);
+            var items = menu.Items.OfType<System.Windows.Controls.MenuItem>().ToList();
+            Assert.Equal([ApplicationCommands.Cut, ApplicationCommands.Copy, ApplicationCommands.Paste, tab.CopyCommand], items.Select(item => item.Command));
+            Assert.Equal([Texts.ObjectsEditorCut, Texts.ObjectsEditorCopy, Texts.ObjectsEditorPaste, Texts.ObjectsCopyAs], items.Select(item => item.Header));
+            menu.IsOpen = false;
+        }
+        finally
+        {
+            window.Close();
+        }
+    });
 }

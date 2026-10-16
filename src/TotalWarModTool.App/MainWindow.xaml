@@ -24,6 +24,13 @@
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="{Binding Texts.MenuTools}">
                 <MenuItem Header="{Binding Texts.OperationRefreshPacks}" Command="{Binding RefreshCommand}" />
+                <!-- The wizards; only when the composition root set them. A disabled entry says why in its tool tip. -->
+                <MenuItem Header="{Binding Texts.MenuToolsNewBuilding}" Command="{Binding Wizards.NewBuildingCommand}"
+                          Visibility="{Binding HasWizards, Converter={StaticResource BoolToVisibility}}"
+                          ToolTip="{Binding Wizards.NewBuildingDisabledReason}" ToolTipService.ShowOnDisabled="True" />
+                <MenuItem Header="{Binding Texts.MenuToolsNewTrait}" Command="{Binding Wizards.NewTraitCommand}"
+                          Visibility="{Binding HasWizards, Converter={StaticResource BoolToVisibility}}"
+                          ToolTip="{Binding Wizards.NewTraitDisabledReason}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
                 <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
             </MenuItem>
@@ -45,7 +52,7 @@
                 <!-- New files for the active project; only when the app has the file operations. -->
                 <MenuItem Header="{Binding Texts.FileNewTableTitle}" Command="{Binding NewTableCommand}"
                           Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}"
-                          ToolTip="{Binding ProjectNewFileToolTip}" ToolTipService.ShowOnDisabled="True" />
+                          ToolTip="{Binding ProjectNewTableToolTip}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.FileNewLocTitle}" Command="{Binding NewLocCommand}"
                           Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}"
                           ToolTip="{Binding ProjectNewFileToolTip}" ToolTipService.ShowOnDisabled="True" />

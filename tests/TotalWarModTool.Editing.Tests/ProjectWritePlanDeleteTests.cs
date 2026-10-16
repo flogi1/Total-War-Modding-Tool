@@ -200,4 +200,23 @@ public class ProjectWritePlanDeleteTests
         Assert.Single(plan.CopyQuestions);
         Assert.Empty(plan.Files);
     }
+
+    [Fact]
+    public void Deleting_a_row_of_an_outdated_mod_entry_is_an_error()
+    {
+        var entry = PackEntry(Md, "db/x_tables/m", X, 1, V1("k1", "k2"));
+        var changes = Changes([Delete("k1", From(Md, "db/x_tables/m"), line: 4)]);
+
+        var plan = ProjectWritePlan.Compute(changes, Snapshot([], entry), MiniSchema, GraphWithGame, "Proj", Confirmed);
+
+        var error = Assert.Single(plan.Errors, e => e.Kind == WriteErrorKind.OutdatedTableVersion);
+        Assert.Equal("db/x_tables/m", error.RelativeFile);
+        Assert.Contains("is outdated", error.Detail);
+        Assert.Contains("m.pack", error.Detail);
+        Assert.Contains("db/x_tables/m", error.Detail);
+        Assert.Contains("version 1", error.Detail);
+        Assert.Contains("uses version 2", error.Detail);
+        Assert.DoesNotContain("Delete the file", error.Detail);
+        Assert.Empty(plan.Files);
+    }
 }

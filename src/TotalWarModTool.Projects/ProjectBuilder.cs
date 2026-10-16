@@ -2,6 +2,7 @@ using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Storage;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Projects;
 
@@ -23,12 +24,14 @@ public static class ProjectBuilder
     /// memory, other files are opened only when the pack is written. Every problem is collected, one per file or folder; a file with a
     /// problem contributes no entry. A folder that cannot be listed or that is a link is a problem and its files are not read.
     /// Which files belong to the pack is decided by <see cref="ProjectFiles"/>; files it ignores are named in the plan, not packed.
+    /// A table file (text or binary) in another version than the game uses is a problem; a table the game lacks is not checked.
     /// </summary>
-    public static BuildPlan ComputeBuild(string projectFolder, ModProject project, GameSchema? schema, Func<string> newGuid,
-        IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    public static BuildPlan ComputeBuild(string projectFolder, ModProject project, GameSchema? schema, GameTableVersions gameVersions,
+        Func<string> newGuid, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFolder);
         ArgumentNullException.ThrowIfNull(project);
+        ArgumentNullException.ThrowIfNull(gameVersions);
         ArgumentNullException.ThrowIfNull(newGuid);
         CheckPackName(project);
 
@@ -68,7 +71,7 @@ public static class ProjectBuilder
             else
             {
                 firstFileOfPackPath[packPath] = item.RelativePath;
-                var entry = Prepare(packRoot, item.RelativePath, packPath, kind, schema, newGuid, problems);
+                var entry = Prepare(packRoot, item.RelativePath, packPath, kind, schema, gameVersions, newGuid, problems);
                 if (entry is not null)
                 {
                     entries.Add(entry);
@@ -164,13 +167,19 @@ public static class ProjectBuilder
     }
 
     private static PackWriteEntry? Prepare(string packRoot, string relativeFile, string packPath, ProjectFileKind kind, GameSchema? schema,
-        Func<string> newGuid, List<BuildProblem> problems)
+        GameTableVersions gameVersions, Func<string> newGuid, List<BuildProblem> problems)
     {
         var fullPath = Path.Combine(packRoot, relativeFile);
         try
         {
             if (kind == ProjectFileKind.Raw)
             {
+                if (RawTableMismatch(fullPath, packPath, gameVersions) is { } rawMismatch)
+                {
+                    problems.Add(new BuildProblem(relativeFile, 0, rawMismatch));
+                    return null;
+                }
+
                 var length = new FileInfo(fullPath).Length;
                 return new PackWriteEntry(packPath, length, () => new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read));
             }
@@ -182,6 +191,13 @@ public static class ProjectBuilder
                 return null;
             }
 
+            if (converted.TableVersion is { } fileVersion && DbTablePath.TryGetTableName(packPath, out var tableName)
+                && TableVersionRule.MismatchDetail(gameVersions, tableName, fileVersion) is { } mismatch)
+            {
+                problems.Add(new BuildProblem(relativeFile, 0, mismatch));
+                return null;
+            }
+
             var bytes = converted.Bytes;
             return new PackWriteEntry(packPath, bytes.Length, () => new MemoryStream(bytes, writable: false));
         }
@@ -190,6 +206,26 @@ public static class ProjectBuilder
             problems.Add(new BuildProblem(relativeFile, 0, "the file cannot be read: " + ex.Message));
             return null;
         }
+    }
+
+    // A binary table file: its version is read from the first bytes. A head that does not read is no version problem (the file stays raw).
+    private static string? RawTableMismatch(string fullPath, string packPath, GameTableVersions gameVersions)
+    {
+        if (!DbTablePath.TryGetTableName(packPath, out var tableName) || gameVersions.VersionOf(tableName) is null)
+        {
+            return null;
+        }
+
+        var buffer = new byte[DbTableDecoder.TableHeaderBytes];
+        int read;
+        using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+        }
+
+        return DbTableDecoder.ReadHeader(buffer.AsSpan(0, read)) is { } header
+            ? TableVersionRule.MismatchDetail(gameVersions, tableName, header.Version)
+            : null;
     }
 
     /// <summary>Removes <c>&lt;PackName&gt;.&lt;8 hex digits&gt;.tmp</c> files that an earlier crashed run left behind. Best effort.</summary>

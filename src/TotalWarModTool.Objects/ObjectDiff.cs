@@ -53,7 +53,7 @@ public static class ObjectDiff
         public ObjectChanges Execute()
         {
             _diagnostics.AddRange(_parsed.Diagnostics);
-            var definition = _graph.Latest(_baseline.Id.Table);
+            var definition = _graph.Current(_baseline.Id.Table);
             if (definition is null)
             {
                 return Result();
@@ -178,7 +178,7 @@ public static class ObjectDiff
         {
             var table = parsedSection?.SourceTable ?? baselineSection!.SourceTable;
             var fieldName = parsedSection?.FieldName ?? baselineSection!.FieldName;
-            var definition = _graph.Latest(table);
+            var definition = _graph.Current(table);
             var pointing = definition is null ? -1 : IndexOf(definition, fieldName);
             if (definition is null || pointing < 0)
             {
@@ -514,7 +514,7 @@ public static class ObjectDiff
         {
             var reference = _graph.Incoming(_baseline.Id.Table).FirstOrDefault(r =>
                 string.Equals(r.SourceTable, table, StringComparison.OrdinalIgnoreCase) && string.Equals(r.FieldName, fieldName, StringComparison.OrdinalIgnoreCase));
-            var rootDefinition = _graph.Latest(_baseline.Id.Table);
+            var rootDefinition = _graph.Current(_baseline.Id.Table);
             if (reference is null || rootDefinition is null)
             {
                 return null;

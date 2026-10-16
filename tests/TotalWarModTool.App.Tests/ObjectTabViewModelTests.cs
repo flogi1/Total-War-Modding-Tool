@@ -430,6 +430,66 @@ public class ObjectTabViewModelTests
         Assert.Equal(Texts.ObjectsApplyNotReady, tab.ApplyDisabledReason);
     }
 
+    [Fact] public void The_copy_reason_follows_the_order_of_the_spec()
+    {
+        var tab = Tab();
+        Assert.False(tab.CopyCommand.CanExecute(null));
+        Assert.Equal(Texts.ObjectsApplyNotReady, tab.CopyDisabledReason);
+        tab.ApplyResult(Result());
+        Assert.Null(tab.CopyDisabledReason);
+        Assert.False(tab.CopyCommand.CanExecute(null));                     // no handler
+        tab.CopyHandler = _ => Task.CompletedTask;
+        Assert.True(tab.CopyCommand.CanExecute(null));
+        Assert.Equal(Texts.ObjectsCopyAs, tab.CopyToolTip);
+
+        // Unapplied text is no reason: the handler asks first.
+        tab.Text = tab.BaselineText + "\n  x = 1";
+        Assert.Null(tab.CopyDisabledReason);
+
+        tab.ApplyEnvironmentReason = () => "busy";
+        tab.MarkStale();
+        Assert.Equal("busy", tab.CopyDisabledReason);
+        Assert.Equal("busy", tab.CopyToolTip);
+        Assert.False(tab.CopyCommand.CanExecute(null));
+        tab.ApplyEnvironmentReason = () => null;
+        Assert.Equal(Texts.ObjectsApplyStale, tab.CopyDisabledReason);
+        tab.ClearStale();
+        Assert.Null(tab.CopyDisabledReason);
+
+        // The root pack comes before the state, the state before stale, stale before the missing root and the composite key.
+        var rooted = Tab();
+        rooted.ApplyResult(Result(View(order: Order(new LoadOrderWarning(LoadOrderProblem.RootPackAdded, "r.pack", "added")))));
+        rooted.BeginBuild();
+        Assert.Equal(Texts.ObjectsApplyRootPackNotInOrder, rooted.CopyDisabledReason);
+        tab.BeginBuild();
+        Assert.Equal(Texts.ObjectsApplyNotReady, tab.CopyDisabledReason);
+
+        var missing = Tab(history: [new ObjectRef(Table, ["a", "b"], null)]);
+        missing.ApplyResult(Result(View() with { Root = null }));
+        missing.MarkStale();
+        Assert.Equal(Texts.ObjectsApplyStale, missing.CopyDisabledReason);
+        missing.ClearStale();
+        Assert.Equal(Texts.ObjectsCopyAsNoRoot, missing.CopyDisabledReason);
+
+        var pair = Tab(history: [new ObjectRef(Table, ["a", "b"], null)]);
+        pair.ApplyResult(Result());
+        Assert.Equal(Texts.ObjectsCopyAsCompositeKey, pair.CopyDisabledReason);
+    }
+
+    [Fact] public void A_copy_result_line_names_the_left_out_rows_but_not_the_hidden_sections()
+    {
+        var tab = ReadyTab();
+        tab.SetApplyResult(new WriteSummary(0, 3, 0, 0, 0, 0, 2, 0), [@"db\x_tables\flo.tsv", @"db\y_tables\flo.tsv"], 0,
+        [
+            new CopyNote(CopyNoteKind.ForeignKeyRows, "z_tables", 3),
+            new CopyNote(CopyNoteKind.HiddenSection, "h_tables", 1),
+            new CopyNote(CopyNoteKind.DepthExceeded, "d_tables", 2),
+            new CopyNote(CopyNoteKind.NoChain, "c_tables", 0),
+        ]);
+        Assert.Equal(@"3 rows in 0 files changed, 2 files created: db\x_tables\flo.tsv, db\y_tables\flo.tsv, not copied: 3 rows in z_tables, "
+            + "too deep, not copied: 2 rows in d_tables, the template has no chain", tab.ResultLine);
+    }
+
     [Fact] public void Apply_runs_the_handler_once_with_the_tab()
     {
         var tab = ReadyTab();

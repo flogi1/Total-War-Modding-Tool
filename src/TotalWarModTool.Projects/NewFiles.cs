@@ -74,17 +74,18 @@ public static class NewFiles
     private const string ProbeTable = "x_tables";
     private const string IgnoredReason = "A project ignores files with this name.";
 
-    /// <summary>The tables a new file can be created for: in the schema, with a newest definition without unsupported field types. Sorted ordinally.</summary>
-    public static IReadOnlyList<string> CreatableTables(GameSchema schema)
+    /// <summary>The tables a new file can be created for: in the schema, with a current definition (see <see cref="TableVersionRule"/>) without unsupported field types. Sorted ordinally.</summary>
+    public static IReadOnlyList<string> CreatableTables(GameSchema schema, GameTableVersions gameVersions)
     {
         ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(gameVersions);
 
         // A table is listed only when it also takes the longest allowed name, so that every allowed name works for every listed table.
         var longestName = new string('x', MaxNameLength);
         var result = new List<string>();
-        foreach (var (tableName, definitions) in schema.Tables)
+        foreach (var tableName in schema.Tables.Keys)
         {
-            if (CheckTable(schema, tableName, definitions, longestName).Reason is null)
+            if (CheckTable(schema, gameVersions, tableName, longestName).Reason is null)
             {
                 result.Add(tableName);
             }
@@ -258,10 +259,11 @@ public static class NewFiles
 
     private static bool IsIgnored(string fileName) => ProjectFiles.IsIgnored(fileName, default);
 
-    /// <summary>An empty table in the newest version of the schema: db/&lt;tableName&gt;/&lt;name&gt; as text.</summary>
-    public static NewFileResult Table(GameSchema schema, string tableName, string name)
+    /// <summary>An empty table in the version the game uses (the newest of the schema when the game lacks the table): db/&lt;tableName&gt;/&lt;name&gt; as text.</summary>
+    public static NewFileResult Table(GameSchema schema, GameTableVersions gameVersions, string tableName, string name)
     {
         ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(gameVersions);
         ArgumentNullException.ThrowIfNull(tableName);
         ArgumentNullException.ThrowIfNull(name);
 
@@ -276,7 +278,7 @@ public static class NewFiles
             return Refused("The table is not in the schema.");
         }
 
-        var (text, reason) = CheckTable(schema, tableName, schema.Tables[tableName], name);
+        var (text, reason) = CheckTable(schema, gameVersions, tableName, name);
         return text is null
             ? Refused(reason!)
             : Created(DbFolder + "/" + tableName + "/" + name, ProjectFileKind.Table, text);
@@ -316,8 +318,9 @@ public static class NewFiles
     /// <summary>
     /// The file an entry of a pack becomes in a project. For a table (db/&lt;table&gt;/&lt;x&gt;) and a loc file (&lt;folder&gt;/&lt;x&gt;.loc), newName replaces
     /// the name part (null keeps it); for every other entry newName must be null and the path stays. The content follows <see cref="EntryConversion.ToProjectFile"/>.
+    /// A table entry in another version than the game uses is refused; <paramref name="gameVersions"/> null means no check (only the snapshot reader, whose write plan checks).
     /// </summary>
-    public static NewFileResult Adopt(string packPath, byte[] entryBytes, GameSchema? schema, string? newName)
+    public static NewFileResult Adopt(string packPath, byte[] entryBytes, GameSchema? schema, GameTableVersions? gameVersions, string? newName)
     {
         ArgumentNullException.ThrowIfNull(packPath);
         ArgumentNullException.ThrowIfNull(entryBytes);
@@ -347,6 +350,13 @@ public static class NewFiles
         if (ProjectLayout.LooksLikeTextForm(target))
         {
             return Refused("The name collides with the text form of a table or loc file.");
+        }
+
+        if (gameVersions is not null && DbTablePath.TryGetTableName(packPath, out var entryTable)
+            && DbTableDecoder.ReadHeader(entryBytes.AsSpan(0, Math.Min(entryBytes.Length, DbTableDecoder.TableHeaderBytes))) is { } header
+            && TableVersionRule.VersionMismatchDetail(gameVersions, entryTable, header.Version) is { } mismatch)
+        {
+            return Refused(mismatch);
         }
 
         var converted = EntryConversion.ToProjectFile(target, entryBytes, schema);
@@ -390,21 +400,18 @@ public static class NewFiles
         return (false, string.Empty, file, string.Empty);
     }
 
-    // The text of an empty table in the newest definition of the table, or the reason why no file can be created for it. The check writes
+    // The text of an empty table in the current definition of the table, or the reason why no file can be created for it. The check writes
     // the table without rows under the given name and reads the text back, which is all that Table does, so that the list and Table
     // never disagree.
-    private static (string? Text, string? Reason) CheckTable(GameSchema schema, string tableName, IReadOnlyList<TableDefinition> definitions, string name)
+    private static (string? Text, string? Reason) CheckTable(GameSchema schema, GameTableVersions gameVersions, string tableName, string name)
     {
-        TableDefinition? newest = null;
-        foreach (var definition in definitions)
+        var current = TableVersionRule.Current(schema, gameVersions, tableName);
+        if (current.Kind == CurrentDefinitionKind.SchemaLacksGameVersion)
         {
-            if (newest is null || definition.Version > newest.Version)
-            {
-                newest = definition;
-            }
+            return (null, $"the schema does not know version {current.GameVersion?.ToString(CultureInfo.InvariantCulture)} of this table, which the game uses; choose a newer schema in the settings");
         }
 
-        if (newest is null)
+        if (current.Definition is not { } newest)
         {
             return (null, "The table has no definition in the schema.");
         }
@@ -413,7 +420,7 @@ public static class NewFiles
         {
             if (field.Type == FieldType.Unsupported)
             {
-                return (null, "The newest definition of the table has a field of an unsupported type.");
+                return (null, "The current definition of the table has a field of an unsupported type.");
             }
         }
 

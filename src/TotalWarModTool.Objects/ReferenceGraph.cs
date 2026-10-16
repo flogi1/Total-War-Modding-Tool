@@ -1,8 +1,9 @@
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects;
 
-/// <summary>A field of <see cref="SourceTable"/> that references a column of another table. FieldIndex is the index in the latest definition of SourceTable.</summary>
+/// <summary>A field of <see cref="SourceTable"/> that references a column of another table. FieldIndex is the index in the current definition of SourceTable.</summary>
 public sealed record IncomingReference(string SourceTable, string FieldName, int FieldIndex, string TargetColumn);
 
 /// <summary>Reverse index over the foreign-key references of a <see cref="GameSchema"/>. Built once, read-only afterwards.</summary>
@@ -13,27 +14,37 @@ public sealed class ReferenceGraph
     private static readonly IReadOnlyList<IncomingReference> NoReferences = [];
     private static readonly IReadOnlyList<int> NoFields = [];
 
-    private readonly Dictionary<string, TableDefinition> _latest = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TableDefinition> _current = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyList<IncomingReference>> _incoming = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _canonicalNames = new(StringComparer.OrdinalIgnoreCase);
 
-    public static ReferenceGraph Build(GameSchema schema)
+    private ReferenceGraph(GameTableVersions gameVersions)
+    {
+        GameVersions = gameVersions;
+    }
+
+    /// <summary>The table versions the game uses; the definitions of this graph follow them.</summary>
+    public GameTableVersions GameVersions { get; }
+
+    /// <summary>Builds the graph with the definition the game uses for each table. A table whose game version the schema lacks, or that is not in the schema, is left out.</summary>
+    public static ReferenceGraph Build(GameSchema schema, GameTableVersions gameVersions)
     {
         ArgumentNullException.ThrowIfNull(schema);
-        var graph = new ReferenceGraph();
+        ArgumentNullException.ThrowIfNull(gameVersions);
+        var graph = new ReferenceGraph(gameVersions);
 
-        foreach (var (name, definitions) in schema.Tables)
+        foreach (var name in schema.Tables.Keys)
         {
             graph._canonicalNames[name] = name;
-            var latest = PickLatest(definitions);
-            if (latest is not null)
+            var current = TableVersionRule.Current(schema, gameVersions, name).Definition;
+            if (current is not null)
             {
-                graph._latest[name] = latest;
+                graph._current[name] = current;
             }
         }
 
         var collected = new Dictionary<string, List<IncomingReference>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, definition) in graph._latest)
+        foreach (var (name, definition) in graph._current)
         {
             for (var index = 0; index < definition.Fields.Count; index++)
             {
@@ -67,17 +78,17 @@ public sealed class ReferenceGraph
         return graph;
     }
 
-    /// <summary>The definition with the highest version, null when the schema does not know the table.</summary>
-    public TableDefinition? Latest(string table) => _latest.GetValueOrDefault(table);
+    /// <summary>The definition of the version the game uses (the highest schema version when the game lacks the table); null when the table is not in the schema or the schema lacks the game's version.</summary>
+    public TableDefinition? Current(string table) => _current.GetValueOrDefault(table);
 
     /// <summary>Every field of every table that references <paramref name="table"/>; empty when none. Sorted by SourceTable, then FieldName (ordinal).</summary>
     public IReadOnlyList<IncomingReference> Incoming(string table) =>
         _incoming.GetValueOrDefault(ResolveTableName(table)) ?? NoReferences;
 
-    /// <summary>Exactly two reference fields and at most four fields in the latest definition.</summary>
+    /// <summary>Exactly two reference fields and at most four fields in the current definition.</summary>
     public bool IsJunction(string table)
     {
-        var definition = Latest(table);
+        var definition = Current(table);
         if (definition is null || definition.Fields.Count > 4)
         {
             return false;
@@ -86,10 +97,10 @@ public sealed class ReferenceGraph
         return definition.Fields.Count(static f => f.Reference is not null) == 2;
     }
 
-    /// <summary>Indexes of the fields with is_key in the latest definition; empty when unknown or without key.</summary>
+    /// <summary>Indexes of the fields with is_key in the current definition; empty when unknown or without key.</summary>
     public IReadOnlyList<int> KeyFields(string table)
     {
-        var definition = Latest(table);
+        var definition = Current(table);
         if (definition is null)
         {
             return NoFields;
@@ -114,20 +125,5 @@ public sealed class ReferenceGraph
     {
         ArgumentNullException.ThrowIfNull(referenceTable);
         return _canonicalNames.TryGetValue(referenceTable + TableSuffix, out var canonical) ? canonical : referenceTable;
-    }
-
-    /// <summary>The highest version wins; with several of the same version the first one in the list, like <see cref="GameSchema.Find"/>.</summary>
-    private static TableDefinition? PickLatest(IReadOnlyList<TableDefinition> definitions)
-    {
-        TableDefinition? best = null;
-        foreach (var definition in definitions)
-        {
-            if (best is null || definition.Version > best.Version)
-            {
-                best = definition;
-            }
-        }
-
-        return best;
     }
 }

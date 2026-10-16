@@ -42,6 +42,7 @@ public class MainWindowTests
     private static async Task<ProjectSetup> CreateWithProjects(bool withDocuments = true, bool withFiles = false)
     {
         var game = new TestGame();
+        game.EnsureTableVersions();
         var controller = game.NewController();
         var main = game.NewMain(controller, withDocuments: withDocuments, withFiles: withFiles);
         await controller.LoadAsync();
@@ -104,10 +105,17 @@ public class MainWindowTests
         var tools = Descendants<MenuItem>(setup.Window).First();
         Assert.Equal(setup.Game.Texts.MenuTools, tools.Header);
         var items = tools.Items.OfType<MenuItem>().ToList();
-        Assert.Equal([setup.Game.Texts.OperationRefreshPacks, setup.Game.Texts.MenuSettings, setup.Game.Texts.MenuOpenLogFolder], items.Select(i => i.Header));
+        Assert.Equal([setup.Game.Texts.OperationRefreshPacks, setup.Game.Texts.MenuToolsNewBuilding, setup.Game.Texts.MenuToolsNewTrait,
+            setup.Game.Texts.MenuSettings,
+            setup.Game.Texts.MenuOpenLogFolder], items.Select(i => i.Header));
         Assert.Same(setup.ViewModel.RefreshCommand, items[0].Command);
-        Assert.Same(setup.ViewModel.OpenSettingsCommand, items[1].Command);
-        Assert.Same(setup.ViewModel.OpenLogFolderCommand, items[2].Command);
+        Assert.Same(setup.ViewModel.OpenSettingsCommand, items[3].Command);
+        Assert.Same(setup.ViewModel.OpenLogFolderCommand, items[4].Command);
+
+        // The wizard entry is hidden while the composition root has not set the wizards.
+        Assert.Null(setup.ViewModel.Wizards);
+        Assert.Equal(Visibility.Collapsed, items[1].Visibility);
+        Assert.Equal(Visibility.Collapsed, items[2].Visibility);
     });
 
     [Fact] public void Status_hint_is_hidden_without_a_hint() => Sta.RunAsync(async () =>

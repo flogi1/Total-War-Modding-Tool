@@ -17,10 +17,13 @@ namespace TotalWarModTool.App;
 /// the <see cref="ObjectsController"/> and the <see cref="DocumentsController"/>. Writes only through <see cref="ProjectWriter"/> (and the
 /// <see cref="FileContentsStep"/> it returns).
 /// </summary>
-public sealed class ObjectApplyController
+public sealed partial class ObjectApplyController
 {
     // The cap of the error lines in a dialog is CappedLines.MaxLines; a detail of a foreign file is cut after this many characters.
     private const int MaxDetailChars = 300;
+
+    // The subject of the log lines of an apply.
+    private const string ApplySubject = "An apply of an object";
 
     private readonly ObjectsController _objects;
     private readonly ProjectsController _projects;
@@ -36,7 +39,7 @@ public sealed class ObjectApplyController
     // Where each recorded step came from, so that an undo can find the tab again. Weak: a step that leaves the history is not kept alive here.
     private readonly ConditionalWeakTable<FileContentsStep, StepOrigin> _origins = new();
 
-    // One apply at a time: the questions are modal, but the command may be asked again between two runs.
+    // One write at a time (an apply or a copy): the questions are modal, but the commands may be asked again between two runs.
     private bool _applying;
 
     // The object tabs whose close question is open, and the state of the question when the app is closed (like DocumentsController).
@@ -384,12 +387,63 @@ public sealed class ObjectApplyController
 
     private async Task WriteAsync(ObjectTabViewModel tab, ObjectRef started, ObjectBuildResult result, ProjectState project, ObjectStores stores, CheckPlanned planned)
     {
-        var (changes, snapshot, plan) = (planned.Changes, planned.Snapshot, planned.Plan);
+        var description = "Apply: " + DisplayText.Safe(started.Table) + " " + DisplayText.Safe(started.DisplayKey);
+        if (await WritePlannedAsync(planned.Changes, planned.Snapshot, planned.Plan, project, stores, description, () => StillShows(tab, started, result), tab,
+                ApplySubject) is not { } written)
+        {
+            return;
+        }
+
+        var (step, plan) = written;
+        RememberOrigin(step, tab, started);
+        var summary = plan.Summary;
+        _log.Info($"Applied {DisplayText.Safe(started.Table)} {DisplayText.Safe(started.DisplayKey)}: {summary.RowsSet + summary.RowsInserted + summary.RowsDeleted} rows, "
+            + $"{summary.TextsSet + summary.TextsInserted} texts, {summary.FilesChanged} files changed, {summary.FilesCreated} files created, {summary.Copies} copies.");
+        tab.SetApplyResult(summary, CreatedFiles(plan), planned.Changes.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Warning));
+        FilesChanged?.Invoke(this, project.Id);
+
+        // The disk changed, so the object is built again; its result replaces the text. The build comes first: it locks the window before its
+        // first await, while the check of the open files below lets input through, and text typed in that gap would be replaced by the rebuild.
+        // A build that did not run (another operation) leaves the old result, which no longer matches the disk.
+        await _objects.BuildAsync(tab);
+        if (ReferenceEquals(tab.Result, result))
+        {
+            tab.MarkStale();
+        }
+
+        // The other open tabs: the grids of the files notice the change at once, and the object tabs built from them are marked outdated.
+        await CheckAfterWriteAsync();
+    }
+
+    /// <summary>Remembers where a step came from, so that an undo selects and rebuilds that tab (as for an apply).</summary>
+    internal void RememberOrigin(FileContentsStep step, ObjectTabViewModel tab, ObjectRef shown)
+    {
+        ArgumentNullException.ThrowIfNull(step);
+        ArgumentNullException.ThrowIfNull(tab);
+        ArgumentNullException.ThrowIfNull(shown);
+        _origins.AddOrUpdate(step, new StepOrigin(tab, shown));
+    }
+
+    /// <summary>What every write ends with after the caller showed its result: DocumentsController.CheckExternalChangesAsync, then ObjectsController.CheckStaleAsync.</summary>
+    internal async Task CheckAfterWriteAsync()
+    {
+        await _documents.CheckExternalChangesAsync();
+        await _objects.CheckStaleAsync();
+    }
+
+    /// <summary>
+    /// The write of a plan that run A made, shared by apply and copy: the questions (answered with a pure second plan), stillValid and the active
+    /// project, the lock of grid tabs with unsaved work, run B and the step in the history. Shows every refusal and failure itself; tab (when given)
+    /// is refreshed after run B and marked stale when a rollback failed. Returns the recorded step and the plan it wrote; null when nothing was written.
+    /// </summary>
+    private async Task<(FileContentsStep Step, WritePlan Plan)?> WritePlannedAsync(ObjectChanges changes, ProjectSnapshot snapshot, WritePlan plan,
+        ProjectState project, ObjectStores stores, string description, Func<bool> stillValid, ObjectTabViewModel? tab, string subject)
+    {
         var schema = stores.Schema.Schema!;
         if (plan.HasErrors)
         {
             ShowPlanErrors(plan);
-            return;
+            return null;
         }
 
         // The questions: which file, and whether to copy a file of the game. Answered with a pure second plan on this thread.
@@ -403,8 +457,8 @@ public sealed class ObjectApplyController
                 var index = chosen is null ? -1 : shown.IndexOf(chosen);
                 if (index < 0)
                 {
-                    _log.Info("An apply of an object was cancelled at the question for the target file.");
-                    return;
+                    _log.Info($"{subject} was cancelled at the question for the target file.");
+                    return null;
                 }
 
                 targetFiles[question.IsLoc ? WriteAnswers.LocKey : question.Table] = question.Candidates[index];
@@ -418,8 +472,8 @@ public sealed class ObjectApplyController
                     .ToList();
                 if (!_dialogs.AskCopies(lines))
                 {
-                    _log.Info("An apply of an object was cancelled at the question for the copy of a file.");
-                    return;
+                    _log.Info($"{subject} was cancelled at the question for the copy of a file.");
+                    return null;
                 }
 
                 copiesConfirmed = true;
@@ -429,22 +483,22 @@ public sealed class ObjectApplyController
             if (plan.HasErrors)
             {
                 ShowPlanErrors(plan);
-                return;
+                return null;
             }
 
             if (plan.HasQuestions)
             {
-                _log.Error("The plan of an apply still has questions after they were answered.");
+                _log.Error($"{subject} still has questions in its plan after they were answered.");
                 _dialogs.ShowMessage(_texts.ObjectsApplyErrorsTitle, _texts.ObjectsApplyPlanErrorsMessage(1));
-                return;
+                return null;
             }
         }
 
         // A dialog or a hook may have changed the world while it was open.
-        if (!StillShows(tab, started, result) || _projects.Active?.Id != project.Id)
+        if (!stillValid() || _projects.Active?.Id != project.Id)
         {
-            _log.Info("An apply of an object was dropped: the tab or the project changed while the questions were open.");
-            return;
+            _log.Info($"{subject} was dropped: the tab or the project changed while the questions were open.");
+            return null;
         }
 
         // A grid tab of a target file with unsaved work would lose it to the write.
@@ -453,14 +507,13 @@ public sealed class ObjectApplyController
             if (_documents.FirstTabWithUnsavedWork(_documents.TabsOfFile(project.Id, file.RelativeFile)) is { } unsaved)
             {
                 _documents.Tabs.SelectedTab = unsaved;
-                _log.Info("An apply of an object was refused: a grid tab of a target file has unsaved changes.");
+                _log.Info($"{subject} was refused: a grid tab of a target file has unsaved changes.");
                 _dialogs.ShowMessage(_texts.ObjectsApplyErrorsTitle, _texts.ObjectsApplyGridUnsaved(Shown(unsaved.EntryPath)));
-                return;
+                return null;
             }
         }
 
         // Run B: the write. Cancelling works only before the first file; a write that ran to its end counts even when the run reports a cancel.
-        var description = "Apply: " + DisplayText.Safe(started.Table) + " " + DisplayText.Safe(started.DisplayKey);
         var finalPlan = plan;
         OperationOutcome<WriteOutcome>? writeRun = null;
         try
@@ -473,59 +526,51 @@ public sealed class ObjectApplyController
         }
         catch (Exception ex) when (IsEdgeFailure(ex))
         {
-            _log.Error("Writing the text of an object could not be started.", ex);
+            _log.Error($"{subject} could not start its write.", ex);
         }
         finally
         {
-            tab.RefreshApplyState();
+            tab?.RefreshApplyState();
         }
 
         if (writeRun?.Value is not { } outcome)
         {
-            _log.Info("An apply of an object wrote nothing: " + (writeRun?.Status.ToString() ?? "not started") + ".");
-            return;
+            _log.Info($"{subject} wrote nothing: " + (writeRun?.Status.ToString() ?? "not started") + ".");
+            return null;
         }
 
         if (outcome.Failure is { } failure)
         {
-            _log.Error($"Applying an object failed: {failure.Kind}.");
+            _log.Error($"{subject} failed: {failure.Kind}.");
             _dialogs.ShowMessage(_texts.ObjectsApplyFailedTitle, FailureMessage(failure));
             if (failure.Kind == WriteFailureKind.RollbackFailed)
             {
-                // The disk is no longer the baseline the text was edited from.
-                tab.MarkStale();
+                // The disk is no longer the baseline the text was edited from. Without a tab (a copy) the open object tabs are checked instead.
+                if (tab is not null)
+                {
+                    tab.MarkStale();
+                }
+                else
+                {
+                    await _objects.CheckStaleAsync();
+                }
             }
             else if (failure.Kind is WriteFailureKind.FileChanged or WriteFailureKind.FileUnknown)
             {
                 await _objects.CheckStaleAsync();
             }
 
-            return;
+            return null;
         }
 
         var step = outcome.Step!;
         _history.Record(step);
-        _origins.AddOrUpdate(step, new StepOrigin(tab, started));
-        var summary = plan.Summary;
-        _log.Info($"Applied {DisplayText.Safe(started.Table)} {DisplayText.Safe(started.DisplayKey)}: {summary.RowsSet + summary.RowsInserted + summary.RowsDeleted} rows, "
-            + $"{summary.TextsSet + summary.TextsInserted} texts, {summary.FilesChanged} files changed, {summary.FilesCreated} files created, {summary.Copies} copies.");
-        var created = plan.Files.Where(file => file.Kind != PlannedFileKind.Changed).Select(file => file.RelativeFile).ToList();
-        tab.SetApplyResult(summary, created, changes.Diagnostics.Count(d => d.Severity == DiagnosticSeverity.Warning));
-        FilesChanged?.Invoke(this, project.Id);
-
-        // The disk changed, so the object is built again; its result replaces the text. The build comes first: it locks the window before its
-        // first await, while the check of the open files below lets input through, and text typed in that gap would be replaced by the rebuild.
-        // A build that did not run (another operation) leaves the old result, which no longer matches the disk.
-        await _objects.BuildAsync(tab);
-        if (ReferenceEquals(tab.Result, result))
-        {
-            tab.MarkStale();
-        }
-
-        // The other open tabs: the grids of the files notice the change at once, and the object tabs built from them are marked outdated.
-        await _documents.CheckExternalChangesAsync();
-        await _objects.CheckStaleAsync();
+        return (step, plan);
     }
+
+    // The files a plan creates (new files and copies of files of the game), relative to the pack folder of the project.
+    internal static List<string> CreatedFiles(WritePlan plan) =>
+        plan.Files.Where(file => file.Kind != PlannedFileKind.Changed).Select(file => file.RelativeFile).ToList();
 
     // Runs inside run A on a pool thread: nothing here touches the UI.
     private static CheckOutcome Check(CheckInput input, IProgress<OperationProgress> progress, CancellationToken ct)
@@ -563,9 +608,14 @@ public sealed class ObjectApplyController
         return new CheckPlanned(changes, snapshot, plan);
     }
 
+    // A diagnostic without a line (line 0: from a copy, which has no text) has no line prefix; its detail (the field and the reason) says where.
     private string ErrorsMessage(IReadOnlyList<BlockDiagnostic> errors)
     {
-        var lines = errors.Select(error => _texts.ObjectsApplyErrorLine(error.Line, _texts.DiagnosticText(error.Kind))).ToList();
+        var lines = errors
+            .Select(error => error.Line > 0
+                ? _texts.ObjectsApplyErrorLine(error.Line, _texts.DiagnosticText(error.Kind))
+                : string.IsNullOrEmpty(error.Detail) ? _texts.DiagnosticText(error.Kind) : _texts.DiagnosticText(error.Kind) + " " + Shown(error.Detail))
+            .ToList();
         return _texts.ObjectsApplyErrorsMessage(errors.Count) + "\n" + string.Join("\n", CappedLines.Of(lines, _texts.ReportMoreLines));
     }
 

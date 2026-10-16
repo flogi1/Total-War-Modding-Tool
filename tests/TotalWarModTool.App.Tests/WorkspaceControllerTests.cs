@@ -448,7 +448,7 @@ public class WorkspaceControllerTests
         var c = game.NewController();
         await c.LoadAsync();
         await c.OpenEntryAsync(Pack(c, "a.pack"), "gone.txt");
-        var warning = Assert.Single(game.Log.Warnings);
+        var warning = Assert.Single(game.Log.Warnings, w => !w.Contains("table versions"));
         Assert.All(new[] { "a.pack", "gone.txt", "Corrupt", "no longer exists" }, part => Assert.Contains(part, warning));
     }
 
@@ -460,7 +460,7 @@ public class WorkspaceControllerTests
         await c.LoadAsync();
         var opened = await c.OpenEntryAsync(Pack(c, "a.pack"), "db/y_tables/data__");
         Assert.Equal(TableDecodeStatus.TableNotInSchema, opened!.Table!.Status);
-        var warning = Assert.Single(game.Log.Warnings);
+        var warning = Assert.Single(game.Log.Warnings, w => !w.Contains("table versions"));
         Assert.All(new[] { "a.pack", "db/y_tables/data__", "TableNotInSchema" }, part => Assert.Contains(part, warning));
     }
 
@@ -473,7 +473,7 @@ public class WorkspaceControllerTests
         File.WriteAllBytes(path, File.ReadAllBytes(path)[..^1]);
         var opened = await c.OpenEntryAsync(Pack(c, "a.pack"), "a.txt");
         Assert.Equal(EntryProblem.Corrupt, opened!.ReadProblem);
-        var warning = Assert.Single(game.Log.Warnings);
+        var warning = Assert.Single(game.Log.Warnings, w => !w.Contains("table versions"));
         Assert.All(new[] { "a.pack", "a.txt", "InconsistentIndex" }, part => Assert.Contains(part, warning));
     }
 
@@ -699,4 +699,65 @@ public class WorkspaceControllerTests
         Assert.Single(game.Log.Errors, line => line.Contains("Restoring the session failed", StringComparison.Ordinal));
         Assert.False(c.IsBusy);
     }
+
+    // ---- the table versions of the game ------------------------------------------------------------------------------------------
+
+    [Fact] public async Task Table_versions_are_read_after_the_catalog_scan_and_cached()
+    {
+        using var game = new TestGame();
+        game.AddVanillaTables("data.pack", ("x_tables", 3), ("y_tables", 0));
+        var c = game.NewController();
+        Assert.Null(c.TableVersions);                                              // before the first load
+        Assert.Equal(game.Texts.TableVersionsReading, c.TableVersionsMissingReason);
+
+        await c.LoadAsync();
+
+        Assert.True(c.TableVersions!.IsComplete);
+        Assert.False(c.TableVersions.FromCache);
+        Assert.Equal((3, 0), (c.TableVersions.Versions!.VersionOf("x_tables"), c.TableVersions.Versions.VersionOf("y_tables")));
+        Assert.Null(c.TableVersionsMissingReason);
+        var cacheFile = Path.Combine(game.Paths.CacheDirectory, $"table_versions_{TestGame.Profile.Id}.json");
+        Assert.True(File.Exists(cacheFile));
+        Assert.StartsWith(game.Paths.LocalRoot, cacheFile, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(game.Log.Infos, line => line.Contains("2 tables", StringComparison.Ordinal) && line.Contains("read from the packs", StringComparison.Ordinal));
+
+        // The next start finds the cache valid, and a refresh does too.
+        var again = game.NewController();
+        await again.LoadAsync();
+        Assert.True(again.TableVersions!.FromCache);
+        Assert.True(again.TableVersions.Versions!.SameAs(c.TableVersions.Versions));
+    }
+
+    [Fact] public async Task A_failed_load_leaves_the_table_versions_incomplete()
+    {
+        using var game = new TestGame();
+        game.AddVanillaTables("data.pack", ("x_tables", 3));
+        game.Settings.SchemaFolder = "bad\0folder";                                // an invalid path makes the work on the pool thread throw
+        var c = game.NewController();
+
+        await c.LoadAsync();
+
+        Assert.Contains(game.Log.Errors, line => line.Contains("Loading the game failed", StringComparison.Ordinal));
+        Assert.False(c.TableVersions!.IsComplete);
+        Assert.Equal(game.Texts.TableVersionsIncomplete, c.TableVersionsMissingReason);
+    }
+
+    [Fact] public async Task The_missing_reason_of_the_table_versions_names_no_game_and_an_incomplete_read()
+    {
+        using var noGame = new TestGame(inSteamLibrary: true);                     // Steam does not know the game
+        var none = noGame.NewController();
+        await none.LoadAsync();
+        Assert.Null(none.TableVersions);
+        Assert.Equal(noGame.Texts.TableVersionsNoGame, none.TableVersionsMissingReason);
+
+        using var game = new TestGame();
+        game.AddBrokenVanillaPack("data.pack");
+        var c = game.NewController();
+        await c.LoadAsync();
+        Assert.False(c.TableVersions!.IsComplete);
+        Assert.Equal(game.Texts.TableVersionsIncomplete, c.TableVersionsMissingReason);
+        Assert.Contains(game.Log.Warnings, line => line.Contains("data.pack", StringComparison.Ordinal) && line.Contains("table versions", StringComparison.OrdinalIgnoreCase));
+        Assert.False(File.Exists(Path.Combine(game.Paths.CacheDirectory, $"table_versions_{TestGame.Profile.Id}.json")));   // an incomplete read is never cached
+    }
+
 }

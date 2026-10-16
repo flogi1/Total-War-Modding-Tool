@@ -71,14 +71,17 @@ public static class PackImporter
     /// it could not be removed. A cancel or another exception has no such channel, so the caller must not assume that the staging folder
     /// (<c>&lt;TargetFolder&gt;.import-&lt;8 hex characters&gt;</c>) is gone when a delete can fail.
     /// </summary>
-    public static ImportReport Import(ImportRequest request, GameSchema? schema, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    public static ImportReport Import(ImportRequest request, GameSchema? schema, GameTableVersions gameVersions,
+        IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
     {
-        return Import(request, schema, progress, cancellationToken, null);
+        return Import(request, schema, gameVersions, progress, cancellationToken, null);
     }
 
-    internal static ImportReport Import(ImportRequest request, GameSchema? schema, IProgress<OperationProgress>? progress, CancellationToken cancellationToken, Action? beforeMove)
+    internal static ImportReport Import(ImportRequest request, GameSchema? schema, GameTableVersions gameVersions,
+        IProgress<OperationProgress>? progress, CancellationToken cancellationToken, Action? beforeMove)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(gameVersions);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SourcePack);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.TargetFolder);
         if (!Path.IsPathFullyQualified(request.SourcePack) || !Path.IsPathFullyQualified(request.TargetFolder))
@@ -140,6 +143,11 @@ public static class PackImporter
             return Fail(ImportProblem.TargetUnwritable, "The target folder cannot be read: " + ex.Message);
         }
 
+        if (OutdatedTables(index, gameVersions, cancellationToken) is { } outdated)
+        {
+            return Fail(ImportProblem.OutdatedTables, outdated);
+        }
+
         var staging = NewStagingPath(target);
         var writing = new WriteState();
         ImportReport? report = null;
@@ -165,6 +173,38 @@ public static class PackImporter
         return stagingRemoved
             ? report
             : report with { Detail = Describe(report.Problem.ToString(), report.Detail) + $" The staging folder '{staging}' could not be removed." };
+    }
+
+    // One line per table entry in another version than the game uses ("<pack path>: <detail>"); null when there is none. Runs before anything is written.
+    private static string? OutdatedTables(PackIndex index, GameTableVersions gameVersions, CancellationToken cancellationToken)
+    {
+        if (gameVersions.Versions.Count == 0)
+        {
+            return null;
+        }
+
+        var entries = index.Entries;
+        var reasons = ComputeSkips(entries);
+        var lines = new List<string>();
+        for (var i = 0; i < entries.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var entry = entries[i];
+            if (reasons[i] is not null || !DbTablePath.TryGetTableName(entry.Path, out var tableName) || gameVersions.VersionOf(tableName) is null)
+            {
+                continue;
+            }
+
+            var prefix = PackReader.ReadEntryPrefix(index, entry, DbTableDecoder.TableHeaderBytes, cancellationToken);
+            if (prefix.Bytes is not null
+                && DbTableDecoder.ReadHeader(prefix.Bytes) is { } header
+                && TableVersionRule.VersionMismatchDetail(gameVersions, tableName, header.Version) is { } detail)
+            {
+                lines.Add(entry.Path + ": " + detail);
+            }
+        }
+
+        return lines.Count == 0 ? null : string.Join('\n', lines);
     }
 
     private static ImportReport WriteProject(

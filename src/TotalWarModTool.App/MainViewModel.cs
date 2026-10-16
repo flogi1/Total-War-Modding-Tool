@@ -21,6 +21,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly RelayCommand _newTableCommand;
     private readonly RelayCommand _newLocCommand;
     private ResolvedSchema? _seenSchema;
+    private ObjectWizardController? _wizards;
 
     // Which of the two view models that report to the project status item said something last (the one of the file commands, else the one of the project commands).
     private bool _fileStatusIsNewer;
@@ -55,7 +56,7 @@ public sealed class MainViewModel : ObservableObject
             {
                 await _projectFiles!.NewTableAsync(id);
             }
-        }, () => _projectFiles is not null && ProjectNewFileToolTip is null);
+        }, () => _projectFiles is not null && ProjectNewTableToolTip is null);
         _newLocCommand = new RelayCommand(async () =>
         {
             if (_projects?.ActiveId is { } id)
@@ -180,6 +181,22 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The menu "Edit" is shown.</summary>
     public bool HasDocuments => Documents is not null;
 
+    /// <summary>The wizards of the menu Tools; set by the composition root after the object controllers exist, null before and in tests without them.</summary>
+    public ObjectWizardController? Wizards
+    {
+        get => _wizards;
+        set
+        {
+            if (SetProperty(ref _wizards, value))
+            {
+                OnPropertyChanged(nameof(HasWizards));
+            }
+        }
+    }
+
+    /// <summary>The wizard entries of the menu Tools are shown.</summary>
+    public bool HasWizards => _wizards is not null;
+
     /// <summary>The first line of the result of the last project command, for the status bar; null when there is none.</summary>
     public string? ProjectStatusLine
     {
@@ -210,8 +227,8 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Why "Build and install" of the menu is disabled (as for Build, and no game folder or a project list that cannot be saved); null when it can run.</summary>
     public string? ProjectBuildAndInstallToolTip => ProjectReason(Projects?.InstallDisabledReason(_projects?.ActiveId));
 
-    /// <summary>Why "Import pack" of the menu is disabled (no game profile, or another operation runs); null when it can run.</summary>
-    public string? ProjectImportToolTip => ProjectReason(null);
+    /// <summary>Why "Import pack" of the menu is disabled (no game profile, the game's table versions are not usable, or another operation runs); null when it can run.</summary>
+    public string? ProjectImportToolTip => ProjectReason(Projects?.ImportDisabledReason);
 
     /// <summary>
     /// The tool tip of "Save" and "Save all" of the menu: "busy" while another operation runs, else null. Having nothing to save needs no
@@ -222,16 +239,19 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The menu entries "New table" and "New loc file" are shown.</summary>
     public bool HasProjectFiles => _projectFiles is not null;
 
-    /// <summary>Asks for a table and a name and creates the table in the active project. Disabled with <see cref="ProjectNewFileToolTip"/>.</summary>
+    /// <summary>Asks for a table and a name and creates the table in the active project. Disabled with <see cref="ProjectNewTableToolTip"/>.</summary>
     public ICommand NewTableCommand => _newTableCommand;
 
     /// <summary>Asks for a name and creates a loc file in the active project. Disabled with <see cref="ProjectNewFileToolTip"/>.</summary>
     public ICommand NewLocCommand => _newLocCommand;
 
     /// <summary>
-    /// Why "New table" and "New loc file" of the menu are disabled (no game profile, no active project, an unusable project, or another operation
-    /// runs); null when they can run.
+    /// Why "New table" of the menu is disabled (no game profile, no active project, an unusable project, the game's table versions are not usable,
+    /// or another operation runs); null when it can run.
     /// </summary>
+    public string? ProjectNewTableToolTip => ProjectReason(_projects?.ActiveId is { } id ? _projectFiles?.NewTableDisabledReason(id) : Texts.ProjectNoneActive);
+
+    /// <summary>Why "New loc file" of the menu is disabled: as for "New table", without the game's table versions, which a loc file does not need.</summary>
     public string? ProjectNewFileToolTip => ProjectReason(_projects?.ActiveId is { } id ? _projectFiles?.NewFileDisabledReason(id) : Texts.ProjectNoneActive);
 
     /// <summary>Scans the packs and loads the schema again. Enabled when a game profile exists and no operation runs.</summary>
@@ -349,6 +369,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ProjectImportToolTip));
         OnPropertyChanged(nameof(ProjectSaveToolTip));
         OnPropertyChanged(nameof(ProjectNewFileToolTip));
+        OnPropertyChanged(nameof(ProjectNewTableToolTip));
         _newTableCommand.RaiseCanExecuteChanged();
         _newLocCommand.RaiseCanExecuteChanged();
     }

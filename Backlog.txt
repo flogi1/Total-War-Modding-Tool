@@ -44,6 +44,7 @@ Gruppe 2: Datenverlust, Vertrauen, Hänger (bei Gebrauch zuerst prüfen)
   - Aktion nach dem Namensdialog abgelehnt: Eingabe geht verloren
   - UI-Thread blockiert bis rund 1 s: `twmt-project.json` und `projects.json` lesen und speichern, Einstellungen und
     Session speichern, Einfügen großer Mengen, Undo und Redo großer Dateien, Textansicht großer Tabellen
+  - UI-Thread: Schlüsselprüfung im Dialog „Kopieren als“ bei einer Tabelle, die nicht im Cache ist (Plan 4)
   - Stille Zustände ohne Hinweis: Aktualisieren nach geändertem Spielordner abgebrochen, ungültige Spielordner-Meldung
     bleibt stehen, Tabs fehlender Packs ohne Markierung, Einstellungsfenster ohne Hinweis bei nicht gespeicherten
     Einstellungen, Sprachdatei fehlerhaft ohne Hinweis
@@ -338,7 +339,6 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 
 == Aus Teil 4.2a Plan 1 (Objects) zurückgestellt ==
 
-- Kopierregel für eigene Schlüsselzeilen, die zum Objekt gehören (Plan 4, Assistenten): Die Kaserne hat in `building_units_allowed` 4 Zeilen mit eigenem Schlüssel `key` ohne Präfix; die Regel meldet sie als Fremdschlüsselzeilen und kopiert sie nicht, obwohl ein neues Gebäude ohne erlaubte Einheiten unbrauchbar ist. Vorschlag: optionales Feld pro Abschnitt in der Kategorie-Datei (zum Beispiel `"copy": "owned"`), gesetzt für `building_units_allowed`, Standard unverändert (`technologies` bleibt ein Hinweis). Die Regel bleibt allgemein, die Assistenten tragen keine Ausnahme. Das Feld erst mit Plan 4 einführen; findet die Abnahme weitere solche Tabellen, eine Heuristik prüfen („Schlüssel wird von keiner anderen Tabelle referenziert“), vorher an den Echtdaten messen
 - Leerzeichen am Ende im Editor sichtbar machen (Plan 3): als Anhängsel markieren, damit der Nutzer sieht, dass der Wert eines hat und beim Bearbeiten erhalten bleibt
 - Abnahme Plan 1 bis 3: Dateiersetzung gilt jetzt auch zwischen Vanilla-Packs (`data_1.pack` über `data.pack`); eine Stichprobe an einer Tabelle, die ein späteres Vanilla-Pack patcht, prüfen, ob die Reihenfolge stimmt und keine neuere Datei fälschlich verdrängt wird
 - Echtdaten-Messung ergänzen (je eine Schleife im bestehenden Test): Zeilen in Junction- und Satz-Abschnitten mit leerem String-Schlüsselfeld; Werte mit führenden Leerzeichen in diesen Abschnitten (19 echte Zellen beginnen mit einem Leerzeichen, in welchen Feldern ist unbekannt); Test `The_empire_builds_in_under_two_seconds` ist knapp (einmal 2003 ms bei Grenze 2000 ms, sonst 1445 bis 1914 ms), Grenze oder Messung prüfen
@@ -388,7 +388,42 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Die Schlüsselform von `FileCopyQuestion.DeletedKeys` (Plan 2) ist jetzt in der Kopie-Frage sichtbar; in der Abnahme prüfen, ob sie lesbar ist
 - Die zweite Berechnung des Plans (mit den Antworten) läuft auf dem UI-Thread; bei der Kopie einer sehr großen Tabelle kann das kurz einfrieren. Dann in einen eigenen Runner-Lauf oder in Lauf B verlegen
 - Ein fehlgeschlagener Rollback (`RollbackFailed`) ist in der App nur über den Meldungstext getestet, weil `ProjectWriter` keinen Haken zum Erzwingen bietet; ein Test mit einer Datei, die nach dem Schreiben gesperrt wird, wäre möglich, wenn `ProjectWriter` einen Test-Haken bekommt
-- `ObjectsController.CategoryOf` und `ResolveOrder` aus dem Plan wurden nicht angelegt (das Übernehmen nutzt Kategorie und Ladereihenfolge des Aufbaus); Plan 4 prüft, ob „Kopieren als“ sie braucht
+
+== Aus Teil 4.2a Plan 4 zurückgestellt ==
+
+- Vorlagen über Fraktions-Varianten: Eine Stufe, deren Kultur-Varianten nur eine Fraktion tragen (weder Kultur noch Subkultur), ist keine Vorlage des Assistenten „Neues Gebäude“, und für eine solche Stufe fehlt auch der Name in der Stufenliste (`BuildingCatalog.TemplatesOf`, `StagesOf`); Fraktion als dritte Zuordnung aufnehmen oder im Dialog sagen, dass sie fehlen
+- Kategorie-Datei für Ketten: „Neue Kette“ kopiert die `cai_construction_system_*`-Zeilen der Vorlage-Kette mit (16 Synergien, 1 Gebäudewert, ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette); eine Kategorie-Datei für `building_chains_tables` mit versteckten `cai_*`-Abschnitten anlegen, falls der Spielstart (Annahme 7) Probleme zeigt
+- Stufenbereiche bei „Neue Kette“: Seit dem Nachtrag 2026-10-14 (Spec 5.8) verwirft der Assistent jede Zeile, die auf eine andere Stufe der Vorlage-Kette zeigt, auch einen Bereich, der die Vorlage enthält (Spike: 20 von 183 verworfenen Zeilen in 400 Vorlagen, 14 `cai_construction_system_building_values`, 4 `unblocking_buildings`, 2 `blocking_buildings`). Kappen auf „neue Stufe bis neue Stufe“ ginge nur, wenn das Profil die Bereichsfelder als Paare nennt (`wizards.json`), denn Schema und Stufennummer unterscheiden Bereiche nicht von Beziehungen wie `building_downgrade_junctions.from`/`to`; erst bauen, wenn die AI die neue Kette ohne diese Zeilen schlecht baut
+- Stufenverweise bei „Stufe in bestehender Kette“ und „Kopieren als“: Die Kopie übernimmt Bereiche der Vorlage unverändert (`cai_construction_system_unblocking_buildings` von der Kopie bis `wh_main_emp_barracks_3`); in derselben Kette kann der Bereich danach verkehrt herum laufen (Kopie mit höherer `level` als das Ende). Regel mit dem Nutzer festlegen
+- Belegte Schlüssel beim Assistenten „Neues Gebäude“ (Spike 2026-10-14): 141 von 400 Vorlagen brechen in Lauf A mit belegten Schlüsseln ab, in `building_level_armed_citizenry_junctions_tables` (Zahlschlüssel der Vorlage unverändert kopiert, Kandidat für `"copy": "owned"`) und `campaign_settlement_display_building_ids_tables`; bestand schon vor dem Nachtrag
+- Die Schlüsselprüfung des Dialogs „Kopieren als“ holt die Tabelle mit `stores.Tables.Get` auf dem UI-Thread und fragt bei jedem Tastendruck; ist die Tabelle nicht im Cache (Aufbau verdrängt oder sehr große Tabelle), friert der Dialog kurz ein. Tabelle vor dem Dialog in einem Runner-Lauf laden oder die Prüfung entprellen
+- Weitere Assistenten nach demselben Muster (Datei `wizards.json` des Profils, Katalog, Dialog, `ObjectWizardController`): zum Beispiel Einheit, Technologie, Fraktion; jeweils eigene Spec
+- Gemeinsame Vorlagenauswahl: `NewTraitViewModel` und `NewTraitWindow` wiederholen Filter und Auswahl von `NewBuildingViewModel` und `NewBuildingWindow`; beim nächsten Assistenten eine geteilte Komponente (Filterfeld, Liste, Schlüsselfeld mit Vorschlag) herausziehen
+- `CopyOwned` würfelt jedes Zahl-Schlüsselfeld einer Zeile, das nicht das Feld auf die Wurzel ist; ein späterer zusammengesetzter Schlüssel mit einem Verweis als Zahlfeld bekäme damit einen Zufallswert statt des Verweises. Erst nötig, wenn ein Abschnitt mit `"copy": "owned"` so ein Feld hat; dann das Feld in der Kategorie-Datei ausnehmen
+- Trait ohne eigenen Spieltext: Der Name einer Vorlage wird über das Präfix `<trait>_` gesucht und findet auch den Text eines längeren Traits (`brave` findet `brave_heart_1`); den Namen über den genauen Schlüssel `<trait>_<stufe>` der Stufen des Traits bilden
+- `BuildingCatalog` liest eine nicht lesbare `level` still als 0, und `BuildingWizard.Compose` ignoriert `chainCopy`, wenn eine Stufe gewählt ist (`after != null`), ohne Hinweis; beides melden statt still ignorieren
+- `ObjectCopy.TakenKey` vergleicht `KeyValues` über die Listenreferenz, nicht über die Werte; wer `TakenKeys` je vergleicht oder entdoppelt, muss die Werte einzeln vergleichen. Werte-Gleichheit nachrüsten, sobald ein Aufrufer sie braucht
+- Eine leere Kopie sagt „Nothing to write: the text has no change.“ und spricht damit von einem Text, den es bei einer Kopie nicht gibt; eigener Text für die Kopie. Das Log von `ShowPlanErrors` sagt bei Kopien „apply“
+- `ObjectApplyController.CopyAsync` schreibt den übersetzten Sperrgrund (`CopyDisabledReason`) ins Log, und `ObjectWizardController` vergleicht für die Ursache im Log den übersetzten Text (`environment == _texts.ProjectBusy`); Log-Ursachen als feste englische Wörter oder Enum, `ObjectCopyAsTests` (prüft den Logtext) dann anpassen
+- `ObjectWizardController.ExistsIn` baut den Kettenschlüssel selbst statt über `BuildingWizard.ChainIdFor`; `BuildingWizard` baut den Spieltext-Schlüssel (`TableSuffix`, `StripSuffix`, `LocKey`) neu statt den von `ObjectBuilder` zu nutzen; `TraitWizard.StripSuffix` und `ShortName` im Controller sind doppelt
+- `ObjectWizardController` setzt `_running`, ohne den Menüzustand mit `Refresh()` zu aktualisieren; der Zweig „busy“ ist ungetestet
+- Aufräumen: `WizardDefinitions.Parse` (Gebäude- und Trait-Block doppelt und verschachtelt) flach ziehen; `RememberOrigin`, `CheckAfterWriteAsync` und `CreatedFiles` von `ObjectApplyController` können `private` werden; `ObjectTabViewModel` (rund 800 Zeilen) und `ObjectApplyController` (rund 630 Zeilen) aufteilen, bevor ein weiterer Assistent dazukommt
+- Kategorie-Datei: Der Wert `copy` wird ohne Beachtung der Groß-/Kleinschreibung verglichen, „OWNED“ wird also angenommen, obwohl die Spec jeden anderen Wert als Problem der Datei nennt; ordinal vergleichen oder die Spec anpassen
+- Der Assistent loggt „kein Spiel oder kein Schema“ als eine Zeile und entscheidet die Ursache über den Vergleich übersetzter Texte (`environment == _texts.ProjectBusy`); Ursache als Enum oder festes englisches Wort (gehört zum Eintrag über den Sperrgrund oben)
+- Die umformulierten Log-Zeilen des gemeinsamen Schreibwegs beim Übernehmen (`WritePlannedAsync`) sind ungetestet
+- Spieltext-Schlüssel (Loc) einer Kopie werden nicht auf Kollision geprüft; `ObjectCopy.TakenKeys` prüft nur eingefügte Zeilen
+- Ein abgelehnter Schlüssel in Lauf A (belegter abgeleiteter Schlüssel) verliert die Eingabe des Assistenten (Volk, Vorlage, Stufe): der Dialog ist schon zu, die Meldung „Choose another key“ fordert einen Dialog, den es nicht mehr gibt. Gehört zum Eintrag „Aktion nach dem Namensdialog abgelehnt: Eingabe geht verloren“ (weiter oben); Meldung anpassen und Eingabe behalten (Dialog nach Ablehnung mit den alten Werten wieder öffnen)
+- Tests ergänzen (Plan 4): `RandomIntegerKeysTests.A_value_is_never_handed_out_twice` mit einem `Random`, der immer denselben Wert liefert; `WizardDefinitions` mit nicht-String `nameSuffix`, Wurzel oder Abschnitt, der kein Objekt ist, fehlendem `nameText`, IO-Fehler und einzelnem Surrogat; die Tests `A_template_is_listed_once...` und die Rückfall-Vorauswahl des `BuildingCatalog` prüfen schwach; Vorlage ohne Kette im App-Test (Hinweis `NoChain`, keine Ketten-Datei); Verdrahtung der Hinweise in der Ergebniszeile, Ablehnung bei `_applying` und `CaptureOrder` Ende zu Ende; die Ergebniszeile im Haupttest des Assistenten „Neues Gebäude“ prüft nur `NotNull`
+
+== Aus der Spec „Tabellenversion aus den Spieldateien“ zurückgestellt (2026-10-14) ==
+
+- Werkzeug, das eine Tabellendatei in eine andere Version umwandelt (z. B. eine veraltete Projektdatei oder die Tabelle einer alten Mod in die Spielversion); Felder per Name abbilden wie `RowLayout`, fehlende mit Standardwert, wegfallende in der Vorschau nennen
+- Warnung über veraltete fremde Mods in der Ladereihenfolge (Tabellen in anderer Version als im Spiel); heute nur „older layout“ in der Objekt-Ansicht
+
+== Aus der Spec Tabellenversion, Abschluss ==
+
+- `ApplyEnvironmentReason` kennt `MissingReason` nicht: Die Tooltips sagen „veraltet“, nachdem die Versionen unvollständig geworden sind
+- Der Cache der anlegbaren Tabellen im `ProjectFilesController` vergleicht die Versionen mit `ReferenceEquals` und läuft nach jedem Aktualisieren neu; `SameAs` nutzen
 
 == Wartet auf ein öffentliches Remote ==
 

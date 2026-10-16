@@ -255,7 +255,7 @@ public sealed partial class ExplorerViewModel
 
     private IReadOnlyList<NodeAction> PackActions(PackSource pack) =>
     [
-        MakeAction(Texts.ProjectActionImport, _projectCommands!.ProjectsDisabledReason, async () =>
+        MakeAction(Texts.ProjectActionImport, _projectCommands!.ProjectsDisabledReason ?? _projectCommands.ImportDisabledReason, async () =>
         {
             await _projectCommands.ImportAsync(pack.Path, pack.Name);
             await RefreshProjectFilesAsync();
@@ -307,7 +307,7 @@ public sealed partial class ExplorerViewModel
         var reason = WithoutBusy(files.NewFileDisabledReason(id));
         return
         [
-            MakeAction(Texts.FileNewTableTitle, reason, () => files.NewTableAsync(id)),
+            MakeAction(Texts.FileNewTableTitle, WithoutBusy(files.NewTableDisabledReason(id)), () => files.NewTableAsync(id)),
             MakeAction(Texts.FileNewLocTitle, reason, () => files.NewLocAsync(id)),
             NodeAction.Separator,
         ];

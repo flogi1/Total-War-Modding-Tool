@@ -16,6 +16,9 @@ public enum ImportProblem
     InvalidPackName,
     TargetNotEmpty,
     TargetUnwritable,
+
+    /// <summary>Tables of the pack are in another version than the game uses; nothing was written. Detail lists them.</summary>
+    OutdatedTables,
 }
 
 /// <summary>

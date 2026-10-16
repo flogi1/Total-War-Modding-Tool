@@ -64,7 +64,7 @@ public static class ProjectWritePlan
 
         public bool Changed { get; set; }
 
-        /// <summary>The rows as text in the layout of the latest definition, parallel to Rows; null where not computed yet.</summary>
+        /// <summary>The rows as text in the layout of the current definition, parallel to Rows; null where not computed yet.</summary>
         public List<string[]?> Texts { get; } = [];
 
         /// <summary>The key texts of all rows in the layout of the file; null while stale.</summary>
@@ -215,7 +215,7 @@ public static class ProjectWritePlan
 
         private void ApplyTable(string table, List<RowChange> changes)
         {
-            var current = _graph.Latest(table);
+            var current = _graph.Current(table);
             if (current is null)
             {
                 foreach (var change in changes)
@@ -240,7 +240,7 @@ public static class ProjectWritePlan
                     case RowChangeKind.Set when change.Provenance is { Source.Kind: SourceKind.Project } provenance:
                         if (FindProjectFile(provenance.EntryPath) is { } projectFile)
                         {
-                            SetProjectRow(GetWork(projectFile), change, current, keyFields, colour);
+                            SetProjectRow(GetWork(projectFile, change.Line), change, current, keyFields, colour);
                         }
                         else
                         {
@@ -278,7 +278,7 @@ public static class ProjectWritePlan
             return _snapshot.Tables.FirstOrDefault(f => string.Equals(f.RelativeFile, relative, StringComparison.OrdinalIgnoreCase));
         }
 
-        private FileWork GetWork(SnapshotTableFile file)
+        private FileWork GetWork(SnapshotTableFile file, int line)
         {
             if (_work.TryGetValue(file.RelativeFile, out var existing))
             {
@@ -299,6 +299,11 @@ public static class ProjectWritePlan
             };
             work.Texts.AddRange(Enumerable.Repeat<string[]?>(null, work.Rows.Count));
             _work[file.RelativeFile] = work;
+            if (TableVersionRule.VersionMismatchDetail(_graph.GameVersions, work.TableName, work.Version) is { } mismatch)
+            {
+                Fail(WriteErrorKind.OutdatedTableVersion, line, work.RelativeFile, mismatch);
+            }
+
             return work;
         }
 
@@ -309,12 +314,12 @@ public static class ProjectWritePlan
                 .Where(f => !f.IsCopy && DbTablePath.TryGetTableName(f.PackPath, out var name) && string.Equals(name, table, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(static f => f.RelativeFile, StringComparer.Ordinal)
                 .ToList();
+            var firstLine = waiting.Count > 0 ? waiting[0].Line : 0;
             if (candidates.Count == 1)
             {
-                return GetWork(candidates[0]);
+                return GetWork(candidates[0], firstLine);
             }
 
-            var firstLine = waiting.Count > 0 ? waiting[0].Line : 0;
             if (candidates.Count == 0)
             {
                 return NewTableFile(table, current, firstLine);
@@ -334,7 +339,7 @@ public static class ProjectWritePlan
                 return null;
             }
 
-            return GetWork(chosen);
+            return GetWork(chosen, firstLine);
         }
 
         /// <summary>The trimmed project name when it is a valid file name part, else the fallback.</summary>
@@ -348,7 +353,7 @@ public static class ProjectWritePlan
         {
             var name = NewFileName();
             var schemaName = _schema.Tables.Keys.FirstOrDefault(k => string.Equals(k, table, StringComparison.OrdinalIgnoreCase)) ?? table;
-            var created = NewFiles.Table(_schema, schemaName, name);
+            var created = NewFiles.Table(_schema, _graph.GameVersions, schemaName, name);
             if (created.File is null)
             {
                 Fail(WriteErrorKind.TableNotWritable, line, null, created.Reason ?? "the file cannot be created");
@@ -364,7 +369,7 @@ public static class ProjectWritePlan
             // A file with this name already exists in the project (as a copy): the tool takes it (Spec 5.4).
             if (_snapshot.Tables.FirstOrDefault(f => string.Equals(f.RelativeFile, relativeFile, StringComparison.OrdinalIgnoreCase)) is { } there)
             {
-                return GetWork(there);
+                return GetWork(there, line);
             }
 
             var work = new FileWork
@@ -702,7 +707,7 @@ public static class ProjectWritePlan
                         continue;
                     }
 
-                    var work = GetWork(file);
+                    var work = GetWork(file, change.Line);
                     if (!CanMap(work, current, change.Line))
                     {
                         continue;
@@ -781,7 +786,7 @@ public static class ProjectWritePlan
 
             if (_snapshot.Tables.FirstOrDefault(f => string.Equals(f.RelativeFile, entry.RelativeFile, StringComparison.OrdinalIgnoreCase)) is { } there)
             {
-                return GetWork(there);
+                return GetWork(there, line);
             }
 
             var work = new FileWork
@@ -801,6 +806,13 @@ public static class ProjectWritePlan
             };
             work.Texts.AddRange(Enumerable.Repeat<string[]?>(null, work.Rows.Count));
             _work[entry.RelativeFile] = work;
+            if (TableVersionRule.VersionMismatchDetail(_graph.GameVersions, work.TableName, work.Version) is { } mismatch)
+            {
+                var kind = layer.Source.Kind == SourceKind.Vanilla ? "the game pack" : "the mod";
+                Fail(WriteErrorKind.OutdatedTableVersion, line, layer.EntryPath,
+                    "entry " + layer.EntryPath + " in " + kind + " pack " + layer.Source.Name + " (" + layer.Source.Path + ") is outdated: " + mismatch);
+            }
+
             return work;
         }
 
@@ -892,7 +904,7 @@ public static class ProjectWritePlan
             return firstCandidate;
         }
 
-        /// <summary>True when the rows of the file can be read in the layout of the latest definition; otherwise the error is recorded.</summary>
+        /// <summary>True when the rows of the file can be read in the layout of the current definition; otherwise the error is recorded.</summary>
         private bool CanMap(FileWork work, TableDefinition current, int line)
         {
             if (!work.ToCurrentKnown)
@@ -910,7 +922,7 @@ public static class ProjectWritePlan
             return true;
         }
 
-        /// <summary>The row as text in the layout of the latest definition; null when the layouts cannot be mapped.</summary>
+        /// <summary>The row as text in the layout of the current definition; null when the layouts cannot be mapped.</summary>
         private static string[]? TextsOf(FileWork work, int index, TableDefinition current)
         {
             if (work.Texts[index] is { } cached)

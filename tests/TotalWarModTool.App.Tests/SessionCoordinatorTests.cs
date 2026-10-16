@@ -229,7 +229,7 @@ public class SessionCoordinatorTests
             await vm.OpenEntryAsync(c.Catalog!.Packs[0], "a.txt");
             session.Save();
             Assert.False(File.Exists(store.FilePath));
-            Assert.Single(game.Log.Warnings);
+            Assert.Single(game.Log.Warnings, w => !w.Contains("table versions"));
         }
     }
 

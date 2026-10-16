@@ -12,7 +12,7 @@ public class FileReplacementTests
 
     private static readonly CancellationToken None = CancellationToken.None;
 
-    private static TableStore NewStore() => new(Schema, ReferenceGraph.Build(Schema));
+    private static TableStore NewStore() => new(Schema, ReferenceGraph.Build(Schema, GameTableVersions.Empty));
 
     private static object?[] U(string key, string name, int cost) => [key, name, cost];
 

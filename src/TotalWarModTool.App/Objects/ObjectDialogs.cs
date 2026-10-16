@@ -2,7 +2,7 @@ using System.Windows;
 
 namespace TotalWarModTool.App;
 
-/// <summary>The WPF side of <see cref="IObjectDialogs"/>: message boxes and <see cref="ChoiceWindow"/> questions owned by the main window. Wiring only.</summary>
+/// <summary>The WPF side of <see cref="IObjectDialogs"/>: message boxes, <see cref="ChoiceWindow"/> questions, the <see cref="NameInputWindow"/> and the <see cref="NewBuildingWindow"/> and <see cref="NewTraitWindow"/> owned by the main window. Wiring only.</summary>
 public sealed class ObjectDialogs : IObjectDialogs
 {
     private readonly AppTexts _texts;
@@ -52,6 +52,44 @@ public sealed class ObjectDialogs : IObjectDialogs
     // Cancel is the default button: the copy has consequences beyond the project, so Enter must not confirm it.
     public bool AskCopies(IReadOnlyList<string> lines) =>
         Ask(_texts.ObjectsCopyTitle, _texts.ObjectsCopyMessage, lines, [_texts.ObjectsCopyConfirm, _texts.DialogCancel], defaultIndex: 1, cancelIndex: 1) == 0;
+
+    public string? AskNewKey(string objectName, string suggestion, Func<string, string?> validate)
+    {
+        var window = new NameInputWindow(new NameInputViewModel(_texts, _texts.ObjectsCopyAsLabel, suggestion, validate), _texts.ObjectsCopyAsTitle(objectName));
+        if (_owner() is { IsLoaded: true } owner)
+        {
+            window.Owner = owner;
+        }
+
+        window.ShowDialog();
+        return window.Result;
+    }
+
+    public NewBuildingAnswer? AskNewBuilding(NewBuildingInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var window = new NewBuildingWindow(new NewBuildingViewModel(_texts, input));
+        if (_owner() is { IsLoaded: true } owner)
+        {
+            window.Owner = owner;
+        }
+
+        window.ShowDialog();
+        return window.Result;
+    }
+
+    public NewTraitAnswer? AskNewTrait(NewTraitInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var window = new NewTraitWindow(new NewTraitViewModel(_texts, input));
+        if (_owner() is { IsLoaded: true } owner)
+        {
+            window.Owner = owner;
+        }
+
+        window.ShowDialog();
+        return window.Result;
+    }
 
     // The button at defaultIndex is the one that Enter presses (the safe one); the one at cancelIndex is the answer for Esc and the close box.
     private int Ask(string title, string message, IReadOnlyList<string> lines, IReadOnlyList<string> buttons, int defaultIndex, int cancelIndex)

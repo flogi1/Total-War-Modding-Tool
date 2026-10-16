@@ -123,13 +123,13 @@ public sealed partial class ObjectsController
         var tab = new ObjectTabViewModel(_texts, _tabs.Close, history, position, _translate)
         {
             BuildHandler = tab => RunDetached(() => BuildAsync(tab), BuildWhat),
-            OpenHandler = (_, target, _) => AddAndBuild(NewTab([target], 0)),
+            OpenHandler = (_, target, _) => OpenObject(target),
             JumpHandler = tab => RunDetached(() => JumpAsync(tab), "Jumping to the row of an object"),
             ApplyEnvironmentReason = ApplyEnvironmentReason,
             CheckHandler = Check,
         };
 
-        // The composition root sets the two handlers right after it made the apply controller, before any tab is restored.
+        // The composition root sets the handlers right after it made the apply controller, before any tab is restored.
         if (ApplyHandler is { } apply)
         {
             tab.ApplyHandler = target => RunGuardedAsync(() => apply(target), "Applying an object");
@@ -140,6 +140,20 @@ public sealed partial class ObjectsController
             tab.LeaveHandler = target => LeaveGuardedAsync(leave, target);
         }
 
+        if (CopyHandler is { } copy)
+        {
+            tab.CopyHandler = target => RunGuardedAsync(() => copy(target), "Copying an object");
+        }
+
+        return tab;
+    }
+
+    /// <summary>Opens the object in a new tab, selects it and builds it.</summary>
+    internal ObjectTabViewModel OpenObject(ObjectRef target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var tab = NewTab([target], 0);
+        AddAndBuild(tab);
         return tab;
     }
 

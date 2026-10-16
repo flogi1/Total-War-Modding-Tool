@@ -48,6 +48,7 @@ public class ProjectFilesControllerTests
     private static async Task<Setup> CreateAsync(bool withSchema, params (string RelativeFile, string Text)[] files)
     {
         var game = new TestGame(withSchema);
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         var projects = game.NewProjects(workspace);
@@ -933,6 +934,7 @@ public class ProjectFilesControllerTests
         // The workspace has a runner of its own: a silent run of the workspace (start-up load, session restore) blocks every new operation,
         // while undo and redo, which only look at their own runner, still run.
         using var game = new TestGame(withSchema: true);
+        game.EnsureTableVersions();
         var workspaceRunner = new FakeOperationRunner();
         var workspace = game.NewController(runner: workspaceRunner);
         await workspace.LoadAsync();
@@ -1369,5 +1371,83 @@ public class ProjectFilesControllerTests
 
         Assert.Equal("Der Name darf keinen Punkt enthalten.", texts.FileNameDot);
         Assert.Equal("Der Name darf höchstens 100 Zeichen lang sein.", texts.FileNameTooLong(NewFiles.MaxNameLength));
+    }
+
+    // ---- the table versions of the game (spec 5.5, 5.7) --------------------------------------------------------------------------
+
+    [Fact] public async Task Create_table_offers_only_tables_with_a_current_definition()
+    {
+        using var setup = await CreateAsync();
+        // The schema knows x_tables and w_tables in version 0; the game uses w_tables in version 4, which the schema does not have.
+        File.WriteAllText(Path.Combine(setup.Game.Paths.SchemasDirectory, TestGame.Profile.SchemaFile), """
+            (
+                version: 5,
+                definitions: {
+                    "x_tables": [(version: 0, fields: [(name: "value", field_type: I32, is_key: false, is_reference: None)], localised_fields: [])],
+                    "w_tables": [(version: 0, fields: [(name: "value", field_type: I32, is_key: false, is_reference: None)], localised_fields: [])],
+                },
+                patches: {},
+            )
+            """);
+        setup.Game.AddVanillaTables("more.pack", ("w_tables", 4));
+        await setup.Workspace.RefreshAsync();                                      // reads the versions again and loads the schema again
+        setup.Game.Runner.Titles.Clear();
+
+        var tables = await setup.Files.GetCreatableTablesAsync();
+
+        Assert.Equal(["x_tables"], tables);
+        var refused = Refused(await setup.Files.CreateTableAsync(setup.Id, "w_tables", "mine"));
+        Assert.False(setup.Exists(@"db\w_tables\mine.tsv"));
+        Assert.NotNull(refused);
+    }
+
+    [Fact] public async Task The_creatable_tables_are_prepared_again_when_the_versions_of_the_game_are_another_instance()
+    {
+        using var setup = await CreateAsync();
+        var first = await setup.Files.GetCreatableTablesAsync();
+        setup.Game.Runner.Titles.Clear();
+
+        await setup.Workspace.RefreshAsync();                                      // the same schema file, but versions read (or cached) anew
+        setup.Game.Runner.Titles.Clear();
+        Assert.Empty(setup.Files.CreatableTables);
+        var again = await setup.Files.GetCreatableTablesAsync();
+
+        Assert.Equal(first, again);
+        Assert.Equal([setup.Game.Texts.OperationPrepareTables], setup.Game.Runner.Titles);
+    }
+
+    [Fact] public async Task New_tables_and_adopting_wait_for_the_table_versions_with_a_reason()
+    {
+        using var game = new TestGame();
+        game.AddBrokenVanillaPack("data.pack");
+        var workspace = game.NewController();
+        await workspace.LoadAsync();
+        var projects = game.NewProjects(workspace);
+        var project = game.NewProject(projects, "Alpha");
+        var history = new ActionHistory();
+        var documents = new DocumentsController(new TabsViewModel(game.Texts), projects, history, game.Runner, new FakeEditDialogs(), game.Log, game.Texts);
+        var files = new ProjectFilesController(projects, workspace, documents, history, game.Runner, game.Root.File("trash"), game.Log, game.Texts, TimeProvider.System);
+
+        Assert.Equal(game.Texts.TableVersionsIncomplete, files.NewTableDisabledReason(project.Id));
+        Assert.Equal(game.Texts.TableVersionsIncomplete, files.AdoptDisabledReason(project.Id));
+        Assert.Null(files.DisabledReason(project.Id));                             // a loc file and the other file actions need no versions
+        Assert.Empty(files.CreatableTables);
+        Assert.Empty(await files.GetCreatableTablesAsync() ?? throw new InvalidOperationException());
+        Assert.Equal(game.Texts.TableVersionsIncomplete, (await files.CreateTableAsync(project.Id, "x_tables", "mine"))!.Message);
+        Assert.NotNull((await files.CreateLocAsync(project.Id, "mine"))!.RelativeFile);
+    }
+
+    [Fact] public async Task Adopt_of_an_outdated_entry_reports_the_reason()
+    {
+        using var setup = await CreateAsync();                                     // the game uses x_tables in version 0
+        var pack = await AddPackAsync(setup, ("db/x_tables/data__", TestGame.EmptyTableOfVersion(5)));
+        var before = setup.Snapshot();
+
+        var result = Refused(await setup.Files.AdoptAsync(setup.Id, pack, "db/x_tables/data__", "mine"));
+
+        Assert.Contains("version 5", result.Message, StringComparison.Ordinal);
+        Assert.Contains("version 0", result.Message, StringComparison.Ordinal);
+        Assert.Equal(before, setup.Snapshot());
+        Assert.False(setup.History.CanUndo);
     }
 }

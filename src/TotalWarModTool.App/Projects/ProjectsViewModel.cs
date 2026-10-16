@@ -39,7 +39,7 @@ public sealed class ProjectsViewModel : ObservableObject
         _texts = texts;
         _newProject = new RelayCommand(NewProject, () => _projects.IsAvailable);
         _openProject = new RelayCommand(OpenProject, () => _projects.IsAvailable);
-        _importPack = new RelayCommand(async () => await RunAsync(ImportFromPickedPackAsync), () => _projects.IsAvailable && _projects.CanStartOperation);
+        _importPack = new RelayCommand(async () => await RunAsync(ImportFromPickedPackAsync), () => _projects.IsAvailable && _projects.CanStartOperation && _projects.ImportDisabledReason is null);
         _buildActive = new RelayCommand(async () => await BuildActiveAsync(install: false), () => CanRun(BuildDisabledReason));
         _buildAndInstallActive = new RelayCommand(async () => await BuildActiveAsync(install: true), () => CanRun(InstallDisabledReason));
         projects.Changed += (_, _) => RaiseCanExecuteChanged();
@@ -73,6 +73,9 @@ public sealed class ProjectsViewModel : ObservableObject
 
     /// <summary>The text that says why the new, open and import commands are disabled (no game profile); null when projects are available.</summary>
     public string? ProjectsDisabledReason => _projects.IsAvailable ? null : _texts.ProjectNoGameProfile;
+
+    /// <summary>The text that says why a pack cannot be imported besides <see cref="ProjectsDisabledReason"/> (the game's table versions are not usable); null when it can.</summary>
+    public string? ImportDisabledReason => _projects.ImportDisabledReason;
 
     /// <summary>The result of the last command, for the status bar; null when it had nothing to say. It can have several lines.</summary>
     public string? StatusMessage

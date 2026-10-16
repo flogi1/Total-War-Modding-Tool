@@ -22,6 +22,9 @@ public sealed record AppPaths(string RoamingRoot, string LocalRoot, string Progr
     /// <summary>The trash of the files that were deleted from a project (<c>&lt;project id&gt;\&lt;entry&gt;\&lt;file&gt;</c> below it).</summary>
     public string TrashDirectory => Path.Combine(LocalRoot, "trash");
 
+    /// <summary>Caches that can be rebuilt at any time (for example the table versions of the game).</summary>
+    public string CacheDirectory => Path.Combine(LocalRoot, "cache");
+
     public string LocalesDirectory => Path.Combine(ProgramRoot, "locales");
 
     public string ProfilesDirectory => Path.Combine(ProgramRoot, "profiles");

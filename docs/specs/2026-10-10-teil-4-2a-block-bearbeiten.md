@@ -459,6 +459,8 @@ jeder Task im selben Commit ergänzt):
 
 ### 5.4 Übernehmen: Zielregeln
 
+
+Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 `ProjectWritePlan.Compute(ObjectChanges, ProjectSnapshot, GameSchema, string projectName)` ordnet jede
 Änderung einer Projektdatei zu und berechnet den neuen Inhalt pro Datei. `ProjectSnapshot` ist der
 gelesene Stand der betroffenen Projektdateien (Pfad, Fingerprint, Zeilen) und die Liste aller
@@ -610,6 +612,8 @@ Der Objekt-Tab nutzt AvalonEdit:
 
 ### 5.8 Objekt kopieren und Assistenten
 
+
+Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 `ObjectCopy.Rename(ObjectView source, ObjectId newId, Func<ObjectId, ObjectView> build)` liefert
 eine Liste von `ParsedObject` (das Objekt und seine kopierten Unterobjekte) plus Hinweise. Das
 Objekt wird unter neuem Schlüssel beschrieben: Wurzelfelder mit neuem Schlüsselwert, die kopierten
@@ -624,6 +628,11 @@ Kopierregel für Abschnittszeilen, eine pro Zeile, in dieser Reihenfolge:
 1. Abschnitt versteckt (`hidden`): nicht kopiert, kein Hinweis.
 2. Junction-Tabelle, oder der Schlüssel der Zeile enthält das Feld auf die Wurzel
    (`building_culture_variants`, `building_effects_junction`): kopiert, der Wurzelwert ersetzt.
+2a. Abschnitt mit `"copy": "owned"` in der Kategorie-Datei (`building_units_allowed`): jede Zeile
+   des Abschnitts ist kopiert, auch mit eigenem Schlüssel ohne Präfix. Die Regel steht vor Regel 2
+   und gilt für Wurzel und Unterobjekte. Ein Schlüsselfeld der Zeile vom Typ `I32` oder `I64`, das
+   nicht das Feld auf die Wurzel ist, bekommt einen neuen Zufallswert (siehe „Festlegungen aus
+   Plan 4“).
 3. Eigener Schlüssel, dessen Wert mit dem alten Wurzelschlüssel plus `_` beginnt
    (`character_trait_levels.key = <trait>_1`): kopiert, das Präfix ersetzt. Die Zeile ist selbst ein
    Objekt; `ObjectCopy` baut es über `build` auf und wendet dieselbe Regel auf seine Abschnitte an
@@ -662,6 +671,167 @@ einem Übernehmen (ein Undo-Schritt). Prüft Annahme 3 für Traits.
 
 Beide Assistenten sind Hüllen um `ObjectCopy` und Übernehmen; ihre einzige Spielregel ist die
 Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Daten.
+
+#### Festlegungen aus Plan 4
+
+- **Zufallsschlüssel nur bei `CopyOwned`:** `ObjectCopy.Rename` bekommt einen `NewIntegerKey`
+  (`(Tabelle, Feld) -> Text`). Er wird nur für Schlüsselfelder vom Typ `I32` oder `I64` gefragt, die
+  nicht das Feld auf die Wurzel sind und deren Wert nicht dem alten Wurzelschlüssel gleicht, und nur in
+  Zeilen eines Abschnitts mit `"copy": "owned"`. Ein Zahlschlüssel in anderen Abschnitten bleibt wie
+  heute (Zeile als Hinweis `ForeignKeyRows` nicht kopiert, oder kopiert mit unverändertem Wert).
+- **Bereich und Prüfung:** `RandomIntegerKeys.Create(Random, taken)` zieht gleichverteilt aus
+  1 000 000 000 bis 2 147 483 647 (beide inklusive). Ein Wert, den `taken(Tabelle, Feld, Wert)` meldet
+  (die App prüft gegen die Ladereihenfolge über `MergedTable.FindByField`) oder den der Allocator
+  schon vergeben hat (über alle Tabellen und Felder), wird neu gezogen; nach 100 Ziehungen für einen
+  Aufruf wirft er `InvalidOperationException`. Die eingefügten Schlüssel einer Kopie meldet
+  `ObjectCopy.TakenKeys` (siehe „Änderungen und belegte Schlüssel einer Kopie“); die App prüft sie vor dem Schreiben
+  (siehe „Schlüsselprüfung zweistufig“).
+- **Kategorie-Datei:** `"copy"` ist optional; fehlt es oder ist es `null`, gilt wie bisher die
+  allgemeine Regel. Jeder andere Wert ist ein Problem der Datei („copy must be "owned".“). Zusammen mit
+  `"hidden": true` ist es ein Problem („a hidden section cannot be copied.“). Das Profil
+  `warhammer_3` setzt `"copy": "owned"` für `building_units_allowed_tables`; `technologies` bleibt ein
+  Hinweis.
+- **Echtdaten (kopierte Kaserne):** `building_units_allowed` (4 Zeilen) wird kopiert, jede Zeile mit
+  neuem `key`; es entsteht kein Hinweis für diese Tabelle.
+- **Änderungen und belegte Schlüssel einer Kopie:** `ObjectCopy.Changes` rechnet jedes Objekt der
+  Kopie mit `ObjectDiff.Compute` gegen eine Sicht ohne Wurzel (Kategorie nach der Tabelle des Objekts)
+  und hängt Zeilen, Texte und Diagnosen in Objektreihenfolge aneinander. `ObjectCopy.TakenKeys`
+  meldet jeden Insert, dessen Schlüssel (Zellen an `KeyFields`) `keyExists` kennt oder den ein
+  früherer Insert derselben Tabelle schon trägt, je (Tabelle, Schlüssel) einmal; Tabellen ohne
+  Schlüsselfelder werden übersprungen (Tabellenname ohne Beachtung der Groß-/Kleinschreibung, Werte
+  ordinal). `ObjectCopy.AppendToTexts` hängt einen Zusatz an die Texte einer Spalte: Wurzeltexte der
+  Objekte der Tabelle und Texte der Zeilen ihrer Abschnitte (Spaltenname ohne Beachtung der
+  Groß-/Kleinschreibung).
+- **Assistenten-Datei:** `WizardDefinitionLoader.Load` liest `profiles/warhammer_3/wizards.json` (geteilter
+  Lesezugriff, wirft nie). Fehlende Datei: weder Definitionen noch Problem. Unbrauchbar (Problem als Text):
+  ungültiges JSON, `schemaVersion` ungleich 1, ein vorhandener Abschnitt `building` oder `trait` mit
+  fehlendem oder leerem Pflichtfeld (`<abschnitt>.<feld> is missing.`). `nameSuffix` fehlt: `""`.
+  `MissingIn(graph)` meldet `Tabelle` für eine dem Graphen unbekannte Tabelle (ihre Felder werden dann
+  übersprungen) und `Tabelle.Feld` für ein unbekanntes Feld (ohne Beachtung der Groß-/Kleinschreibung),
+  je Name einmal. Bei `nameText` wird nur die Tabelle geprüft: die Spalte liegt in den Loc-Dateien und
+  ist kein Schemafeld.
+- **Stufenwahl statt fester höchster Stufe:** Bei „Stufe in bestehender Kette“ wählt der Nutzer die Stufe,
+  hinter der das neue Gebäude steht (`BuildingCatalog.StagesOf`, nach `level`, dann Schlüssel). `level`
+  wird `Stufe.level + 1`, die Upgrade-Zeile ist `upgrades from <gewählte Stufe>`. Das ersetzt „höchste
+  Stufe“ aus der Beschreibung oben, denn die höchste Stufe ist nicht immer eindeutig (Spike: 53 Ketten mit
+  mehreren Stufen auf der höchsten `level`, 144 Stufen mit Verzweigung).
+- **Upgrade-Zeilen der Vorlage entfallen in beiden Modi:** `BuildingWizard.Compose` entfernt aus der
+  kopierten Stufe jeden Abschnitt der Upgrade-Tabelle. Bei „Neue Kette“ bleibt keine Upgrade-Zeile, bei
+  „bestehende Kette“ legt `Compose` genau die eine Zeile `from = gewählte Stufe` an. Das ist die einzige
+  Spielregel im Code (neben `level` 0 bei neuer Kette).
+- **Neue Kette:** Das Feld auf die Kette zeigt auf den Schlüssel des kopierten Kettenobjekts
+  (`<neuer Schlüssel><chainKeySuffix>`, `ChainIdFor`), `level` ist 0. Die Hinweise beider Kopien werden
+  nach (Art, Tabelle) zusammengezählt; der Hinweis `ForeignKeyRows` der Ketten-Kopie auf die Stufentabelle
+  (die Stufen der Vorlage-Kette) entfällt. Hat die Vorlage keine Kette, bleibt das Feld unverändert,
+  `level` wird 0 und der Hinweis `NoChain` (Tabelle der Ketten, Anzahl 0) steht im Ergebnis.
+- **Neue Kette übernimmt keine Stufe der Vorlage-Kette (Schlussreview):** Beginnt der Schlüssel einer Stufe mit dem
+  Schlüssel der Vorlage-Kette und `_` (zum Beispiel Kette `foo_chain`, Stufen `foo_chain_1` bis `_n`), macht Regel 3 der
+  Kopierregel sie zu Unterobjekten der Ketten-Kopie. `BuildingWizard.Compose` übernimmt im Zweig „Neue Kette“ deshalb nur
+  die Objekte der Ketten-Kopie, deren Tabelle nicht die Stufentabelle ist; die neue Kette beginnt mit der einen neuen
+  Stufe. Echtdaten (`A_new_chain_of_a_template_never_holds_or_points_at_a_stage_of_the_template_chain`, je bis zu 30 Vorlagen von
+  `wh_main_sc_emp_empire`, `filter_all` und `wh2_main_rogue`): von 90 geprüften Vorlagen trug die Ketten-Kopie bei 69 ein
+  Unterobjekt der Stufentabelle, nach `Compose` bleibt genau ein Objekt der Stufentabelle.
+- **Neue Kette: Verweise auf Stufen und Kette der Vorlage (Nachtrag 2026-10-14, nach dem ersten Spielstart):** Die Kopierregel
+  schreibt in kopierten Zeilen nur Schlüsselfelder um, die genau den alten Wurzelschlüssel tragen. Die Ketten-Kopie kennt die neue Stufe
+  nicht, die Stufen-Kopie nicht die neue Kette. Im Testpack (Vorlage `wh_main_emp_barracks_1`, Kette `..._copy_chain`) zeigten deshalb
+  `cai_construction_system_synergies.potential_building_level_inclusive_start/end` noch auf `wh_main_emp_barracks_1`, und die Zeile in
+  `cai_construction_system_unblocking_buildings` lief von der neuen Stufe bis `wh_main_emp_barracks_3` (zwei Ketten). Das Spiel startet
+  damit, die AI-Daten sind aber falsch. Regel: `BuildingWizard.Compose` ruft im Zweig „Neue Kette“ nach dem Zusammensetzen
+  `ObjectCopy.RetargetReferences` für alle Objekte beider Kopien auf.
+  - In jeder Abschnittszeile bekommt jedes Feld, dessen Schema-Referenz (neueste Definition der Abschnittstabelle, Zieltabelle über
+    `ResolveTableName`) auf die Stufentabelle zeigt und das die Vorlage-Stufe trägt, den neuen Stufenschlüssel. Ebenso bekommt jedes Feld
+    mit Referenz auf die Kettentabelle und dem Wert der Vorlage-Kette die neue Kette. Maßgeblich ist die Referenz, nicht der Feldname;
+    Schlüsselfelder und andere Felder gleich, Werte ordinal.
+  - Zeigt danach noch ein Feld der Zeile mit Referenz auf die Stufentabelle auf eine andere Stufe der Vorlage-Kette, entfällt die Zeile
+    mit dem Hinweis `ForeignKeyRows` auf ihre Tabelle. Die neue Kette hat nur die eine neue Stufe; eine Zeile über andere Stufen gehört
+    nicht zu ihr. Leere Werte und Stufen anderer Ketten bleiben.
+  - Wurzelfelder werden nicht umgeschrieben (die Felder der neuen Stufe setzt `Compose`). Ein Abschnitt ohne Zeilen entfällt.
+  - `Compose` bekommt dafür den Referenzgraphen und `TemplateChain` (Vorlage-Stufe, Vorlage-Kette, Stufenschlüssel der Kette aus
+    `BuildingCatalog.StagesOf`); `TemplateChain` ist Pflicht, wenn eine Ketten-Kopie übergeben wird.
+  - „Stufe in bestehender Kette“ und „Kopieren als“ bleiben unverändert (dort liegt die Kopie in derselben Kette wie die übrigen Stufen;
+    Backlog).
+- **Stufenbereiche werden nicht gekappt (verworfen nach Spike):** Die Idee „ein Bereich, der die Vorlage enthält, wird zu neue Stufe bis
+  neue Stufe“ widerlegt der Spike vom 2026-10-14: Schema und Stufennummer unterscheiden einen Bereich (`building_start`/`building_end`) nicht
+  von einer Beziehung (`building_downgrade_junctions.from`/`to`); dieselbe Regel machte aus 16 Abstufungen Schleifen der neuen Stufe auf
+  sich selbst. Preis der Verwerfen-Regel: von 183 verworfenen Zeilen in 400 Vorlagen waren 20 Bereiche, die die Vorlage enthielten
+  (14 `cai_construction_system_building_values`, 4 `cai_construction_system_unblocking_buildings`, 2
+  `cai_construction_system_blocking_buildings`), darunter die Zeile aus dem Testpack. Bereichsfelder als Daten im Profil: Backlog.
+- **Gleiche Inserts einer Kopie nur einmal (Nachtrag 2026-10-14):** `ObjectCopy.Changes` lässt einen Insert weg, dessen Tabelle (ohne
+  Beachtung der Groß-/Kleinschreibung) und Zellen (ordinal) einem früheren Insert der Kopie gleichen. Eine Zeile, die auf Vorlage-Stufe und Vorlage-Kette zugleich zeigt
+  (`cai_construction_system_building_values`), steht in beiden Kopien und ist nach dem Umschreiben gleich; eine Zeile, die die Vorlage
+  zweimal nennt (`building_downgrade_junctions` von und nach der Vorlage), steht in zwei Abschnitten. Ohne Entdopplung meldet `TakenKeys`
+  sie als belegt, und der Assistent bricht ab. Zeilen mit gleichem Schlüssel und anderen Zellen bleiben ein belegter Schlüssel.
+- **Alle Kultur-Varianten der Vorlage werden kopiert:** Auch Varianten anderer Völker (Regel 2 der
+  Kopierregel); der Assistent filtert nicht. Die Spieltexte `name` aller kopierten Varianten bekommen den
+  Zusatz `nameSuffix`.
+- **Vorlagen nur über Varianten mit Kultur oder Subkultur:** `BuildingCatalog.TemplatesOf(subkultur)`
+  liefert die Stufen mit einer Variante, deren Subkultur die gewählte ist oder deren Kultur die Kultur der
+  gewählten Subkultur ist. Varianten, die nur eine Fraktion tragen (weder Kultur noch Subkultur), machen
+  eine Stufe zu keiner Vorlage. Der Name einer Vorlage (und einer Stufe in `StagesOf`) ist der Spieltext
+  `<Variantentabelle ohne _tables>_<Spalte von nameText>_<Schlüssel der Variante>` der ersten passenden
+  Variante, die einen hat; ohne Text ist der Name `null`.
+- **Vorauswahl:** `PreselectFor(view)` gilt nur für Sichten der Stufentabelle. Die erste Zeile des
+  Variantenabschnitts mit einer bekannten Subkultur gibt sie vor; sonst gibt die erste Zeile mit einer
+  Kultur, die Subkulturen hat, die erste Subkultur dieser Kultur in der Reihenfolge der Liste vor; sonst
+  `null`.
+- **Echtdaten (Plan 4, Task 4, WH3 Vanilla und aktive Mods):** `wh_main_sc_emp_empire` hat 105 Vorlagen,
+  alle mit Namen; die Kaserne `wh_main_emp_barracks_3` als Stufe hinter sich selbst (Upgrade-Zeile 1,
+  `level` höchste Stufe + 1) und mit neuer Kette (`..._chain`, 2 Objekte, 39 Zeilen) ergibt keinen belegten
+  Schlüssel und keinen Hinweis auf die Stufentabelle.
+- **„Kopieren als“ nur bei genau einem Schlüsselwert:** Objekte mit zusammengesetztem Schlüssel lassen sich nicht
+  kopieren (Sperrgrund `objects.copyAs.reason.compositeKey`), ebenso ein Objekt ohne Wurzelzeile
+  (`objects.copyAs.reason.noRoot`). Davor stehen dieselben Sperrgründe wie beim Übernehmen (Umgebung, Pack nicht in der
+  Ladereihenfolge, nicht gebaut, veraltet); ungeübernommener Text ist kein Sperrgrund: „Kopieren als“ fragt zuerst
+  „Übernehmen, Verwerfen, Abbrechen“.
+- **Keine Referenzprüfung bei Kopien:** `ObjectCopy.Changes` läuft mit `referenceExists: null`, weil Ziele innerhalb
+  der Kopie (etwa die kopierte Kette) beim Prüfen noch nicht existieren.
+- **Schlüsselprüfung zweistufig:** Der Dialog prüft nur den Wurzelschlüssel (nicht leer, kein Leerraum, nicht in der
+  Ladereihenfolge der Tabelle; die Meldung nennt die Quelle der ersten vorhandenen Zeile). Die abgeleiteten Schlüssel
+  (Unterobjekte, Zufallsschlüssel) prüft Lauf A „Kopie wird vorbereitet“ über `ObjectCopy.TakenKeys` gegen die
+  Ladereihenfolge des Aufbaus; ein belegter Schlüssel bricht mit einer Meldung ab (`<Tabelle>: <Schlüssel>` je Zeile),
+  nichts wird geschrieben.
+- **Schreibweg:** Kopie und Übernehmen teilen den Schreibweg nach Lauf A (Rückfragen, zweiter Plan, Raster-Sperre,
+  Lauf B, ein Schritt in der History). Danach öffnet der Tab die Kopie (Verlauf wächst), die Ergebniszeile nennt die
+  Hinweise der Kopie außer `HiddenSection`, und Undo wählt den Tab und baut ihn neu wie beim Übernehmen.
+- **Kontextmenü des Editors:** AvalonEdit hatte keines. Es gibt jetzt eines mit Ausschneiden, Kopieren, Einfügen und
+  „Kopieren als“ (Texte `objects.editor.cut`, `objects.editor.copy`, `objects.editor.paste`).
+- **Fehler einer Kopie ohne Zeile:** Diagnosen einer Kopie tragen Zeile 0 (es gibt keinen Text). Der Fehlerdialog zeigt
+  sie ohne „Zeile N:“, mit der Art des Fehlers und dem `Detail` der Diagnose (Feld und Grund, über `DisplayText.Safe`
+  entschärft und gekürzt), damit der Nutzer sieht, wo der Fehler liegt. Die Diagnose trägt keine Tabelle. Eine Kopie ohne Änderung (etwa eine leere Kopie eines Assistenten)
+  bricht nach Lauf A mit „Nichts zu schreiben“ ab, nichts wird geschrieben. Ein fehlgeschlagener Rollback ohne Tab
+  (Kopie) löst die Prüfung der Objekt-Tabs aus statt einer Markierung.
+- **Assistent „Neues Gebäude“ (App):** Menü Werkzeuge, vor „Einstellungen“. Gesperrt (Tooltip nennt den Grund) in dieser
+  Reihenfolge: kein brauchbares aktives Projekt, kein Spielordner oder kein Schema, eine andere Operation läuft, das Spielprofil hat
+  keinen Abschnitt `building` in `wizards.json` (fehlende oder unbrauchbare Datei; das Problem steht im Log), das Schema kennt Namen
+  der Definition nicht (`MissingIn`). Der Schema-Abgleich braucht die Stores; der Sperrgrund baut sie nicht (erst ein Aufbau oder der
+  Assistent selbst). Stellt der Assistent beim Start fest, dass Namen fehlen, meldet er das in einem Dialog und schreibt nichts; danach
+  nennt der Tooltip den Grund. `wizards.json` wird einmal beim Start aus `<Profilordner>\<profil>\` gelesen, wie die Kategorie-Dateien.
+- **Ablauf:** Lauf „Vorlagen werden geladen“ (Ladereihenfolge ohne Wurzel-Pack und `BuildingCatalog`), dann ein Dialog mit Volk,
+  Filter, Vorlagenliste, Schlüssel und Kette, dann der Schreibweg der Kopie (Lauf A, Rückfragen, Lauf B, ein Undo-Schritt, Beschreibung
+  „New building: <Schlüssel>“). Die Vorauswahl des Volks kommt aus dem gewählten Tab, wenn er ein Objekt-Tab mit Ergebnis ist.
+- **Stufenwahl im Dialog:** „Stufe in der bestehenden Kette nach“ mit einer Liste der Stufen der Vorlagen-Kette (`StagesOf`), vorgewählt
+  die letzte. Hat die Vorlage keine Kette, ist die Wahl gesperrt und „Neue Kette“ gesetzt. Der Schlüssel folgt der Vorlage
+  (`<vorlage>_copy`), bis der Nutzer ihn ändert.
+- **Schlüsselprüfung im Dialog:** wie bei „Kopieren als“ (leer, Leerraum), dazu: der Schlüssel ist schon eine Stufe des Katalogs
+  (Meldung nennt die Stufentabelle ohne `_tables`), oder `<Schlüssel><chainKeySuffix>` ist schon eine Kette einer Stufe (Meldung nennt
+  die Kettentabelle ohne `_tables`). Die Kettenprüfung gilt in beiden Modi, damit der Schlüssel für einen späteren Wechsel frei bleibt.
+  Ketten ohne Stufen und alles Weitere fängt `TakenKeys` in Lauf A.
+- **Name nur über `nameText`:** Den Zusatz `nameSuffix` bekommen nur die Texte der Spalte `nameText` (Tabelle der Varianten). Andere
+  Texte der Kopie (etwa Beschreibungen) bleiben wie in der Vorlage.
+- **Neues Gebäude öffnet in neuem Tab:** Anders als „Kopieren als“ (gleicher Tab, Verlauf wächst) öffnet der Assistent die neue Stufe in
+  einem neuen Objekt-Tab und wählt ihn. Die Ergebniszeile nennt die angelegten Dateien und die Hinweise der Kopie; Undo wählt diesen Tab
+  und baut ihn neu.
+- **Assistent „Neuer Trait“ (Plan 4, Task 7):** Menü Werkzeuge, unter „Neues Gebäude“, mit denselben Sperrgründen in derselben Reihenfolge
+  (Abschnitt `trait` statt `building`, Meldungen `objects.wizard.missing` und `objects.wizard.schemaMismatch` mit `MissingIn` der
+  Trait-Definition). Lauf „Vorlagen werden geladen“ liest `TraitWizard.Templates`; der Dialog (Filter, Vorlagenliste, Schlüssel) hat weder
+  Volk noch Kette. Vorlagen sind alle Zeilen der Trait-Tabelle (jeder Schlüssel einmal); der Name ist der Spieltext des ersten Schlüssels
+  (ordinal) mit dem Präfix `<Tabelle von nameText ohne _tables>_<Spalte>_<Trait>_` (bei `warhammer_3`
+  `character_trait_levels_onscreen_name_<trait>_`), ohne Text `null`. Schlüsselprüfung im Dialog: leer, Leerraum, oder der Schlüssel ist schon ein
+  Trait (Meldung nennt die Trait-Tabelle ohne `_tables`); Stufen und Effekte fängt `TakenKeys` in Lauf A. Die Kopie ist `ObjectCopy.Rename` des
+  Traits (Regel 3: Stufen mit Präfix werden Unterobjekte, ihre Effekte hängen an der Stufe), dann `TraitWizard.Compose`, das den Zusatz
+  `nameSuffix` an die Texte der Spalte `nameText` hängt. Beschreibung „New trait: <Schlüssel>“; der neue Trait öffnet in einem neuen Tab.
+  Echtdaten: `wh2_dlc09_trait_settra_title` ergibt 4 Objekte (Trait und 3 Stufen), 14 Zeilen und 9 Texte ohne belegten Schlüssel;
+  von 790 Traits haben 169 einen Spieltext.
 
 ### 5.9 App
 
@@ -861,6 +1031,10 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
     für neue Dateien.
 - `UndoRedo`: `FileContentsStep` Undo/Redo mit Temp-Dateien; Fingerprint-Abweichung lässt den
   Schritt stehen; neue Datei wandert in den Papierkorb und zurück.
+- `ObjectCopy.RetargetReferences` und `BuildingWizard.Compose` (Nachtrag 2026-10-14): Umschreiben nach Schema-Referenz in
+  Schlüssel- und Nicht-Schlüsselfeldern, gleicher Wert in einem Feld ohne Referenz bleibt, Zeile mit anderer Stufe entfällt mit Hinweis,
+  leere Werte und fremde Stufen bleiben; `ObjectCopy.Changes` entdoppelt gleiche Inserts, ungleiche Zellen bleiben; Echtdaten: keine kopierte Zeile zeigt
+  auf eine Stufe der Vorlage-Kette, die nicht kopiert wurde.
 - Echtdaten (übersprungen ohne `TWMT_WH3_DIR`): Round-Trip für `wh_main_emp_barracks_2`,
   `wh_main_emp_empire` und einen Trait; `ObjectCopy` der Kaserne kopiert die Junction-Zeilen und die
   Kultur-Variante, nicht die 3 Zeilen aus `technologies` (eigener Schlüssel), und nennt diese im
@@ -884,7 +1058,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
    - **Plan 3b: Darstellung im Editor.** Färbung, Anhängsel, Falten, Fehleranzeige (Unterstreichung mit
      entprelltem Parser), Links, Hover, Theme-Tokens `ObjectTrailing` und `ObjectError`. **Umgesetzt und abgenommen** (manuelle Checkliste und voller Testlauf mit dem Nutzer grün, 2026-10-10).
 4. **Plan 4: App Kopieren und Assistenten.** „Kopieren als“, „Neues Gebäude“, „Neuer Trait“, Texte,
-   manuelle Checkliste mit Spielstart.
+   manuelle Checkliste mit Spielstart. **Umgesetzt**, Abnahme und voller Testlauf mit dem Nutzer offen.
 
 ## 10. Annahmen, die der erste echte Lauf prüft
 
@@ -892,12 +1066,12 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 |---|---|---|
 | 1 | Eine Projektdatei unter dem Pack-Pfad einer Vanilla-Datei ersetzt diese im Spiel ganz; ein Gebäude aus „Neues Gebäude“ erscheint im Spiel. | Abnahme Plan 3a mit Spielstart (2026-10-10): **bestätigt** für die gelöschte Einheit (Angabe des Nutzers: Pack gebaut, installiert, Spiel gestartet, die Einheit fehlt). Abnahme Plan 4: neues Gebäude baubar offen. |
 | 2 | Parsen und Färben eines Blocks mit einigen hundert Zeilen bleibt im UI-Thread unter 50 ms. | Plan 1 misst `Parse` auf der Fraktion (`The_empire_block_round_trips_and_parses_fast`); Abnahme Plan 3 beim Tippen in `wh_main_emp_empire`. Ergebnis Plan 1: unter 50 ms, siehe unten. Plan 3b misst `Parse` plus Differenz (`The_empire_block_diffs_fast`, Messung 2026-10-10 (WH3 Vanilla, Fraktion `wh_main_emp_empire`, 2138 Zeilen, warm): Parse plus Differenz 8,5 ms, Grenze 50 ms eingehalten); Färben pro sichtbarer Zeile: Abnahme 3b. |
-| 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. |
+| 3 | Die Kopierregel (Junction oder Schlüssel enthält Wurzelfeld) trifft bei Gebäude und Trait alle nötigen Zeilen und keine falschen. | Echtdaten-Tests Plan 1 (`Copying_the_barracks_follows_the_copy_rule`, `Copying_a_trait_copies_its_levels_as_sub_objects`) und Abnahme Plan 4. Subkultur als Volk: Abnahme Plan 4. Ergebnis Plan 1: beim Gebäude teilweise widerlegt, siehe unten. Ergebnis Plan 4 (Tasks 1, 4 und 7): auf Echtdaten bestätigt, nachdem die erlaubten Einheiten über `"copy": "owned"` in die Regel kamen, siehe „Ergebnisse des Echtdaten-Laufs von Plan 4“. Offen bleibt die Abnahme im Spiel (Annahmen 1, 7 und 8) und die Subkultur als Volk. |
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a (2026-10-10, zehn Dateikopien großer Tabellen, Speicher beobachtet): **bestätigt**, unter 200 MB (Angabe des Nutzers, ohne genaue Zahl). Plan 2 hält `Previous` und `Next` im Schritt; ein Auslagern in den Papierkorb ist nicht nötig. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
-| 7 | Eine Kette aus „Neue Kette“ bringt die 16 `cai_construction_system_synergies`-Zeilen und die `cai_construction_system_building_values`-Zeile der Vorlage-Kette mit (Spike vor Plan 4). Ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette. Das Spiel startet damit ohne Fehler, und die AI baut nicht offensichtlich falsch. | Abnahme Plan 4 mit Spielstart. Widerlegt: Kategorie-Datei für Ketten mit versteckten `cai_*`-Abschnitten (Backlog). |
-| 8 | Kopierte Junction-Zeilen, die ein Vanilla-Objekt an die Kopie binden (`technology_required_building_levels_junctions`: die Technologien `wh_main_tech_emp_barracks_4` bis `_6` nennen danach auch die Kopie), ändern das Verhalten der Vanilla-Objekte nicht (das Spiel liest mehrere geforderte Stufen als „eine davon“). | Abnahme Plan 4 mit Spielstart: die Technologien bleiben wie vorher erforschbar. Widerlegt: Regel für solche Junctions (nicht kopieren oder Hinweis), Entscheidung mit dem Nutzer. |
+| 7 | Eine Kette aus „Neue Kette“ bringt die 16 `cai_construction_system_synergies`-Zeilen und die `cai_construction_system_building_values`-Zeile der Vorlage-Kette mit (Spike vor Plan 4). Ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette. Das Spiel startet damit ohne Fehler, und die AI baut nicht offensichtlich falsch. | Abnahme Plan 4 mit Spielstart. Widerlegt: Kategorie-Datei für Ketten mit versteckten `cai_*`-Abschnitten (Backlog). Spielstart 2026-10-14 (Angabe des Nutzers): das Spiel startet, aber die Stufenbereiche zeigten auf die Vorlage-Kette (falsche AI-Daten). Seither schreibt „Neue Kette“ die Verweise auf die neue Stufe und Kette um und verwirft Zeilen über andere Stufen der Vorlage-Kette (5.8, Nachtrag 2026-10-14). Offen: AI baut die neue Kette sinnvoll. |
+| 8 | Kopierte Junction-Zeilen, die ein Vanilla-Objekt an die Kopie binden (`technology_required_building_levels_junctions`: die Technologien `wh_main_tech_emp_barracks_4` bis `_6` nennen danach auch die Kopie), ändern das Verhalten der Vanilla-Objekte nicht (das Spiel liest mehrere geforderte Stufen als „eine davon“). | Abnahme Plan 4 mit Spielstart: die Technologien bleiben wie vorher erforschbar. Nach „Kopieren als“ von `wh_main_emp_barracks_2` zusätzlich prüfen, dass die Vanilla-Kaserne `wh_main_emp_barracks_1` die Kopie nicht als zusätzlichen Ausbauzweig anbietet und die Gebäudesets sich verhalten wie vorher („Kopieren als“ kopiert die Zeilen der Upgrade- und der Set-Junction; der Assistent entfernt die Upgrade-Zeilen, „Kopieren als“ nicht). Widerlegt: Regel für solche Junctions (nicht kopieren oder Hinweis), Entscheidung mit dem Nutzer. |
 
 ### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)
 
@@ -910,8 +1084,8 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Nicht kopiert (Regel 4, Hinweis): `technologies` (3 Zeilen, wie erwartet) **und
   `building_units_allowed` (4 Zeilen)**. Die erlaubten Einheiten gehören zum Gebäude, die Tabelle hat
   aber einen eigenen Schlüssel `key` ohne Präfix und ist von `technologies` nach Form nicht zu
-  unterscheiden. Die Regel trifft hier also nicht alle nötigen Zeilen; das ist eine Entscheidung für den
-  Nutzer (Ausnahme pro Tabelle in der Kategorie-Datei, Regel erweitern oder so lassen), Plan 4.
+  unterscheiden. Die Regel trifft hier also nicht alle nötigen Zeilen. Entschieden (Abschnitt 11, vor Plan 4):
+  Ausnahme pro Tabelle in der Kategorie-Datei, `"copy": "owned"`, siehe „Festlegungen aus Plan 4“ unter 5.8.
   Trait `wh2_dlc09_trait_settra_title`: 3 Stufen mit Präfix-Schlüssel werden Unterobjekte, jede mit
   3 bis 4 Effekten in `trait_level_effects`, so wie die Regel es will. Der Trait
   `wh2_dlc09_dummy_trait_dynasty_1` hat 4 Stufen ohne Präfix im Schlüssel; sie werden als Hinweis gemeldet.
@@ -924,6 +1098,21 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   unkritisch), 8 enthalten einen Tab. Folgen: siehe die Festlegungen aus Plan 1 unter 5.3
   (`ControlCharacter` nur für die Dialekt-Folge, Differenz ignoriert Leerzeichen am Ende, gleichnamige
   Spalte und Feld, Abschnittskopf ohne Feld).
+
+### Ergebnisse des Echtdaten-Laufs von Plan 4 (2026-10-10, WH3 Vanilla und aktive Mods, schreibt nichts)
+
+- **Annahme 3, Task 1 (Kaserne `wh_main_emp_barracks_2` mit `"copy": "owned"`):** `building_units_allowed` (4 Zeilen) wird
+  kopiert, jede Zeile mit neuem `key`; der einzige Hinweis ist `technologies` (3 Zeilen, Regel 4). Ein Trait kopiert
+  weiter ohne Zufallsschlüssel.
+- **Annahme 3, Task 4 (Assistent „Neues Gebäude“):** `wh_main_sc_emp_empire` hat 105 Vorlagen, alle mit Namen (der Spike vor
+  Plan 4 zählte 107; der Unterschied ist nicht untersucht). Die Kaserne `wh_main_emp_barracks_3` als Stufe hinter sich selbst: eine
+  Upgrade-Zeile, `level` höchste Stufe plus 1, 7 Inserts in `building_units_allowed`, kein belegter Schlüssel. Mit neuer Kette:
+  2 Objekte, 39 Zeilen, `level` 0, Kette `<schlüssel>_chain`, kein Hinweis auf die Stufentabelle, kein belegter Schlüssel.
+- **Annahme 3, Task 7 (Assistent „Neuer Trait“, `The_trait_wizard_copies_a_trait_with_its_levels_without_taken_keys`):**
+  `wh2_dlc09_trait_settra_title` ergibt 4 Objekte (Trait und 3 Stufen), 14 Zeilen und 9 Texte, kein belegter Schlüssel. Von 790
+  Traits haben 169 einen Spieltext.
+- **Offen bis zur Abnahme mit Spielstart:** Annahme 1 (neues Gebäude baubar), 7 (Kette mit den `cai_*`-Zeilen der Vorlage) und 8
+  (Technologien der Vorlage bleiben erforschbar), ebenso die Subkultur als Volk (Annahme 3).
 
 ### Ergebnis des Spikes vor Plan 4 (2026-10-10, WH3 Vanilla und die aktiven Mods, schreibt nichts)
 
@@ -949,6 +1138,26 @@ mit der Ladereihenfolge). Der Test ist wieder entfernt.
   144 Stufen haben mehr als ein `upgrades to` (Verzweigung). Die „höchste Stufe“ ist also nicht immer eindeutig.
 - **Kultur-Varianten:** 5858 Zeilen, 133 Stufen haben mehrere Varianten; `culture` gesetzt bei 2908, `subculture` bei 427,
   `faction` bei 858. 33 Subkulturen. Vorlagen für `wh_main_sc_emp_empire` (Variante mit der Subkultur oder ihrer Kultur): 107.
+
+### Ergebnis des Spikes zu Stufenverweisen der neuen Kette (2026-10-14, WH3 Vanilla und aktive Mods, schreibt nichts)
+
+Wegwerf-Test über `ObjectCopy.Rename` beider Kopien, `BuildingWizard.Compose` (Stand vor dem Nachtrag), `ObjectCopy.Changes` und
+`TakenKeys`; die ersten 400 von 2775 Vorlagen (alle Subkulturen, Reihenfolge der Liste), alle mit Kette. Der Test ist wieder entfernt.
+
+- **Felder mit Referenz auf die Stufentabelle in kopierten Zeilen:** 1273 leer; Vorlage-Stufe in `building_downgrade_junctions.from`/`to`
+  (je 90), `cai_construction_system_building_values` (Bereichsanfang und -ende je 72) und `cai_construction_system_synergies` (je 2);
+  andere Stufe der Vorlage-Kette in `building_values` (je 150), `synergies` (je 7), `building_downgrade_junctions` (je 8),
+  `unblocking_buildings` (Anfang 3, Ende 1), `blocking_buildings` (je 1); Stufen anderer Ketten in `synergies.potential_*` (je 34) und
+  `building_level_required_buildings` (je 6).
+- **Verweise auf die Vorlage-Kette in der Stufen-Kopie:** 74 in `cai_construction_system_building_values.building_chain`.
+- **Mit der Regel aus 5.8 (Nachtrag):** verworfen werden 154 Zeilen in `building_values`, 16 in `building_downgrade_junctions`, 7 in
+  `synergies`, 4 in `unblocking_buildings` und 2 in `blocking_buildings`. Keine kopierte Zeile zeigt danach auf eine nicht kopierte Stufe
+  der Vorlage-Kette. Die Zahl der Spieltexte bleibt gleich (971).
+- **Belegte Schlüssel:** Vor dem Nachtrag meldete `TakenKeys` bei 94 Vorlagen doppelte Inserts innerhalb der Kopie, danach bei keiner.
+  Gegen die Ladereihenfolge bleiben 141 von 400 Vorlagen mit belegtem Schlüssel (vorher 160), nur in
+  `building_level_armed_citizenry_junctions` (Zahlschlüssel der Vorlage unverändert kopiert) und
+  `campaign_settlement_display_building_ids`. Beides bestand schon vorher und ist nicht Teil des Nachtrags (Backlog); der Assistent bricht
+  für diese Vorlagen mit der Meldung über belegte Schlüssel ab.
 
 ### Ergebnis des Spikes zu Annahme 6 (2026-10-10, AvalonEdit)
 
