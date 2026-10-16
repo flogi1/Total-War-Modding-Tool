@@ -370,7 +370,7 @@ internal static class ObjectsTestSchema
             ["subcultures_tables"] = [Subcultures],
             ["upgrades_tables"] = [Upgrades],
         });
-        var store = new TableStore(schema, ReferenceGraph.Build(schema));
+        var store = new TableStore(schema, ReferenceGraph.Build(schema, GameTableVersions.Empty));
         var order = new LoadOrder([new TableSource(SourceKind.Vanilla, "data.pack", pack)], new TableSource(SourceKind.Vanilla, LocPackName, locPack), []);
         var catalog = BuildingWizard.Catalog(BuildingDefinition, table => store.Get(table, order, CancellationToken.None),
             new LocStore().Get(order, CancellationToken.None));

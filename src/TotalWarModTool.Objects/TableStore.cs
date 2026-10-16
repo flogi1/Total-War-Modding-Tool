@@ -212,7 +212,7 @@ public sealed class TableStore
 
     private (MergedTable Table, bool Transient) Build(string tableName, List<SourceListing> listings, CancellationToken cancellationToken)
     {
-        var definition = _graph.Latest(tableName);
+        var definition = _graph.Current(tableName);
         var keyFields = _graph.KeyFields(tableName);
         var rows = new List<MergedRow?>();
         var keyStates = new Dictionary<string, KeyState>(StringComparer.Ordinal);
@@ -259,7 +259,7 @@ public sealed class TableStore
                 if (mapping is null)
                 {
                     problems.Add(new SourceProblem(listing.Source, entry.EntryPath, SourceProblemKind.DecodeFailed,
-                        "The latest definition of the table has a field of an unsupported type, so older layouts cannot be merged"));
+                        "The current definition of the table has a field of an unsupported type, so older layouts cannot be merged"));
                     continue;
                 }
 

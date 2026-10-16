@@ -12,7 +12,7 @@ public sealed record BuildingWizardDefinition(string LevelTable, string ChainFie
     string UpgradeTable, string UpgradeFromField, string UpgradeToField, string VariantTable, string VariantBuildingField, string VariantCultureField,
     string VariantSubcultureField, string SubcultureTable, string SubcultureCultureField, TextRef NameText)
 {
-    /// <summary>"table" or "table.field" for every name the graph does not know (Latest(table) null or no such field), in declaration order.</summary>
+    /// <summary>"table" or "table.field" for every name the graph does not know (Current(table) null or no such field), in declaration order.</summary>
     public IReadOnlyList<string> MissingIn(ReferenceGraph graph)
     {
         var missing = new List<string>();
@@ -285,7 +285,7 @@ internal static class WizardNames
     /// <summary>Adds "table" if the graph does not know the table (and then skips its fields), else "table.field" for each unknown field; each entry once.</summary>
     internal static void Check(ReferenceGraph graph, string table, string[] fields, List<string> missing)
     {
-        var definition = graph.Latest(table);
+        var definition = graph.Current(table);
         if (definition is null)
         {
             AddOnce(missing, table);

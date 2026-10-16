@@ -1,5 +1,6 @@
 using TotalWarModTool.Schema;
 using static TotalWarModTool.Objects.Tests.TestSchema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -137,7 +138,7 @@ public class WizardDefinitionsTests : IDisposable
             ("building_upgrades_junction_tables", 1, [Field("FROM"), Field("to")]),
             ("building_culture_variants_tables", 1, [Field("building"), Field("culture"), Field("subculture")]),
             ("cultures_subcultures_tables", 1, [Field("culture")]),
-            ("character_traits_tables", 1, [Field("key", key: true)])));
+            ("character_traits_tables", 1, [Field("key", key: true)])), GameTableVersions.Empty);
 
         Assert.Equal(["building_levels_tables.level"], result.Definitions!.Building!.MissingIn(graph));
         Assert.Equal(["character_trait_levels_tables"], result.Definitions.Trait!.MissingIn(graph));
@@ -147,7 +148,7 @@ public class WizardDefinitionsTests : IDisposable
     public void MissingIn_skips_the_fields_of_an_unknown_table()
     {
         var result = WizardDefinitionLoader.Load(Write("{ \"schemaVersion\": 1, " + BuildingJson + " }"));
-        var graph = ReferenceGraph.Build(Build(("other_tables", 1, [Field("key", key: true)])));
+        var graph = ReferenceGraph.Build(Build(("other_tables", 1, [Field("key", key: true)])), GameTableVersions.Empty);
 
         Assert.Equal(
             ["building_levels_tables", "building_chains_tables", "building_upgrades_junction_tables", "building_culture_variants_tables", "cultures_subcultures_tables"],
@@ -159,7 +160,7 @@ public class WizardDefinitionsTests : IDisposable
     {
         var root = RepoRoot.Find();
         var schema = SchemaLoader.Load(Path.Combine(root, "schemas", "schema_wh3.ron")).Schema!;
-        var graph = ReferenceGraph.Build(schema);
+        var graph = ReferenceGraph.Build(schema, GameTableVersions.Empty);
 
         var result = WizardDefinitionLoader.Load(Path.Combine(root, "profiles", "warhammer_3", WizardDefinitionLoader.FileName));
 

@@ -64,7 +64,7 @@ public static class ProjectWritePlan
 
         public bool Changed { get; set; }
 
-        /// <summary>The rows as text in the layout of the latest definition, parallel to Rows; null where not computed yet.</summary>
+        /// <summary>The rows as text in the layout of the current definition, parallel to Rows; null where not computed yet.</summary>
         public List<string[]?> Texts { get; } = [];
 
         /// <summary>The key texts of all rows in the layout of the file; null while stale.</summary>
@@ -215,7 +215,7 @@ public static class ProjectWritePlan
 
         private void ApplyTable(string table, List<RowChange> changes)
         {
-            var current = _graph.Latest(table);
+            var current = _graph.Current(table);
             if (current is null)
             {
                 foreach (var change in changes)
@@ -892,7 +892,7 @@ public static class ProjectWritePlan
             return firstCandidate;
         }
 
-        /// <summary>True when the rows of the file can be read in the layout of the latest definition; otherwise the error is recorded.</summary>
+        /// <summary>True when the rows of the file can be read in the layout of the current definition; otherwise the error is recorded.</summary>
         private bool CanMap(FileWork work, TableDefinition current, int line)
         {
             if (!work.ToCurrentKnown)
@@ -910,7 +910,7 @@ public static class ProjectWritePlan
             return true;
         }
 
-        /// <summary>The row as text in the layout of the latest definition; null when the layouts cannot be mapped.</summary>
+        /// <summary>The row as text in the layout of the current definition; null when the layouts cannot be mapped.</summary>
         private static string[]? TextsOf(FileWork work, int index, TableDefinition current)
         {
             if (work.Texts[index] is { } cached)

@@ -27,7 +27,10 @@ public class ObjectsRealDataTests
         var profile = GameProfileLoader.LoadAll(Path.Combine(root, "profiles")).Profiles.Single(p => p.Id == "warhammer_3");
         var catalog = PackCatalog.Scan(profile, RealData.Wh3Dir!, RealData.Wh3Workshop, null, CancellationToken.None);
         var order = LoadOrderResolver.Resolve(new LoadOrderRequest(profile, RealData.Wh3Dir!, catalog, null, null, null));
-        return new Context(schema, ReferenceGraph.Build(schema), order);
+        var versions = GameTableVersionsReader.Read(catalog.Packs, CancellationToken.None);
+        Assert.NotNull(versions.Versions);
+        Assert.Empty(versions.Problems);
+        return new Context(schema, ReferenceGraph.Build(schema, versions.Versions), order);
     }
 
     private static ObjectBuilder NewBuilder(Context context, long maxCacheBytes = TableStore.DefaultMaxCacheBytes, TableStore? store = null) =>
@@ -137,6 +140,7 @@ public class ObjectsRealDataTests
         var present = 0;
         long rows = 0;
         long olderLayoutRows = 0;
+        long olderLayoutVanillaRows = 0;
         var problemsByKind = new Dictionary<SourceProblemKind, int>();
         foreach (var name in context.Schema.Tables.Keys)
         {
@@ -148,6 +152,7 @@ public class ObjectsRealDataTests
 
             rows += table.Rows.Count;
             olderLayoutRows += table.Rows.Count(r => r.Provenance.OlderLayout);
+            olderLayoutVanillaRows += table.Rows.Count(r => r.Provenance.OlderLayout && r.Provenance.Source.Kind != SourceKind.Mod);
             foreach (var problem in table.Problems)
             {
                 problemsByKind[problem.Kind] = problemsByKind.GetValueOrDefault(problem.Kind) + 1;
@@ -156,7 +161,7 @@ public class ObjectsRealDataTests
 
         watch.Stop();
         _output.WriteLine($"Merged {context.Schema.Tables.Count} schema tables ({present} with rows or problems), {rows} rows in {watch.ElapsedMilliseconds} ms");
-        _output.WriteLine($"Cache: {store.CachedTables} tables, {store.CachedBytes / (1024 * 1024)} MB; rows with an older layout: {olderLayoutRows}");
+        _output.WriteLine($"Cache: {store.CachedTables} tables, {store.CachedBytes / (1024 * 1024)} MB; rows with an older layout: {olderLayoutRows} ({olderLayoutVanillaRows} from non-mod sources)");
         foreach (var (kind, count) in problemsByKind.OrderBy(p => p.Key))
         {
             _output.WriteLine($"  problems {kind}: {count}");
@@ -169,6 +174,8 @@ public class ObjectsRealDataTests
 
         Assert.True(present > 0);
         Assert.True(rows > 0);
+        // The current definition is the game's version, so only mod files can have another layout.
+        Assert.Equal(0, olderLayoutVanillaRows);
         if (!hasMods)
         {
             Assert.Equal(0, olderLayoutRows);
@@ -346,7 +353,7 @@ public class ObjectsRealDataTests
 
     private static string Cell(RowChange row, ReferenceGraph graph, string field)
     {
-        var fields = graph.Latest(row.Table)!.Fields;
+        var fields = graph.Current(row.Table)!.Fields;
         for (var i = 0; i < fields.Count; i++)
         {
             if (string.Equals(fields[i].Name, field, StringComparison.OrdinalIgnoreCase))

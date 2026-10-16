@@ -1,4 +1,5 @@
 using TotalWarModTool.Objects;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Schema;
 
 namespace TotalWarModTool.App;
@@ -12,7 +13,7 @@ internal sealed record ObjectStores(ResolvedSchema Schema, string InstallPath, T
     public static ObjectStores Create(ResolvedSchema schema, string installPath)
     {
         var gameSchema = schema.Schema ?? throw new ArgumentException("The schema must be loaded.", nameof(schema));
-        var graph = ReferenceGraph.Build(gameSchema);
+        var graph = ReferenceGraph.Build(gameSchema, GameTableVersions.Empty); // Task 7 passes the real versions
         var tables = new TableStore(gameSchema, graph);
         var loc = new LocStore();
         return new ObjectStores(schema, installPath, tables, loc, new ObjectBuilder(graph, tables, loc), graph);

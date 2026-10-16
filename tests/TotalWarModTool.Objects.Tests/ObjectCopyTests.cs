@@ -1,5 +1,6 @@
 using TotalWarModTool.Schema;
 using static TotalWarModTool.Objects.Tests.BlockFixture;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -35,7 +36,7 @@ public class ObjectCopyTests
             TestSchema.Field("key", FieldType.I32, key: true),
             TestSchema.Field("building", reference: (Root, "level_name")),
             TestSchema.Field("unit"),
-        ])));
+        ])), GameTableVersions.Empty);
 
     private static ObjectRow OwnedUnitRow(string key, string unit) => new(
         [Val("key", key, FieldType.I32, key: true), Val("building", "b1", refTable: Root, refColumn: "level_name"), Val("unit", unit)],
@@ -284,7 +285,7 @@ public class ObjectCopyTests
         [
             TestSchema.Field("level", key: true, reference: ("trait_levels_tables", "key")),
             TestSchema.Field("effect", key: true),
-        ])));
+        ])), GameTableVersions.Empty);
 
     private static CopyResult TraitCopy(bool withTexts = false, bool rootText = false) => ObjectCopy.Rename(
         TraitViewWithTexts(rootText ? [new LocEntry("traits", "name", "traits_name_t1", "Trait", Vanilla, Id("traits_tables", "t1"))] : [], "t1_1", "t1_2"),

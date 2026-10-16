@@ -32,7 +32,7 @@ internal static class WriteFixture
         [Levels] = [new TableDefinition(1, [F("key", key: true), F("create_cost", FieldType.I32)])],
     });
 
-    public static readonly ReferenceGraph Graph = ReferenceGraph.Build(MiniSchema);
+    public static readonly ReferenceGraph Graph = ReferenceGraph.Build(MiniSchema, GameTableVersions.Empty);
 
     public static TableDefinition Definition(string table, int version) =>
         MiniSchema.Find(table, version) ?? throw new ArgumentException($"{table} v{version} is not in the test schema");

@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Objects;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.App.Tests;
 
@@ -32,7 +33,7 @@ public class ShippedCategoryTests
         var category = LoadBuilding();
         var loaded = SchemaLoader.Load(Path.Combine(Repo, "schemas", "schema_wh3.ron"));
         Assert.NotNull(loaded.Schema);
-        var graph = ReferenceGraph.Build(loaded.Schema);
+        var graph = ReferenceGraph.Build(loaded.Schema, GameTableVersions.Empty);
         var incoming = graph.Incoming(RootTable);
         var placeholder = new Regex(@"\{([^{}]+)\}");
 
@@ -50,7 +51,7 @@ public class ShippedCategoryTests
                 continue;
             }
 
-            var names = graph.Latest(rule.Table)!.Fields.Select(f => f.Name).ToHashSet();
+            var names = graph.Current(rule.Table)!.Fields.Select(f => f.Name).ToHashSet();
             foreach (Match match in placeholder.Matches(rule.Pattern))
             {
                 Assert.True(names.Contains(match.Groups[1].Value), $"{rule.Table} has no field {match.Groups[1].Value}");

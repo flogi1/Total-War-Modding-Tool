@@ -1,4 +1,5 @@
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -68,7 +69,7 @@ internal static class BlockFixture
             TestSchema.Field("note"),
         ]),
         ("building_chains_tables", 1, [TestSchema.Field("key", key: true)]),
-        ("units_def_tables", 1, [TestSchema.Field("key", key: true)])));
+        ("units_def_tables", 1, [TestSchema.Field("key", key: true)])), GameTableVersions.Empty);
 
     public static readonly CategoryDefinition Category = new(Root, "cat",
     [

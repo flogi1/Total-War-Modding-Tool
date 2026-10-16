@@ -81,7 +81,7 @@ public static class ObjectTextParser
             _baseline = baseline;
             _category = category;
             _graph = graph;
-            _rootDefinition = graph.Latest(baseline.Id.Table);
+            _rootDefinition = graph.Current(baseline.Id.Table);
         }
 
         public ParsedObject Execute(string text)
@@ -283,7 +283,7 @@ public static class ObjectTextParser
                 Add(line, DiagnosticKind.UnknownSection, "section repeated");
             }
 
-            var definition = _graph.Latest(reference.SourceTable)!;
+            var definition = _graph.Current(reference.SourceTable)!;
             IReadOnlyList<ObjectText.PatternPart>? pattern = rule is { Mode: SectionMode.Sentence, Pattern: { } text } && ObjectText.TryParsePattern(text, out var parts)
                 ? parts
                 : null;
@@ -299,7 +299,7 @@ public static class ObjectTextParser
         /// <summary>"building_effects_junction" stays; "technologies" becomes "technologies_tables" when the schema knows that.</summary>
         private string ResolveTable(string name)
         {
-            if (name.EndsWith(TablesSuffix, StringComparison.OrdinalIgnoreCase) || _graph.Latest(name + TablesSuffix) is null)
+            if (name.EndsWith(TablesSuffix, StringComparison.OrdinalIgnoreCase) || _graph.Current(name + TablesSuffix) is null)
             {
                 return name;
             }

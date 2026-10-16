@@ -1,6 +1,7 @@
 using TotalWarModTool.Schema;
 using static TotalWarModTool.Objects.Tests.BlockFixture;
 using static TotalWarModTool.Objects.Tests.TestSchema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -19,7 +20,7 @@ public class TraitWizardTests
         using var tmp = new TempDir();
         var pack = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema, ("traits_tables", 1, traits.Select(t => new object?[] { t }).ToArray())));
         var order = TestSources.Order(pack);
-        var store = new TableStore(Schema, ReferenceGraph.Build(Schema));
+        var store = new TableStore(Schema, ReferenceGraph.Build(Schema, GameTableVersions.Empty));
         return TraitWizard.Templates(Definition, store.Get("traits_tables", order, CancellationToken.None), loc);
     }
 

@@ -1,6 +1,7 @@
 using TotalWarModTool.Schema;
 using static TotalWarModTool.Objects.Tests.BlockFixture;
 using static TotalWarModTool.Objects.Tests.TestSchema;
+using TotalWarModTool.Tables;
 
 namespace TotalWarModTool.Objects.Tests;
 
@@ -31,7 +32,7 @@ public class BuildingWizardTests
         using var tmp = new TempDir();
         var pack = TestSources.Vanilla(TestSources.WritePack(tmp.File("vanilla.pack"), Schema, tables));
         var order = TestSources.Order(pack);
-        var graph = ReferenceGraph.Build(Schema);
+        var graph = ReferenceGraph.Build(Schema, GameTableVersions.Empty);
         var store = new TableStore(Schema, graph);
         return BuildingWizard.Catalog(Definition, name => store.Get(name, order, CancellationToken.None), loc);
     }
