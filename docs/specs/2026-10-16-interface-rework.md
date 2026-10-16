@@ -407,7 +407,8 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
 - **Task 7, Ziehgriff der `ReorderListBox`:** ohne eigenen Tooltip. `ReorderTexts` trägt nur die drei Knopftexte (Nach oben, Nach unten,
   Entfernen); das Ziehen erklärt der Hinweis über der Liste.
 - **Task 7, neue Trennlinie:** `sep:n` mit n = höchste vorhandene Nummer + 1 (Standard: `sep:5`), hinten angehängt. Eine Nummer, die durch
-  Entfernen frei wurde, wird nicht wieder vergeben, außer sie war die höchste.
+  Entfernen frei wurde, wird nicht wieder vergeben, außer sie war die höchste. Steht die höchste Nummer schon auf `int.MaxValue`
+  (handbearbeitete Datei), nimmt das Tool die kleinste freie Nummer, damit „Trennlinie hinzufügen“ nie still nichts tut.
 - **Task 7, Knöpfe der Seiten:** „Standard wiederherstellen“, „Trennlinie hinzufügen“ und das Entfernen einer Trennlinie sind Befehle bzw.
   Methoden des `SettingsViewModel` (`ResetTilesCommand`, `AddToolbarSeparatorCommand`, `ResetToolbarCommand`, `RemoveToolbarSeparator`);
   `BarSettingsPages` verdrahtet nur. „Standard wiederherstellen“ ändert keine Sichtbarkeit: Kacheln bekommen die Standardreihenfolge und

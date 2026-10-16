@@ -168,15 +168,27 @@ public sealed class SettingsViewModel : ObservableObject
 
     /// <summary>
     /// The id of a new separator: one more than the highest separator number in <paramref name="order"/>, <c>sep:1</c> without one. A number
-    /// freed by a removed separator is not taken again unless it was the highest.
+    /// freed by a removed separator is not taken again unless it was the highest. When the highest number is <see cref="int.MaxValue"/>
+    /// (a hand-edited file), the smallest free number is taken instead, so adding a separator always works.
     /// </summary>
     public static string NextSeparator(IEnumerable<string> order)
     {
-        var highest = order.Where(ToolbarCatalog.IsSeparator)
+        var used = order.Where(ToolbarCatalog.IsSeparator)
             .Select(id => int.Parse(id.AsSpan(ToolbarCatalog.SeparatorPrefix.Length), CultureInfo.InvariantCulture))
-            .DefaultIfEmpty(0)
-            .Max();
-        return ToolbarCatalog.Separator(highest + 1);
+            .ToHashSet();
+        var highest = used.DefaultIfEmpty(0).Max();
+        if (highest < int.MaxValue)
+        {
+            return ToolbarCatalog.Separator(highest + 1);
+        }
+
+        var free = 1;
+        while (used.Contains(free))
+        {
+            free++;
+        }
+
+        return ToolbarCatalog.Separator(free);
     }
 
     private void ResetTiles()

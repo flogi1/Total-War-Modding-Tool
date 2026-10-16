@@ -71,6 +71,17 @@ public class SettingsViewModelTests
         Assert.Equal("sep:5", SettingsViewModel.NextSeparator(ToolbarCatalog.DefaultOrder));
         Assert.Equal("sep:1", SettingsViewModel.NextSeparator([ToolbarItemIds.Save]));
         Assert.Equal("sep:8", SettingsViewModel.NextSeparator([ToolbarCatalog.Separator(7), ToolbarItemIds.Save, ToolbarCatalog.Separator(2)]));
+
+        // A hand-edited file with the highest possible number: no overflow, the smallest free number instead.
+        Assert.Equal("sep:2", SettingsViewModel.NextSeparator([ToolbarCatalog.Separator(int.MaxValue), ToolbarCatalog.Separator(1)]));
+    }
+
+    [Fact] public void Adding_a_separator_after_the_highest_possible_number_still_adds_one()
+    {
+        var settings = new GlobalSettings { ToolbarOrder = [ToolbarItemIds.Save, ToolbarCatalog.Separator(int.MaxValue)] };
+        var vm = NewViewModel(settings, new AppTexts(new UiText(Locales)));
+        vm.AddToolbarSeparatorCommand.Execute(null);
+        Assert.Equal(ToolbarCatalog.Separator(1), settings.ToolbarOrder[^1]);
     }
 
     [Fact] public void Theme_options_are_System_Light_Dark_with_translated_names()

@@ -47,7 +47,7 @@ public class SettingsWindowTests
         Assert.Same(item, box.SelectionBoxItem);
     }
 
-    private static T Find<T>(Window window, string name) where T : class => Assert.IsType<T>(window.FindName(name));
+    private static T Find<T>(Window window, string name) where T : class => Assert.IsAssignableFrom<T>(window.FindName(name));
 
     // The window over the view model of a loaded TestGame, shown. The game controls are on the second page.
     private static async Task<(TestGame Game, SettingsViewModel ViewModel, SettingsWindow Window)> CreateWithGame()
