@@ -24,7 +24,7 @@ public static class GameTableVersionsCache
         }
 
         var current = catalogPacks.Where(pack => pack.Origin == PackOrigin.Vanilla).Select(pack => pack.Fingerprint).ToList();
-        if (current.Count != stored.Count)
+        if (current.Count == 0 || versions.Count == 0 || current.Count != stored.Count)
         {
             return null;
         }

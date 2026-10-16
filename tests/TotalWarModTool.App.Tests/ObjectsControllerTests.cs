@@ -617,4 +617,20 @@ public class ObjectsControllerTests
         Assert.Null(setup.Controller.Stores);
         Assert.True(tab.IsStale);
     }
+
+    [Fact] public async Task Stores_are_dropped_when_the_versions_turn_from_complete_to_incomplete()
+    {
+        using var setup = await CreateAsync();
+        var table = await OpenTableAsync(setup, setup.VanillaPath);
+        var tab = Show(setup, table, "k1");
+        Assert.NotNull(setup.Controller.Stores);
+        Assert.True(setup.Workspace.TableVersions!.IsComplete);
+
+        setup.Game.AddBrokenVanillaPack("broken.pack");
+        await setup.Workspace.RefreshAsync();
+
+        Assert.False(setup.Workspace.TableVersions!.IsComplete);
+        Assert.Null(setup.Controller.Stores);
+        Assert.True(tab.IsStale);
+    }
 }

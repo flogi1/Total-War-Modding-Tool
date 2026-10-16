@@ -91,6 +91,15 @@ public class GameTableVersionsReaderTests
         Assert.Equal((pack, "db/b_tables/data__"), (problem.PackPath, problem.EntryPath));
     }
 
+    [Fact] public void Vanilla_packs_without_any_db_table_make_the_result_incomplete()
+    {
+        using var dir = new TempDir();
+        var pack = new PackBuilder(packType: 1).AddEntry("text/readme.txt", [1, 2, 3]).WriteTo(dir.File("p.pack"));
+        var r = GameTableVersionsReader.Read([Source(pack, PackOrigin.Vanilla)], CancellationToken.None);
+        Assert.False(r.IsComplete);
+        Assert.Single(r.Problems);
+    }
+
     [Fact] public void No_vanilla_pack_gives_no_versions()
     {
         using var dir = new TempDir();

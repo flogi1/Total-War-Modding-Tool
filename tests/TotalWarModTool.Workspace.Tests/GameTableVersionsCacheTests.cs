@@ -37,6 +37,58 @@ public class GameTableVersionsCacheTests
         Assert.False(GameTableVersionsCache.LoadOrRead(cache, changed, CancellationToken.None).FromCache);
     }
 
+    private static GameTableVersionsResult Cached(string cache, out PackSource[] packs, TempDir dir)
+    {
+        packs = [Source(Pack(dir, "a.pack", 4)), Source(Pack(dir, "b.pack", 4))];
+        return GameTableVersionsCache.LoadOrRead(cache, packs, CancellationToken.None);
+    }
+
+    private static PackSource Altered(PackSource source, Func<FileFingerprint, FileFingerprint> change) =>
+        source with { Fingerprint = change(source.Fingerprint!) };
+
+    [Fact] public void A_changed_length_is_read_again()
+    {
+        using var dir = new TempDir();
+        var cache = dir.File("cache.json");
+        Cached(cache, out var packs, dir);
+        var changed = new[] { Altered(packs[0], f => f with { Length = f.Length + 1 }), packs[1] };
+        Assert.Null(GameTableVersionsCache.TryLoad(cache, changed));
+    }
+
+    [Fact] public void A_changed_pack_count_is_read_again()
+    {
+        using var dir = new TempDir();
+        var cache = dir.File("cache.json");
+        Cached(cache, out var packs, dir);
+        Assert.Null(GameTableVersionsCache.TryLoad(cache, [packs[0]]));
+        Assert.Null(GameTableVersionsCache.TryLoad(cache, [.. packs, Source(Pack(dir, "c.pack", 4))]));
+    }
+
+    [Fact] public void A_swapped_pack_order_is_read_again()
+    {
+        using var dir = new TempDir();
+        var cache = dir.File("cache.json");
+        Cached(cache, out var packs, dir);
+        Assert.Null(GameTableVersionsCache.TryLoad(cache, [packs[1], packs[0]]));
+    }
+
+    [Fact] public void A_path_that_differs_only_in_case_is_still_a_hit()
+    {
+        using var dir = new TempDir();
+        var cache = dir.File("cache.json");
+        Cached(cache, out var packs, dir);
+        var recased = new[] { Altered(packs[0], f => f with { Path = f.Path.ToUpperInvariant() }), packs[1] };
+        Assert.True(GameTableVersionsCache.TryLoad(cache, recased)!.FromCache);
+    }
+
+    [Fact] public void Without_vanilla_packs_nothing_is_loaded_from_the_cache()
+    {
+        using var dir = new TempDir();
+        var cache = dir.File("cache.json");
+        Cached(cache, out _, dir);
+        Assert.Null(GameTableVersionsCache.TryLoad(cache, []));
+    }
+
     [Fact] public void A_broken_cache_is_moved_to_bad_and_read_again()
     {
         using var dir = new TempDir();

@@ -158,6 +158,7 @@ public sealed class WorkspaceController
             if (_generation == generation)
             {
                 Catalog = null;
+                TableVersions = new GameTableVersionsResult(null, [], [new TableVersionsProblem(string.Empty, null, "the load failed")], [], false);
             }
         }
         finally

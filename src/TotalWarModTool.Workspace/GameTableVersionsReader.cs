@@ -58,6 +58,12 @@ public static class GameTableVersionsReader
             return new GameTableVersionsResult(null, sources, problems, conflicts, FromCache: false);
         }
 
+        if (versions.Count == 0 && problems.Count == 0)
+        {
+            // Vanilla packs without any db table cannot be the game's data; never fall back to "highest version" on this.
+            problems.Add(new TableVersionsProblem(string.Empty, null, "The vanilla packs contain no db table."));
+        }
+
         var map = versions.ToDictionary(pair => pair.Key, pair => pair.Value.Version, StringComparer.OrdinalIgnoreCase);
         return new GameTableVersionsResult(new GameTableVersions(map), sources, problems, conflicts, FromCache: false);
     }

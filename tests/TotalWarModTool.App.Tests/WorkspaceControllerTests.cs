@@ -728,6 +728,20 @@ public class WorkspaceControllerTests
         Assert.True(again.TableVersions.Versions!.SameAs(c.TableVersions.Versions));
     }
 
+    [Fact] public async Task A_failed_load_leaves_the_table_versions_incomplete()
+    {
+        using var game = new TestGame();
+        game.AddVanillaTables("data.pack", ("x_tables", 3));
+        game.Settings.SchemaFolder = "bad\0folder";                                // an invalid path makes the work on the pool thread throw
+        var c = game.NewController();
+
+        await c.LoadAsync();
+
+        Assert.Contains(game.Log.Errors, line => line.Contains("Loading the game failed", StringComparison.Ordinal));
+        Assert.False(c.TableVersions!.IsComplete);
+        Assert.Equal(game.Texts.TableVersionsIncomplete, c.TableVersionsMissingReason);
+    }
+
     [Fact] public async Task The_missing_reason_of_the_table_versions_names_no_game_and_an_incomplete_read()
     {
         using var noGame = new TestGame(inSteamLibrary: true);                     // Steam does not know the game
