@@ -13,6 +13,6 @@ public class AppTextsTests
     {
         var ui = new UiText(Locales); var texts = new AppTexts(ui);
         ui.Load("de");
-        Assert.Equal("Werkzeuge", texts.MenuTools);
+        Assert.Equal("Einstellungen", texts.MenuSettings);
     }
 }

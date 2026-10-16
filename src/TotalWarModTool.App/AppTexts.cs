@@ -10,11 +10,9 @@ public sealed partial class AppTexts(UiText ui) : TextsBase(ui)
 
     public string AppTitle => T("app.title", AppName);
 
-    public string MenuTools => T("menu.tools", "Tools");
+    public string MenuSettings => T("menu.settings", "Settings");
 
-    public string MenuSettings => T("menu.tools.settings", "Settings");
-
-    public string MenuOpenLogFolder => T("menu.tools.openLogFolder", "Open log folder");
+    public string MenuOpenLogFolder => T("menu.help.openLogFolder", "Open log folder");
 
     public string ProgressCancel => T("progress.cancel", "Cancel");
 

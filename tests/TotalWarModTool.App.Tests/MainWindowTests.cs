@@ -10,6 +10,9 @@ namespace TotalWarModTool.App.Tests;
 
 public class MainWindowTests
 {
+    // AppTexts.MenuTools is gone (the menu is rebuilt in Task 5 of the interface rework); these tests are rewritten there.
+    private const string ToolsMenuHeader = "Tools";
+
     private sealed record Setup(TestGame Game, WorkspaceController Controller, MainViewModel ViewModel, MainWindow Window, List<string> LogFolders) : IDisposable
     {
         public void Dispose() => Game.Dispose();
@@ -103,7 +106,7 @@ public class MainWindowTests
     {
         using var setup = await Create();
         var tools = Descendants<MenuItem>(setup.Window).First();
-        Assert.Equal(setup.Game.Texts.MenuTools, tools.Header);
+        Assert.Equal(ToolsMenuHeader, tools.Header);
         var items = tools.Items.OfType<MenuItem>().ToList();
         Assert.Equal([setup.Game.Texts.OperationRefreshPacks, setup.Game.Texts.MenuToolsNewBuilding, setup.Game.Texts.MenuToolsNewTrait,
             setup.Game.Texts.MenuSettings,
@@ -146,7 +149,7 @@ public class MainWindowTests
         using var setup = await CreateWithProjects();
         var window = setup.Setup.Window; var texts = setup.Setup.Game.Texts; var projects = setup.Setup.ViewModel.Projects!;
         var menus = Descendants<MenuItem>(window).ToList();
-        Assert.Equal([texts.MenuTools, texts.MenuEdit, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
+        Assert.Equal([ToolsMenuHeader, texts.MenuEdit, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
         var project = menus[2];
         Assert.Equal(Visibility.Visible, project.Visibility);
 
@@ -232,7 +235,7 @@ public class MainWindowTests
     {
         using var setup = await Create();
         var menus = Descendants<MenuItem>(setup.Window).ToList();
-        Assert.Equal(setup.Game.Texts.MenuTools, menus[0].Header);
+        Assert.Equal(ToolsMenuHeader, menus[0].Header);
         Assert.Equal(setup.Game.Texts.MenuEdit, menus[1].Header);
         Assert.Equal(Visibility.Collapsed, menus[1].Visibility);               // no documents: no edit menu either
         Assert.Equal(setup.Game.Texts.ProjectMessageTitle, menus[2].Header);
@@ -259,7 +262,7 @@ public class MainWindowTests
         Assert.Same(documents, viewModel.Documents);
         Assert.Same(documents.Tabs, viewModel.Tabs);
         var menus = Descendants<MenuItem>(window).ToList();
-        Assert.Equal([texts.MenuTools, texts.MenuEdit, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
+        Assert.Equal([ToolsMenuHeader, texts.MenuEdit, texts.ProjectMessageTitle, texts.MenuDebug], menus.Select(m => m.Header));
         var edit = menus[1];
         Assert.Equal(Visibility.Visible, edit.Visibility);
         var items = edit.Items.OfType<MenuItem>().ToList();
