@@ -417,6 +417,12 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - Werkzeug, das eine Tabellendatei in eine andere Version umwandelt (z. B. eine veraltete Projektdatei oder die Tabelle einer alten Mod in die Spielversion); Felder per Name abbilden wie `RowLayout`, fehlende mit Standardwert, wegfallende in der Vorschau nennen
 - Warnung über veraltete fremde Mods in der Ladereihenfolge (Tabellen in anderer Version als im Spiel); heute nur „older layout“ in der Objekt-Ansicht
 
+== Aus der Spec Tabellenversion, Abschluss ==
+
+- Der Echtdaten-Test `The_building_wizard_copies_barracks_3_as_a_stage_after_it` schlägt schon bei 8e207d0 fehl (erwartete Stufe 3, bekommen 2: In den Spieldaten gibt es eine Stufe nach barracks_3); getrennt untersuchen
+- `ApplyEnvironmentReason` kennt `MissingReason` nicht: Die Tooltips sagen „veraltet“, nachdem die Versionen unvollständig geworden sind
+- Der Cache der anlegbaren Tabellen im `ProjectFilesController` vergleicht die Versionen mit `ReferenceEquals` und läuft nach jedem Aktualisieren neu; `SameAs` nutzen
+
 == Wartet auf ein öffentliches Remote ==
 
 - Remote für das lokale Repo festlegen (bisher nur lokal)

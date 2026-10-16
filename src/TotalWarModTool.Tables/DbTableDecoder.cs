@@ -3,12 +3,13 @@ using TotalWarModTool.Schema;
 
 namespace TotalWarModTool.Tables;
 
+/// <summary>The version and GUID text of a table's header.</summary>
+public sealed record TableHeader(int Version, string? Guid);
+
 /// <summary>
 /// Decodes the binary DB table format with a definition from the schema. Never throws for the data:
 /// a problem becomes a status with a detail text and no rows. Argument errors (null) still throw.
 /// </summary>
-public sealed record TableHeader(int Version, string? Guid);
-
 public static class DbTableDecoder
 {
     /// <summary>Upper bound for rows times fields. Far above every real table; stops decompressed zeros from becoming boxed cells.</summary>

@@ -153,7 +153,7 @@ public class ObjectsRealDataTests
 
             rows += table.Rows.Count;
             olderLayoutRows += table.Rows.Count(r => r.Provenance.OlderLayout);
-            olderLayoutVanillaRows += table.Rows.Count(r => r.Provenance.OlderLayout && r.Provenance.Source.Kind != SourceKind.Mod);
+            olderLayoutVanillaRows += table.Rows.Count(r => r.Provenance.OlderLayout && r.Provenance.Source.Kind == SourceKind.Vanilla);
             foreach (var problem in table.Problems)
             {
                 problemsByKind[problem.Kind] = problemsByKind.GetValueOrDefault(problem.Kind) + 1;
@@ -162,7 +162,7 @@ public class ObjectsRealDataTests
 
         watch.Stop();
         _output.WriteLine($"Merged {context.Schema.Tables.Count} schema tables ({present} with rows or problems), {rows} rows in {watch.ElapsedMilliseconds} ms");
-        _output.WriteLine($"Cache: {store.CachedTables} tables, {store.CachedBytes / (1024 * 1024)} MB; rows with an older layout: {olderLayoutRows} ({olderLayoutVanillaRows} from non-mod sources)");
+        _output.WriteLine($"Cache: {store.CachedTables} tables, {store.CachedBytes / (1024 * 1024)} MB; rows with an older layout: {olderLayoutRows} ({olderLayoutVanillaRows} from vanilla sources)");
         foreach (var (kind, count) in problemsByKind.OrderBy(p => p.Key))
         {
             _output.WriteLine($"  problems {kind}: {count}");

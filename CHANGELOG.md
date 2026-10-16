@@ -37,8 +37,10 @@
 
 ### Geändert
 
+- Bauen bricht mit einer Meldung ab, wenn eine Tabelle deines Projekts eine andere Version hat als im Spiel.
+- Übernehmen, „Ins Projekt übernehmen“ und der Import lehnen veraltete Tabellen ab.
+- Bauen, Import, „Neue Tabelle“ und die Objekt-Ansicht sind gesperrt, solange die Tabellenversionen des Spiels nicht gelesen sind oder kein Spiel gefunden ist; der Tooltip nennt den Grund.
+
 ### Behoben
 
 - Mods mit kopierten Gebäuden ließen das Spiel beim Start abstürzen, weil Tabellen in einer veralteten Version geschrieben wurden. Das Tool nutzt jetzt die Tabellenversionen des Spiels.
-- Bauen bricht mit einer Meldung ab, wenn eine Tabelle deines Projekts eine andere Version hat als im Spiel.
-- Übernehmen, „Ins Projekt übernehmen“ und der Import lehnen veraltete Tabellen ab.

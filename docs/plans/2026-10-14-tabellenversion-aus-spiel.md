@@ -329,3 +329,5 @@
 6. **Pack einer veralteten Mod importieren:** Import abgelehnt, Meldung nennt die Einträge, kein Projektordner angelegt.
 7. **Fremde Zeile aus veralteter Mod löschen:** Übernehmen abgelehnt mit Meldung, nichts geschrieben, kein Undo-Schritt.
 8. **Ohne Spielpfad:** Bauen und „Neue Tabelle“ zeigen „Kein Spiel gefunden“. Der Tabelleneditor öffnet Projektdateien weiter.
+9. **Patch simulieren:** In der Cache-Datei einen Fingerabdruck ändern (z. B. die Größe eines Packs), Packs neu laden. Die Versionen werden neu gelesen, die Objekt-Stores sind neu aufgebaut, offene Objekt-Tabs tragen „veraltet“.
+10. **Bauen mit falscher Projekttabelle:** Eine Projekttabelle in einer anderen Version als im Spiel ablegen und bauen. Der Bau bricht ab, die Meldung nennt die Version der Datei und die des Spiels.
