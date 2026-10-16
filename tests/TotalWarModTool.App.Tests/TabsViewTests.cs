@@ -979,8 +979,11 @@ public class TabsViewTests
         var setup = Create(tabs);
         tabs.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"]]), null);
         var table = Assert.IsType<TableTabViewModel>(tabs.SelectedTab);
-        table.SelectedRows = [0];
         Pump(setup.Window);
+        // The selection comes from the grid: once loaded it hands its own (empty) selection to the tab, so the row is selected in the grid.
+        setup.Grid.SelectedItems.Add(setup.Grid.Items[0]);
+        Pump(setup.Window);
+        Assert.Equal([0], table.SelectedRows);
 
         var bar = Descendants<WrapPanel>(setup.View).Single(p => p.Name == "RowCommandBar");
         var buttons = bar.Children.OfType<Button>().ToList();
