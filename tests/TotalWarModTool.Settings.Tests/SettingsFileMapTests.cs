@@ -8,6 +8,11 @@ public class SettingsFileMapTests
     private static object Sample(Type t) =>
         t == typeof(string) ? "x"
         : t == typeof(ThemeChoice) ? ThemeChoice.Dark
+        : t == typeof(TileSize) ? TileSize.Compact
+        : t == typeof(ToolbarPosition) ? ToolbarPosition.Right
+        : t == typeof(bool) ? false
+        : t == typeof(int) ? 3
+        : t == typeof(IReadOnlyList<string>) ? new List<string> { "newTrait", "newBuilding" }
         : t == typeof(WindowPlacement) ? new WindowPlacement(1, 2, 3, 4, true)
         : throw new InvalidOperationException($"No sample value for {t}: extend Sample when a setting has a new type.");
 

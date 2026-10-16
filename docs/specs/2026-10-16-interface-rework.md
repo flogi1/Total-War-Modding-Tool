@@ -377,3 +377,13 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
 10. Einstellungen Tastenkürzel: Liste vollständig gegen Menü und Tooltips.
 11. Sprache auf Englisch: alle neuen Texte übersetzt, nichts leer.
 12. App schließen und starten: Leisten, Filter und Zuordnungen wie verlassen.
+
+## Änderungen beim Schreiben von Plan 1
+
+- **Task 2, Laden fehlender Reihenfolgen:** Fehlt `tileOrder` oder `toolbarOrder` in `settings.json` (oder ist `null`), bleibt die
+  Standardreihenfolge (`DefaultOrder`, bei der Werkzeugleiste mit den vier Trennlinien). Nur eine vorhandene Liste läuft durch den
+  normalisierenden Setter. Grund: `ReorderList.Complete([], ToolbarCatalog.All, …)` liefert die Katalog-Kennungen ohne Trennlinien;
+  ohne diese Unterscheidung hätte eine alte Datei die Trennlinien verloren. Eine vorhandene Liste ohne Trennlinien bekommt keine
+  erfundenen (Review Focus 2); fehlende Kennungen werden in Katalogreihenfolge hinten angehängt.
+- **Task 2, bestehender Wächtertest:** `SettingsFileMapTests.Sample` kennt jetzt auch Enums, `bool`, `int` und `IReadOnlyList<string>`,
+  damit der Round-Trip-Wächter die neuen Felder prüft.

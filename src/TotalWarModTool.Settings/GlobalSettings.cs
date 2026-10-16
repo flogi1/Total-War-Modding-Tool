@@ -2,6 +2,10 @@ namespace TotalWarModTool.Settings;
 
 public enum ThemeChoice { System, Light, Dark }
 
+public enum TileSize { Large, Medium, Compact }
+
+public enum ToolbarPosition { Top, Left, Right, Bottom }
+
 /// <summary>
 /// Global (per user, not per project) settings. Every setting is changed through its property, which raises <see cref="Changed"/>
 /// only when the value really changes, so the UI and other services can react immediately.
@@ -15,6 +19,17 @@ public sealed class GlobalSettings
     private WindowPlacement? _mainWindow;
     private string? _selectedGame;
     private string? _schemaFolder;
+    private IReadOnlyList<string> _tileOrder = TileCatalog.DefaultOrder.ToList();
+    private readonly HashSet<string> _hiddenTiles = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _iconOnlyTiles = new(StringComparer.Ordinal);
+    private TileSize _tileSize = TileSize.Large;
+    private bool _tileLabelsVisible = true;
+    private bool _tileBarVisible = true;
+    private IReadOnlyList<string> _toolbarOrder = ToolbarCatalog.DefaultOrder.ToList();
+    private readonly HashSet<string> _hiddenToolbarItems = new(StringComparer.Ordinal);
+    private ToolbarPosition _toolbarPosition = ToolbarPosition.Top;
+    private bool _toolbarLabelsVisible = true;
+    private int _settingsCategory;
 
     /// <summary>Argument: the name of the changed property.</summary>
     public event EventHandler<string>? Changed;
@@ -97,6 +112,158 @@ public sealed class GlobalSettings
 
             _schemaFolder = normalized;
             Changed?.Invoke(this, nameof(SchemaFolder));
+        }
+    }
+
+    /// <summary>Order of the tiles. The setter normalizes it: unknown ids and duplicates drop out, missing ids are appended.</summary>
+    public IReadOnlyList<string> TileOrder
+    {
+        get => _tileOrder;
+        set
+        {
+            var normalized = ReorderList.Complete(value, TileCatalog.DefaultOrder);
+            if (normalized.SequenceEqual(_tileOrder))
+            {
+                return;
+            }
+
+            _tileOrder = normalized;
+            Changed?.Invoke(this, nameof(TileOrder));
+        }
+    }
+
+    public IReadOnlyCollection<string> HiddenTiles => _hiddenTiles;
+
+    public bool IsTileVisible(string id) => !_hiddenTiles.Contains(id);
+
+    public void SetTileVisible(string id, bool visible) => SetMember(_hiddenTiles, id, !visible, nameof(HiddenTiles));
+
+    public IReadOnlyCollection<string> IconOnlyTiles => _iconOnlyTiles;
+
+    public bool IsTileIconOnly(string id) => _iconOnlyTiles.Contains(id);
+
+    public void SetTileIconOnly(string id, bool iconOnly) => SetMember(_iconOnlyTiles, id, iconOnly, nameof(IconOnlyTiles));
+
+    public TileSize TileSize
+    {
+        get => _tileSize;
+        set
+        {
+            if (value == _tileSize)
+            {
+                return;
+            }
+
+            _tileSize = value;
+            Changed?.Invoke(this, nameof(TileSize));
+        }
+    }
+
+    public bool TileLabelsVisible
+    {
+        get => _tileLabelsVisible;
+        set
+        {
+            if (value == _tileLabelsVisible)
+            {
+                return;
+            }
+
+            _tileLabelsVisible = value;
+            Changed?.Invoke(this, nameof(TileLabelsVisible));
+        }
+    }
+
+    public bool TileBarVisible
+    {
+        get => _tileBarVisible;
+        set
+        {
+            if (value == _tileBarVisible)
+            {
+                return;
+            }
+
+            _tileBarVisible = value;
+            Changed?.Invoke(this, nameof(TileBarVisible));
+        }
+    }
+
+    /// <summary>Order of the toolbar including separators (<c>sep:n</c>). The setter normalizes it like <see cref="TileOrder"/>.</summary>
+    public IReadOnlyList<string> ToolbarOrder
+    {
+        get => _toolbarOrder;
+        set
+        {
+            var normalized = ReorderList.Complete(value, ToolbarCatalog.All, ToolbarCatalog.IsSeparator);
+            if (normalized.SequenceEqual(_toolbarOrder))
+            {
+                return;
+            }
+
+            _toolbarOrder = normalized;
+            Changed?.Invoke(this, nameof(ToolbarOrder));
+        }
+    }
+
+    public IReadOnlyCollection<string> HiddenToolbarItems => _hiddenToolbarItems;
+
+    public bool IsToolbarItemVisible(string id) => !_hiddenToolbarItems.Contains(id);
+
+    public void SetToolbarItemVisible(string id, bool visible) => SetMember(_hiddenToolbarItems, id, !visible, nameof(HiddenToolbarItems));
+
+    public ToolbarPosition ToolbarPosition
+    {
+        get => _toolbarPosition;
+        set
+        {
+            if (value == _toolbarPosition)
+            {
+                return;
+            }
+
+            _toolbarPosition = value;
+            Changed?.Invoke(this, nameof(ToolbarPosition));
+        }
+    }
+
+    public bool ToolbarLabelsVisible
+    {
+        get => _toolbarLabelsVisible;
+        set
+        {
+            if (value == _toolbarLabelsVisible)
+            {
+                return;
+            }
+
+            _toolbarLabelsVisible = value;
+            Changed?.Invoke(this, nameof(ToolbarLabelsVisible));
+        }
+    }
+
+    /// <summary>Index of the selected page in the settings window. The setter turns negative values into 0.</summary>
+    public int SettingsCategory
+    {
+        get => _settingsCategory;
+        set
+        {
+            var normalized = Math.Max(0, value);
+            if (normalized == _settingsCategory)
+            {
+                return;
+            }
+
+            _settingsCategory = normalized;
+            Changed?.Invoke(this, nameof(SettingsCategory));
+        }
+    }
+
+    private void SetMember(HashSet<string> set, string id, bool present, string propertyName)
+    {
+        if (present ? set.Add(id) : set.Remove(id))
+        {
+            Changed?.Invoke(this, propertyName);
         }
     }
 

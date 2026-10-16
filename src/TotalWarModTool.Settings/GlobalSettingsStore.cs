@@ -35,6 +35,17 @@ public sealed class GlobalSettingsStore
             MainWindow = ToFile(settings.MainWindow),
             SelectedGame = settings.SelectedGame,
             SchemaFolder = settings.SchemaFolder,
+            TileOrder = settings.TileOrder.ToList(),
+            HiddenTiles = Sorted(settings.HiddenTiles),
+            IconOnlyTiles = Sorted(settings.IconOnlyTiles),
+            TileSize = settings.TileSize.ToString(),
+            TileLabelsVisible = settings.TileLabelsVisible,
+            TileBarVisible = settings.TileBarVisible,
+            ToolbarOrder = settings.ToolbarOrder.ToList(),
+            HiddenToolbarItems = Sorted(settings.HiddenToolbarItems),
+            ToolbarPosition = settings.ToolbarPosition.ToString(),
+            ToolbarLabelsVisible = settings.ToolbarLabelsVisible,
+            SettingsCategory = settings.SettingsCategory,
         };
         JsonFileStore.Save(FilePath, SchemaVersion, file);
     }
@@ -42,28 +53,73 @@ public sealed class GlobalSettingsStore
     private static GlobalSettings ToSettings(SettingsFile file)
     {
         // Every member is nullable: System.Text.Json delivers JSON null and missing properties as null, whatever the annotations say.
-        return new GlobalSettings
+        var settings = new GlobalSettings
         {
             Language = file.Language ?? string.Empty,
-            Theme = ParseTheme(file.Theme),
+            Theme = ParseEnum(file.Theme, ThemeChoice.System),
             MainWindow = ToPlacement(file.MainWindow),
             SelectedGame = file.SelectedGame,
             SchemaFolder = file.SchemaFolder,
+            TileSize = ParseEnum(file.TileSize, TileSize.Large),
+            TileLabelsVisible = file.TileLabelsVisible ?? true,
+            TileBarVisible = file.TileBarVisible ?? true,
+            ToolbarPosition = ParseEnum(file.ToolbarPosition, ToolbarPosition.Top),
+            ToolbarLabelsVisible = file.ToolbarLabelsVisible ?? true,
+            SettingsCategory = file.SettingsCategory ?? 0,
         };
-    }
-
-    private static ThemeChoice ParseTheme(string? text)
-    {
-        // Compares the names instead of Enum.TryParse, which would also accept numbers and comma-separated lists.
-        foreach (var theme in Enum.GetValues<ThemeChoice>())
+        // A missing field keeps the default order (the toolbar default has separators). Present lists go through the setters,
+        // which normalize them: unknown ids drop out, missing ones are appended.
+        if (file.TileOrder is not null)
         {
-            if (string.Equals(theme.ToString(), text?.Trim(), StringComparison.OrdinalIgnoreCase))
+            settings.TileOrder = file.TileOrder;
+        }
+
+        if (file.ToolbarOrder is not null)
+        {
+            settings.ToolbarOrder = file.ToolbarOrder;
+        }
+
+        foreach (var id in file.HiddenTiles ?? [])
+        {
+            if (id is not null && TileCatalog.IsKnown(id))
             {
-                return theme;
+                settings.SetTileVisible(id, false);
             }
         }
 
-        return ThemeChoice.System;
+        foreach (var id in file.IconOnlyTiles ?? [])
+        {
+            if (id is not null && TileCatalog.IsKnown(id))
+            {
+                settings.SetTileIconOnly(id, true);
+            }
+        }
+
+        foreach (var id in file.HiddenToolbarItems ?? [])
+        {
+            if (id is not null && ToolbarCatalog.IsKnown(id))
+            {
+                settings.SetToolbarItemVisible(id, false);
+            }
+        }
+
+        return settings;
+    }
+
+    private static List<string> Sorted(IEnumerable<string> ids) => ids.OrderBy(id => id, StringComparer.Ordinal).ToList();
+
+    private static T ParseEnum<T>(string? text, T fallback) where T : struct, Enum
+    {
+        // Compares the names instead of Enum.TryParse, which would also accept numbers and comma-separated lists.
+        foreach (var value in Enum.GetValues<T>())
+        {
+            if (string.Equals(value.ToString(), text?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return value;
+            }
+        }
+
+        return fallback;
     }
 
     private static WindowPlacement? ToPlacement(WindowPlacementFile? file)
@@ -105,6 +161,17 @@ public sealed class GlobalSettingsStore
         public WindowPlacementFile? MainWindow { get; set; }
         public string? SelectedGame { get; set; }
         public string? SchemaFolder { get; set; }
+        public List<string>? TileOrder { get; set; }
+        public List<string>? HiddenTiles { get; set; }
+        public List<string>? IconOnlyTiles { get; set; }
+        public string? TileSize { get; set; }
+        public bool? TileLabelsVisible { get; set; }
+        public bool? TileBarVisible { get; set; }
+        public List<string>? ToolbarOrder { get; set; }
+        public List<string>? HiddenToolbarItems { get; set; }
+        public string? ToolbarPosition { get; set; }
+        public bool? ToolbarLabelsVisible { get; set; }
+        public int? SettingsCategory { get; set; }
     }
 
     private sealed class WindowPlacementFile
