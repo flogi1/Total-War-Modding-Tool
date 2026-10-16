@@ -504,5 +504,6 @@
   "objects.writeError.invalidValue": "Ein Wert passt nicht zur Datei.",
   "objects.writeError.colourChannel": "Ein Farbkanal muss eine ganze Zahl von 0 bis 255 sein.",
   "objects.writeError.tableNotWritable": "Die Tabelle kann nicht als Text geschrieben werden.",
-  "objects.writeError.noAnswer": "Es wurde keine Datei gewählt."
+  "objects.writeError.noAnswer": "Es wurde keine Datei gewählt.",
+  "objects.writeError.outdatedTableVersion": "Die Tabellendatei hat eine andere Version, als das Spiel nutzt. Datei löschen oder die Tabelle neu anlegen."
 }

@@ -34,6 +34,9 @@ internal static class WriteFixture
 
     public static readonly ReferenceGraph Graph = ReferenceGraph.Build(MiniSchema, GameTableVersions.Empty);
 
+    /// <summary>The game uses version 2 of x_tables and has no y_tables.</summary>
+    public static readonly ReferenceGraph GraphWithGame = ReferenceGraph.Build(MiniSchema, new GameTableVersions(new Dictionary<string, int> { [X] = 2 }));
+
     public static TableDefinition Definition(string table, int version) =>
         MiniSchema.Find(table, version) ?? throw new ArgumentException($"{table} v{version} is not in the test schema");
 

@@ -95,7 +95,7 @@ public sealed record WriteAnswers(IReadOnlyDictionary<string, string> TargetFile
 
 public enum WriteErrorKind
 {
-    SnapshotProblem, KeyAlreadyInFile, RowNotInFile, FieldNotInFileVersion, InvalidValue, ColourChannelOutOfRange, TableNotWritable, NoAnswer,
+    SnapshotProblem, KeyAlreadyInFile, RowNotInFile, FieldNotInFileVersion, InvalidValue, ColourChannelOutOfRange, TableNotWritable, NoAnswer, OutdatedTableVersion,
 }
 
 /// <summary>Line is the block line of the change (0 when none applies), RelativeFile the file (null when none applies). Detail is short technical English.</summary>

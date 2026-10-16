@@ -504,5 +504,6 @@
   "objects.writeError.invalidValue": "A value does not fit the file.",
   "objects.writeError.colourChannel": "A colour channel must be an integer from 0 to 255.",
   "objects.writeError.tableNotWritable": "The table cannot be written as text.",
-  "objects.writeError.noAnswer": "No file was chosen."
+  "objects.writeError.noAnswer": "No file was chosen.",
+  "objects.writeError.outdatedTableVersion": "The table file has another version than the game uses. Delete the file or create the table again."
 }

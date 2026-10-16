@@ -168,6 +168,8 @@ public sealed partial class AppTexts
 
     public string ObjectsWriteErrorNoAnswer => T("objects.writeError.noAnswer", "No file was chosen.");
 
+    public string ObjectsWriteErrorOutdatedTableVersion => T("objects.writeError.outdatedTableVersion", "The table file has another version than the game uses. Delete the file or create the table again.");
+
     public string WriteErrorText(WriteErrorKind kind) => kind switch
     {
         WriteErrorKind.SnapshotProblem => ObjectsWriteErrorSnapshotProblem,
@@ -178,6 +180,7 @@ public sealed partial class AppTexts
         WriteErrorKind.ColourChannelOutOfRange => ObjectsWriteErrorColourChannelOutOfRange,
         WriteErrorKind.TableNotWritable => ObjectsWriteErrorTableNotWritable,
         WriteErrorKind.NoAnswer => ObjectsWriteErrorNoAnswer,
+        WriteErrorKind.OutdatedTableVersion => ObjectsWriteErrorOutdatedTableVersion,
         _ => kind.ToString(),
     };
 }
