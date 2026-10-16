@@ -168,7 +168,7 @@ public sealed partial class AppTexts
 
     public string ObjectsWriteErrorNoAnswer => T("objects.writeError.noAnswer", "No file was chosen.");
 
-    public string ObjectsWriteErrorOutdatedTableVersion => T("objects.writeError.outdatedTableVersion", "The table file has another version than the game uses. Delete the file or create the table again.");
+    public string ObjectsWriteErrorOutdatedTableVersion => T("objects.writeError.outdatedTableVersion", "The table is in another version than the game uses. For a project file: delete the file or create the table again.");
 
     public string WriteErrorText(WriteErrorKind kind) => kind switch
     {

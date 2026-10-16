@@ -211,7 +211,12 @@ public class ProjectWritePlanDeleteTests
 
         var error = Assert.Single(plan.Errors, e => e.Kind == WriteErrorKind.OutdatedTableVersion);
         Assert.Equal("db/x_tables/m", error.RelativeFile);
-        Assert.StartsWith("the mod entry is outdated: ", error.Detail);
+        Assert.Contains("is outdated", error.Detail);
+        Assert.Contains("m.pack", error.Detail);
+        Assert.Contains("db/x_tables/m", error.Detail);
+        Assert.Contains("version 1", error.Detail);
+        Assert.Contains("uses version 2", error.Detail);
+        Assert.DoesNotContain("Delete the file", error.Detail);
         Assert.Empty(plan.Files);
     }
 }

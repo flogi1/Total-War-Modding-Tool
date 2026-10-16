@@ -354,7 +354,7 @@ public static class NewFiles
 
         if (gameVersions is not null && DbTablePath.TryGetTableName(packPath, out var entryTable)
             && DbTableDecoder.ReadHeader(entryBytes.AsSpan(0, Math.Min(entryBytes.Length, DbTableDecoder.TableHeaderBytes))) is { } header
-            && TableVersionRule.MismatchDetail(gameVersions, entryTable, header.Version) is { } mismatch)
+            && TableVersionRule.VersionMismatchDetail(gameVersions, entryTable, header.Version) is { } mismatch)
         {
             return Refused(mismatch);
         }

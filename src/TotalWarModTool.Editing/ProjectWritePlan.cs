@@ -299,7 +299,7 @@ public static class ProjectWritePlan
             };
             work.Texts.AddRange(Enumerable.Repeat<string[]?>(null, work.Rows.Count));
             _work[file.RelativeFile] = work;
-            if (TableVersionRule.MismatchDetail(_graph.GameVersions, work.TableName, work.Version) is { } mismatch)
+            if (TableVersionRule.VersionMismatchDetail(_graph.GameVersions, work.TableName, work.Version) is { } mismatch)
             {
                 Fail(WriteErrorKind.OutdatedTableVersion, line, work.RelativeFile, mismatch);
             }
@@ -806,9 +806,11 @@ public static class ProjectWritePlan
             };
             work.Texts.AddRange(Enumerable.Repeat<string[]?>(null, work.Rows.Count));
             _work[entry.RelativeFile] = work;
-            if (TableVersionRule.MismatchDetail(_graph.GameVersions, work.TableName, work.Version) is { } mismatch)
+            if (TableVersionRule.VersionMismatchDetail(_graph.GameVersions, work.TableName, work.Version) is { } mismatch)
             {
-                Fail(WriteErrorKind.OutdatedTableVersion, line, layer.EntryPath, "the mod entry is outdated: " + mismatch);
+                var kind = layer.Source.Kind == SourceKind.Vanilla ? "the game pack" : "the mod";
+                Fail(WriteErrorKind.OutdatedTableVersion, line, layer.EntryPath,
+                    "entry " + layer.EntryPath + " in " + kind + " pack " + layer.Source.Name + " (" + layer.Source.Path + ") is outdated: " + mismatch);
             }
 
             return work;

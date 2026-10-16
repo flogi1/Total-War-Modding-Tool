@@ -505,7 +505,7 @@
   "objects.writeError.colourChannel": "A colour channel must be an integer from 0 to 255.",
   "objects.writeError.tableNotWritable": "The table cannot be written as text.",
   "objects.writeError.noAnswer": "No file was chosen.",
-  "objects.writeError.outdatedTableVersion": "The table file has another version than the game uses. Delete the file or create the table again.",
+  "objects.writeError.outdatedTableVersion": "The table is in another version than the game uses. For a project file: delete the file or create the table again.",
   "tableVersions.reading": "The game's table versions are still being read.",
   "tableVersions.incomplete": "The game's table versions could not be read completely. See the log.",
   "tableVersions.noGame": "No game found. Building and new tables need the game's table versions.",

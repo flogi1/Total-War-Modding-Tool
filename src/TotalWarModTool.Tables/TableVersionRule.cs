@@ -56,8 +56,14 @@ public static class TableVersionRule
         return new CurrentDefinition(newest, CurrentDefinitionKind.SchemaNewest, null);
     }
 
-    /// <summary>The build problem text for a table file in another version than the game uses; null when the game lacks the table or the version fits.</summary>
+    /// <summary>The build problem text for a project table file in another version than the game uses; null when the game lacks the table or the version fits.</summary>
     public static string? MismatchDetail(GameTableVersions versions, string table, int fileVersion)
+        => VersionMismatchDetail(versions, table, fileVersion) is { } detail
+            ? detail + " Delete the file or create the table again."
+            : null;
+
+    /// <summary>The version-only text (no remedy) for import, adopt and copy checks; null when the game lacks the table or the version fits.</summary>
+    public static string? VersionMismatchDetail(GameTableVersions versions, string table, int fileVersion)
     {
         ArgumentNullException.ThrowIfNull(versions);
         ArgumentNullException.ThrowIfNull(table);
@@ -69,6 +75,6 @@ public static class TableVersionRule
 
         return "the table file has version " + fileVersion.ToString(CultureInfo.InvariantCulture)
             + ", the game uses version " + gameVersion.ToString(CultureInfo.InvariantCulture)
-            + "; the game crashes on this file. Delete the file or create the table again.";
+            + "; the game crashes on this file.";
     }
 }

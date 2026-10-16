@@ -34,6 +34,24 @@ public class PackImporterTests
         Assert.Empty(Directory.EnumerateDirectories(dir.Path, "*.import-*"));
     }
 
+    [Fact] public void Outdated_detail_lists_only_the_importable_tables()
+    {
+        using var dir = new TempDir();
+        var source = Pack(dir, p => p
+            .AddEntry(@"db\units_tables\one", TestData.Units(("a", 1, 1f)))
+            .AddEntry(@"db\units_tables\two", TestData.Units(("b", 1, 1f)))
+            .AddEntry(@"db\units_tables\skipped.tsv", TestData.Units(("c", 1, 1f))));
+        var versions = new GameTableVersions(new Dictionary<string, int> { ["units_tables"] = 3 });
+        var report = PackImporter.Import(Request(dir, source), TestData.Schema, versions, null, CancellationToken.None);
+
+        Assert.Equal(ImportProblem.OutdatedTables, report.Problem);
+        var lines = report.Detail!.Split('\n').Where(l => l.StartsWith("db/units_tables/", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(lines, l => l.StartsWith("db/units_tables/one: ", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("db/units_tables/two: ", StringComparison.Ordinal));
+        Assert.DoesNotContain("skipped.tsv", report.Detail, StringComparison.Ordinal);
+    }
+
     [Fact] public void Import_with_tables_in_the_game_version_works()
     {
         using var dir = new TempDir();

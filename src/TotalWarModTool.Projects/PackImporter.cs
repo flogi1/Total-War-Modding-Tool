@@ -198,7 +198,7 @@ public static class PackImporter
             var prefix = PackReader.ReadEntryPrefix(index, entry, DbTableDecoder.TableHeaderBytes, cancellationToken);
             if (prefix.Bytes is not null
                 && DbTableDecoder.ReadHeader(prefix.Bytes) is { } header
-                && TableVersionRule.MismatchDetail(gameVersions, tableName, header.Version) is { } detail)
+                && TableVersionRule.VersionMismatchDetail(gameVersions, tableName, header.Version) is { } detail)
             {
                 lines.Add(entry.Path + ": " + detail);
             }

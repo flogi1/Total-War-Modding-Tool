@@ -80,7 +80,7 @@ public class NewFilesTests
         var versions = Game("units_tables", 3);
         var result = NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, versions, "my_mod");
         Assert.Null(result.File);
-        Assert.Equal(TableVersionRule.MismatchDetail(versions, "units_tables", 2), result.Reason);
+        Assert.Equal(TableVersionRule.VersionMismatchDetail(versions, "units_tables", 2), result.Reason);
         Assert.NotNull(NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, Game("units_tables", 2), "my_mod").File);
     }
 

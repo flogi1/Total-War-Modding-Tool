@@ -281,6 +281,19 @@ public class ProjectWritePlanTests
     }
 
     [Fact]
+    public void A_set_in_a_project_file_in_another_version_is_an_error_and_writes_nothing()
+    {
+        var file = TableFile(A, X, 1, [["k1", "b1", "n"]]);
+
+        var plan = PlanWithGame(Changes([SetX("k1", "x", "1", InA, line: 6)]), Snapshot(file));
+
+        var error = Assert.Single(plan.Errors, e => e.Kind == WriteErrorKind.OutdatedTableVersion);
+        Assert.Equal(A, error.RelativeFile);
+        Assert.DoesNotContain("Delete the file", error.Detail);
+        Assert.Empty(plan.Files);
+    }
+
+    [Fact]
     public void A_delete_in_a_project_file_in_another_version_is_an_error()
     {
         var file = TableFile(A, X, 1, [["k1", "b1", "n"]]);

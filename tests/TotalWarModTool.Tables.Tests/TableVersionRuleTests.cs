@@ -71,6 +71,15 @@ public class TableVersionRuleTests
     }
 
     [Fact]
+    public void Version_mismatch_detail_has_no_remedy()
+    {
+        Assert.Equal(
+            "the table file has version 16, the game uses version 3; the game crashes on this file.",
+            TableVersionRule.VersionMismatchDetail(Versions("a_tables", 3), "a_tables", 16));
+        Assert.Null(TableVersionRule.VersionMismatchDetail(Versions("a_tables", 3), "a_tables", 3));
+    }
+
+    [Fact]
     public void Mismatch_detail_names_both_versions()
     {
         Assert.Equal(

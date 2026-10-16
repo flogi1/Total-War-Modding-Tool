@@ -66,7 +66,7 @@ public class ProjectBuilderTests
         var (folder, project) = NewProject(dir);
         Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
         Put(folder, @"db\units_tables\binary", TestData.Units(("a", 1, 1f)));
-        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, new GameTableVersions(new Dictionary<string, int> { ["other_tables"] = 5 }), NewGuid, null, CancellationToken.None);
         Assert.Empty(plan.Problems);
         Assert.Equal(2, plan.Entries.Count);
     }
