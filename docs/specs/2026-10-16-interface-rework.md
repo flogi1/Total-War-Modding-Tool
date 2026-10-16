@@ -404,3 +404,17 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
 - **Review Tasks 1–5, Kachel-Zuordnung:** Welche Befehle und Sperrgründe eine Kachel hat, liefert `MainViewModel.TileBindingFor(id)`
   (wie `ToolbarBindingFor`, gemeinsamer Record `EntryBinding`); das Fenster verdrahtet nur noch. Die Tooltips der Werkzeugleiste
   liest das Fenster nur bei den sechs Grund-Properties des View-Models neu, nicht bei jedem `PropertyChanged`.
+- **Task 7, Ziehgriff der `ReorderListBox`:** ohne eigenen Tooltip. `ReorderTexts` trägt nur die drei Knopftexte (Nach oben, Nach unten,
+  Entfernen); das Ziehen erklärt der Hinweis über der Liste.
+- **Task 7, neue Trennlinie:** `sep:n` mit n = höchste vorhandene Nummer + 1 (Standard: `sep:5`), hinten angehängt. Eine Nummer, die durch
+  Entfernen frei wurde, wird nicht wieder vergeben, außer sie war die höchste.
+- **Task 7, Knöpfe der Seiten:** „Standard wiederherstellen“, „Trennlinie hinzufügen“ und das Entfernen einer Trennlinie sind Befehle bzw.
+  Methoden des `SettingsViewModel` (`ResetTilesCommand`, `AddToolbarSeparatorCommand`, `ResetToolbarCommand`, `RemoveToolbarSeparator`);
+  `BarSettingsPages` verdrahtet nur. „Standard wiederherstellen“ ändert keine Sichtbarkeit: Kacheln bekommen die Standardreihenfolge und
+  verlieren „Nur Symbol“, die Werkzeugleiste bekommt die Standardreihenfolge mit den vier Trennlinien.
+- **Task 7, Lebensdauer der Seiten:** Jedes Öffnen baut ein neues Fenster, die Settings leben weiter. Die Code-Seiten (`BarSettingsPage`)
+  melden sich beim Schließen des Fensters von `GlobalSettings.Changed` und `AppTexts.PropertyChanged` ab. Ein Sprachwechsel baut die Seite
+  neu (Hinweis, Knöpfe, Zeilen und Knopf-Tooltips).
+- **Task 7, gemerkte Seite:** `SelectedCategory` liest und schreibt `GlobalSettings.SettingsCategory`. Ein Wert über der letzten Seite
+  (heute 4, Werkzeugleiste) zeigt die erste Seite; die Obergrenze steigt mit den Seiten aus Plan 3 und 4. Das Häkchen „Sichtbar“ der
+  Werkzeugleiste nutzt den Text `settings.tiles.visible`.

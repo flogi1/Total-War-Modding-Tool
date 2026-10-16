@@ -2,8 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:local="clr-namespace:TotalWarModTool.App"
+        xmlns:settings="clr-namespace:TotalWarModTool.Settings;assembly=TotalWarModTool.Settings"
         Title="{Binding Texts.SettingsTitle}"
-        Width="640" Height="420"
+        Width="760" Height="520"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="{DynamicResource Theme.WindowBackground}"
         Foreground="{DynamicResource Theme.Text}">
@@ -29,6 +31,35 @@
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
+        </Style>
+        <Style x:Key="LayoutPageStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedCategory}" Value="2">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="TilesPageStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedCategory}" Value="3">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ToolbarPageStyle" TargetType="FrameworkElement">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding SelectedCategory}" Value="4">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <local:EnumToBooleanConverter x:Key="EnumToBoolean" />
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,6" />
         </Style>
         <!-- A message of the window: a warning for an error, gone when there is nothing to say. -->
         <Style x:Key="ErrorTextStyle" TargetType="TextBlock">
@@ -65,6 +96,9 @@
         <ListBox x:Name="CategoryList" Margin="12" SelectedIndex="{Binding SelectedCategory, Mode=TwoWay}">
             <ListBoxItem Content="{Binding Texts.SettingsCategoryGeneral}" />
             <ListBoxItem Content="{Binding Texts.SettingsCategoryGame}" />
+            <ListBoxItem Content="{Binding Texts.SettingsCategoryLayout}" />
+            <ListBoxItem Content="{Binding Texts.SettingsCategoryTiles}" />
+            <ListBoxItem Content="{Binding Texts.SettingsCategoryToolbar}" />
         </ListBox>
 
         <Grid x:Name="GeneralPage" Grid.Column="1" Margin="0,12,12,12" Style="{StaticResource GeneralPageStyle}">
@@ -140,5 +174,45 @@
                 </StackPanel>
             </StackPanel>
         </ScrollViewer>
+
+        <!-- The layout page: every choice is bound to a pass-through property of the view model and goes into the settings at once. -->
+        <ScrollViewer x:Name="LayoutPage" Grid.Column="1" Margin="0,12,12,12" VerticalScrollBarVisibility="Auto"
+                      Style="{StaticResource LayoutPageStyle}">
+            <StackPanel Margin="0,0,4,0">
+                <TextBlock Text="{Binding Texts.SettingsToolbarPosition}" Style="{StaticResource SectionTitleStyle}" />
+                <RadioButton x:Name="ToolbarPositionTopRadio" GroupName="ToolbarPosition" Content="{Binding Texts.ToolbarPositionTop}"
+                             IsChecked="{Binding ToolbarPosition, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:ToolbarPosition.Top}}"
+                             Margin="0,0,0,6" />
+                <RadioButton x:Name="ToolbarPositionLeftRadio" GroupName="ToolbarPosition" Content="{Binding Texts.ToolbarPositionLeft}"
+                             IsChecked="{Binding ToolbarPosition, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:ToolbarPosition.Left}}"
+                             Margin="0,0,0,6" />
+                <RadioButton x:Name="ToolbarPositionRightRadio" GroupName="ToolbarPosition" Content="{Binding Texts.ToolbarPositionRight}"
+                             IsChecked="{Binding ToolbarPosition, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:ToolbarPosition.Right}}"
+                             Margin="0,0,0,6" />
+                <RadioButton x:Name="ToolbarPositionBottomRadio" GroupName="ToolbarPosition" Content="{Binding Texts.ToolbarPositionBottom}"
+                             IsChecked="{Binding ToolbarPosition, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:ToolbarPosition.Bottom}}"
+                             Margin="0,0,0,6" />
+                <CheckBox x:Name="ToolbarLabelsCheck" Content="{Binding Texts.SettingsToolbarLabels}" IsChecked="{Binding ToolbarLabelsVisible}"
+                          Margin="0,4,0,16" />
+
+                <CheckBox x:Name="TileBarVisibleCheck" Content="{Binding Texts.SettingsTileBarVisible}" IsChecked="{Binding TileBarVisible}"
+                          Margin="0,0,0,12" />
+                <TextBlock Text="{Binding Texts.SettingsTileSize}" Style="{StaticResource SectionTitleStyle}" />
+                <RadioButton x:Name="TileSizeLargeRadio" GroupName="TileSize" Content="{Binding Texts.SettingsTileSizeLarge}"
+                             IsChecked="{Binding TileSize, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:TileSize.Large}}"
+                             Margin="0,0,0,6" />
+                <RadioButton x:Name="TileSizeMediumRadio" GroupName="TileSize" Content="{Binding Texts.SettingsTileSizeMedium}"
+                             IsChecked="{Binding TileSize, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:TileSize.Medium}}"
+                             Margin="0,0,0,6" />
+                <RadioButton x:Name="TileSizeCompactRadio" GroupName="TileSize" Content="{Binding Texts.SettingsTileSizeCompact}"
+                             IsChecked="{Binding TileSize, Converter={StaticResource EnumToBoolean}, ConverterParameter={x:Static settings:TileSize.Compact}}"
+                             Margin="0,0,0,6" />
+                <CheckBox x:Name="TileLabelsCheck" Content="{Binding Texts.SettingsTileLabels}" IsChecked="{Binding TileLabelsVisible}" Margin="0,4,0,0" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- The pages of the tile bar and the toolbar are built in code (BarSettingsPages); the code-behind puts them into these hosts. -->
+        <ContentControl x:Name="TilesHost" Grid.Column="1" Margin="0,12,12,12" Focusable="False" Style="{StaticResource TilesPageStyle}" />
+        <ContentControl x:Name="ToolbarHost" Grid.Column="1" Margin="0,12,12,12" Focusable="False" Style="{StaticResource ToolbarPageStyle}" />
     </Grid>
 </Window>

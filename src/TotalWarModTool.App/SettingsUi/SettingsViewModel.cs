@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using TotalWarModTool.GameProfiles;
@@ -27,7 +28,6 @@ public sealed class SettingsViewModel : ObservableObject
     private readonly UiLanguageOption _fallbackLanguage;
     private IReadOnlyList<ThemeOption> _themeOptions;
     private bool _swappingThemeOptions;
-    private int _selectedCategory;
     private string _gamePath;
     private bool _gamePathInvalid;
     private string _schemaFolder;
@@ -60,6 +60,9 @@ public sealed class SettingsViewModel : ObservableObject
         ClearGamePathCommand = new RelayCommand(ClearGamePath, () => HasGame);
         BrowseSchemaFolderCommand = new RelayCommand(BrowseSchemaFolder);
         ClearSchemaFolderCommand = new RelayCommand(ClearSchemaFolder);
+        ResetTilesCommand = new RelayCommand(ResetTiles);
+        AddToolbarSeparatorCommand = new RelayCommand(AddToolbarSeparator);
+        ResetToolbarCommand = new RelayCommand(() => _settings.ToolbarOrder = ToolbarCatalog.DefaultOrder);
         Texts = texts;
         Languages = languages;
         _fallbackLanguage = languages.FirstOrDefault(option => option.Code == UiText.ReferenceLanguage) ?? languages[0];
@@ -83,19 +86,109 @@ public sealed class SettingsViewModel : ObservableObject
     /// <summary>The page "Game" of the window, see <see cref="SelectedCategory"/>.</summary>
     public const int GameCategory = 1;
 
-    /// <summary>The chosen page of the window: 0 General, 1 Game (<see cref="GameCategory"/>).</summary>
+    /// <summary>The page "Layout" of the window, see <see cref="SelectedCategory"/>.</summary>
+    public const int LayoutCategory = 2;
+
+    /// <summary>The page "Tile bar" of the window, see <see cref="SelectedCategory"/>.</summary>
+    public const int TilesCategory = 3;
+
+    /// <summary>The page "Toolbar" of the window, see <see cref="SelectedCategory"/>.</summary>
+    public const int ToolbarCategory = 4;
+
+    /// <summary>The highest page index; a new page raises it.</summary>
+    private const int LastCategory = ToolbarCategory;
+
+    /// <summary>
+    /// The chosen page of the window: 0 General, 1 Game, 2 Layout, 3 Tile bar, 4 Toolbar. Stored in <see cref="GlobalSettings.SettingsCategory"/>,
+    /// so the window opens on the page shown last; a stored value that names no page shows the first page.
+    /// </summary>
     public int SelectedCategory
     {
-        get => _selectedCategory;
+        get => _settings.SettingsCategory is >= 0 and <= LastCategory ? _settings.SettingsCategory : 0;
         set
         {
-            // A list box writes -1 when it loses its selection; that is not a choice of the user.
-            if (value >= 0)
+            // A list box writes -1 when it loses its selection; that is not a choice of the user. The settings raise the change.
+            if (value is >= 0 and <= LastCategory)
             {
-                SetProperty(ref _selectedCategory, value);
+                _settings.SettingsCategory = value;
             }
         }
     }
+
+    /// <summary>The settings themselves, for the code-built pages (tile bar and toolbar lists).</summary>
+    public GlobalSettings Settings => _settings;
+
+    public ToolbarPosition ToolbarPosition
+    {
+        get => _settings.ToolbarPosition;
+        set => _settings.ToolbarPosition = value;
+    }
+
+    public bool ToolbarLabelsVisible
+    {
+        get => _settings.ToolbarLabelsVisible;
+        set => _settings.ToolbarLabelsVisible = value;
+    }
+
+    public bool TileBarVisible
+    {
+        get => _settings.TileBarVisible;
+        set => _settings.TileBarVisible = value;
+    }
+
+    public TileSize TileSize
+    {
+        get => _settings.TileSize;
+        set => _settings.TileSize = value;
+    }
+
+    public bool TileLabelsVisible
+    {
+        get => _settings.TileLabelsVisible;
+        set => _settings.TileLabelsVisible = value;
+    }
+
+    /// <summary>Default order of the tiles, and no tile icon-only. Hidden tiles stay hidden.</summary>
+    public ICommand ResetTilesCommand { get; }
+
+    /// <summary>Appends a new separator (<see cref="NextSeparator"/>) to the toolbar.</summary>
+    public ICommand AddToolbarSeparatorCommand { get; }
+
+    /// <summary>Default order of the toolbar with its four separators. Hidden entries stay hidden.</summary>
+    public ICommand ResetToolbarCommand { get; }
+
+    /// <summary>Takes the separator <paramref name="id"/> out of the toolbar.</summary>
+    public void RemoveToolbarSeparator(string id)
+    {
+        if (ToolbarCatalog.IsSeparator(id))
+        {
+            _settings.ToolbarOrder = _settings.ToolbarOrder.Where(entry => !string.Equals(entry, id, StringComparison.Ordinal)).ToList();
+        }
+    }
+
+    /// <summary>
+    /// The id of a new separator: one more than the highest separator number in <paramref name="order"/>, <c>sep:1</c> without one. A number
+    /// freed by a removed separator is not taken again unless it was the highest.
+    /// </summary>
+    public static string NextSeparator(IEnumerable<string> order)
+    {
+        var highest = order.Where(ToolbarCatalog.IsSeparator)
+            .Select(id => int.Parse(id.AsSpan(ToolbarCatalog.SeparatorPrefix.Length), CultureInfo.InvariantCulture))
+            .DefaultIfEmpty(0)
+            .Max();
+        return ToolbarCatalog.Separator(highest + 1);
+    }
+
+    private void ResetTiles()
+    {
+        _settings.TileOrder = TileCatalog.DefaultOrder;
+        foreach (var id in TileCatalog.DefaultOrder)
+        {
+            _settings.SetTileIconOnly(id, false);
+        }
+    }
+
+    private void AddToolbarSeparator() => _settings.ToolbarOrder = [.. _settings.ToolbarOrder, NextSeparator(_settings.ToolbarOrder)];
 
     /// <summary>False without a game profile: there is nothing to set for a game, and the game controls are disabled.</summary>
     public bool HasGame => _workspace.Profile is not null;
@@ -393,6 +486,17 @@ public sealed class SettingsViewModel : ObservableObject
                 break;
             case nameof(GlobalSettings.Theme):
                 OnPropertyChanged(nameof(SelectedTheme));
+                break;
+            case nameof(GlobalSettings.SettingsCategory):
+                OnPropertyChanged(nameof(SelectedCategory));
+                break;
+            case nameof(GlobalSettings.ToolbarPosition):
+            case nameof(GlobalSettings.ToolbarLabelsVisible):
+            case nameof(GlobalSettings.TileBarVisible):
+            case nameof(GlobalSettings.TileSize):
+            case nameof(GlobalSettings.TileLabelsVisible):
+                // The pass-through properties have the names of the settings.
+                OnPropertyChanged(property);
                 break;
         }
     }
