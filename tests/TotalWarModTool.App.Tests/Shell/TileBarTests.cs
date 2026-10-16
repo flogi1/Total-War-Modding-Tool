@@ -28,7 +28,7 @@ public sealed class TileBarTests
     public void Default_session_shows_the_default_tiles_in_catalog_order() => Sta.Run(() =>
     {
         var bar = Bar(new GlobalSettings());
-        Assert.Equal(TileCatalog.All.Where(t => t.DefaultVisible).Select(t => t.Id), bar.VisibleIds);
+        Assert.Equal(TileCatalog.DefaultOrder, bar.VisibleIds);
         Assert.Equal("L:" + TileIds.NewBuilding, Label(bar.TileButton(TileIds.NewBuilding)).Text);
         Assert.Equal("T:" + TileIds.NewBuilding, bar.TileButton(TileIds.NewBuilding).ToolTip);
     });

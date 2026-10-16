@@ -399,3 +399,8 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
   (`Theme.Separator`) zur Arbeitsfläche hin: oben unten, unten oben, links rechts, rechts links.
 - **Task 5, Wizards:** Der Composition Root setzt `MainViewModel.Wizards` vor dem Fenster. Das Fenster übernimmt den Wert im
   Konstruktor und folgt zusätzlich `PropertyChanged("Wizards")` (alte Befehle abmelden, Kachelzeile neu bauen).
+- **Review Tasks 1–5, `TileItem.DefaultVisible`:** entfällt. Kein Code hat das Feld gelesen (jede Kachel ist sichtbar, bis der Nutzer sie
+  ausblendet); eine Kachel, die ausgeblendet startet, bekommt das Feld erst mit dem Werkzeug, das es braucht.
+- **Review Tasks 1–5, Kachel-Zuordnung:** Welche Befehle und Sperrgründe eine Kachel hat, liefert `MainViewModel.TileBindingFor(id)`
+  (wie `ToolbarBindingFor`, gemeinsamer Record `EntryBinding`); das Fenster verdrahtet nur noch. Die Tooltips der Werkzeugleiste
+  liest das Fenster nur bei den sechs Grund-Properties des View-Models neu, nicht bei jedem `PropertyChanged`.

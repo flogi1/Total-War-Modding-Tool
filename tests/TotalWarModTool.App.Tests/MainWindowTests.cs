@@ -101,22 +101,7 @@ public class MainWindowTests
         window.UpdateLayout();
     }
 
-    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is T match)
-            {
-                yield return match;
-            }
-
-            foreach (var nested in Descendants<T>(child))
-            {
-                yield return nested;
-            }
-        }
-    }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject => Tree.VisualDescendants<T>(root);
 
     [Fact] public void Window_shows_explorer_tabs_and_status_line() => Sta.RunAsync(async () =>
     {
@@ -235,6 +220,13 @@ public class MainWindowTests
         Assert.False(tile.IsEnabled);
         Assert.NotNull(vm.Wizards!.NewBuildingDisabledReason);
         Assert.Equal(vm.Wizards.NewBuildingDisabledReason, tile.ToolTip);
+
+        // The window takes command and reason from the view model, not from a mapping of its own.
+        var binding = vm.TileBindingFor("newBuilding")!;
+        Assert.Same(vm.Wizards.NewBuildingCommand, binding.Command);
+        Assert.Equal(vm.Texts.TileLabel("newBuilding"), binding.Label);
+        Assert.Equal(vm.Wizards.NewBuildingDisabledReason, binding.Reason!());
+        Assert.Same(vm.Wizards.NewTraitCommand, vm.TileBindingFor("newTrait")!.Command);
 
         setup.Setup.Game.NewProject(setup.Main.Projects, "Flo");               // the wizards raise CanExecuteChanged
         Pump(window);

@@ -125,6 +125,11 @@ public class MainViewModelTests
         Assert.Null(main.ToolbarBindingFor("unknown"));
         Assert.Null(main.ToolbarBindingFor(ToolbarCatalog.Separator(1)));
 
+        // The tiles need the wizards, which the composition root sets later; without them every tile binding is null, nothing throws.
+        Assert.Null(main.Wizards);
+        Assert.All(TileCatalog.DefaultOrder, id => Assert.Null(main.TileBindingFor(id)));
+        Assert.Null(main.TileBindingFor("unknown"));
+
         // The tool tip: name and gesture, and the reason in a second line while there is one.
         Assert.Equal("Build (Ctrl+B)\n" + main.Texts.ProjectNoneActive, main.ToolbarToolTip(ToolbarItemIds.Build));
         Assert.Equal("Undo (Ctrl+Z)", main.ToolbarToolTip(ToolbarItemIds.Undo));

@@ -217,22 +217,7 @@ public class ExplorerViewTests
         return new Setup(game, controller, viewModel, view, window, [], []);
     }
 
-    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is T match)
-            {
-                yield return match;
-            }
-
-            foreach (var nested in Descendants<T>(child))
-            {
-                yield return nested;
-            }
-        }
-    }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject => Tree.VisualDescendants<T>(root);
 
     // The row panel of a node: the element of the template that carries the tool tip and the context menu.
     private static StackPanel RowOf(TreeViewItem container, ExplorerNode node) =>

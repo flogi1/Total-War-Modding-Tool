@@ -358,9 +358,9 @@ public sealed class MainViewModel : ObservableObject
     /// The command, label and reason of the toolbar entry <paramref name="id"/> (an id of <see cref="ToolbarCatalog"/>); null when this view
     /// model has no command for it (no projects, no documents or no file operations) or the id is unknown.
     /// </summary>
-    public ToolbarBinding? ToolbarBindingFor(string id)
+    public EntryBinding? ToolbarBindingFor(string id)
     {
-        ToolbarBinding Bind(ICommand command, Func<string?>? reason) => new(command, Texts.ToolbarLabel(id), reason);
+        EntryBinding Bind(ICommand command, Func<string?>? reason) => new(command, Texts.ToolbarLabel(id), reason);
 
         return id switch
         {
@@ -379,6 +379,17 @@ public sealed class MainViewModel : ObservableObject
             _ => null,
         };
     }
+
+    /// <summary>
+    /// The command, label and disabled reason of the tile <paramref name="id"/> (an id of <see cref="TileCatalog"/>); null without
+    /// <see cref="Wizards"/> or for an unknown id. The reason is read when the tile asks (it changes with the wizards' CanExecuteChanged).
+    /// </summary>
+    public EntryBinding? TileBindingFor(string id) => id switch
+    {
+        TileIds.NewBuilding when Wizards is { } wizards => new(wizards.NewBuildingCommand, Texts.TileLabel(id), () => wizards.NewBuildingDisabledReason),
+        TileIds.NewTrait when Wizards is { } wizards => new(wizards.NewTraitCommand, Texts.TileLabel(id), () => wizards.NewTraitDisabledReason),
+        _ => null,
+    };
 
     /// <summary>
     /// The tool tip of the toolbar entry <paramref name="id"/>: name and gesture (<see cref="AppTexts.ToolbarTip"/>), and the reason why it is

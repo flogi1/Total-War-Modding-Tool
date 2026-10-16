@@ -8,13 +8,21 @@ using TotalWarModTool.Settings;
 namespace TotalWarModTool.App;
 
 // The tile bar and the small toolbar: only the wiring of the shell controls to the view model and the settings. What each entry runs and
-// says comes from the view model (ToolbarBindingFor, ToolbarToolTip, Wizards); how the bars look comes from the shell controls.
+// says comes from the view model (ToolbarBindingFor, TileBindingFor, ToolbarToolTip); how the bars look comes from the shell controls.
 public partial class MainWindow
 {
+    // A changed position goes through ApplyToolbarPosition (dock and border), which builds the toolbar as well.
     private static readonly string[] ToolbarRebuildTriggers =
     [
-        nameof(GlobalSettings.ToolbarOrder), nameof(GlobalSettings.HiddenToolbarItems), nameof(GlobalSettings.ToolbarPosition),
-        nameof(GlobalSettings.ToolbarLabelsVisible),
+        nameof(GlobalSettings.ToolbarOrder), nameof(GlobalSettings.HiddenToolbarItems), nameof(GlobalSettings.ToolbarLabelsVisible),
+    ];
+
+    // The properties of the view model whose change can change a toolbar tool tip (the reasons of ToolbarBindingFor); the reasons of
+    // "New project" and "Open project" change together with them (RaiseProjectReasonsChanged).
+    private static readonly string[] ToolbarToolTipTriggers =
+    [
+        nameof(MainViewModel.ProjectBuildToolTip), nameof(MainViewModel.ProjectBuildAndInstallToolTip), nameof(MainViewModel.ProjectImportToolTip),
+        nameof(MainViewModel.ProjectSaveToolTip), nameof(MainViewModel.ProjectNewFileToolTip), nameof(MainViewModel.ProjectNewTableToolTip),
     ];
 
     // One button per toolbar id the view model has a command for, created once; every build places these same buttons.
@@ -90,7 +98,7 @@ public partial class MainWindow
         BuildToolbar();
     }
 
-    private Button CreateToolbarButton(string id, ToolbarBinding binding)
+    private Button CreateToolbarButton(string id, EntryBinding binding)
     {
         // Not focusable: the grid keeps its selection and its keys after a click.
         var button = new Button
@@ -122,21 +130,11 @@ public partial class MainWindow
         }
     }
 
-    private ICommand? TileCommand(string id) => id switch
-    {
-        TileIds.NewBuilding => _shell.Wizards?.NewBuildingCommand,
-        TileIds.NewTrait => _shell.Wizards?.NewTraitCommand,
-        _ => null,
-    };
+    private ICommand? TileCommand(string id) => _shell.TileBindingFor(id)?.Command;
 
     private bool IsTileEnabled(string id) => TileCommand(id)?.CanExecute(null) ?? false;
 
-    private string? TileDisabledTip(string id) => id switch
-    {
-        TileIds.NewBuilding => _shell.Wizards?.NewBuildingDisabledReason,
-        TileIds.NewTrait => _shell.Wizards?.NewTraitDisabledReason,
-        _ => null,
-    };
+    private string? TileDisabledTip(string id) => _shell.TileBindingFor(id)?.Reason?.Invoke();
 
     // Moves the listening from the commands of the old wizards to those of the new ones and rebuilds the tiles (offered only with wizards).
     private void WireWizards()
@@ -179,15 +177,19 @@ public partial class MainWindow
         }
     }
 
-    // The reasons of the toolbar live in properties of the view model, so any change of it may change a tool tip.
+    // The reasons of the toolbar live in properties of the view model (ToolbarToolTipTriggers); other changes leave the tool tips alone.
     private void OnShellViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(MainViewModel.Wizards) or null)
+        var all = string.IsNullOrEmpty(e.PropertyName);
+        if (all || e.PropertyName == nameof(MainViewModel.Wizards))
         {
             WireWizards();
         }
 
-        UpdateToolbarToolTips();
+        if (all || ToolbarToolTipTriggers.Contains(e.PropertyName, StringComparer.Ordinal))
+        {
+            UpdateToolbarToolTips();
+        }
     }
 
     private void OnShellTextsChanged()

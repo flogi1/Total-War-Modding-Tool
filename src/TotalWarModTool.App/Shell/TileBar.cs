@@ -51,6 +51,7 @@ public sealed class TileBar : UserControl
     private List<string> _visible = [];
     private GlobalSettings? _settings;
     private TileSource? _source;
+    private EventHandler<string>? _settingsHandler;
 
     public TileBar()
     {
@@ -75,18 +76,27 @@ public sealed class TileBar : UserControl
     /// <summary>Ids of the shown tiles in bar order.</summary>
     public IReadOnlyList<string> VisibleIds => _visible;
 
-    /// <summary>Connects bar, settings and source and builds at once; later changes of the tile settings rebuild the bar.</summary>
+    /// <summary>
+    /// Connects bar, settings and source and builds at once; later changes of the tile settings rebuild the bar. A second call detaches the bar
+    /// from the previous settings first, so only the current settings rebuild it.
+    /// </summary>
     public void Bind(GlobalSettings settings, TileSource source)
     {
+        if (_settings is { } previous && _settingsHandler is { } handler)
+        {
+            previous.Changed -= handler;
+        }
+
         _settings = settings;
         _source = source;
-        settings.Changed += (_, name) =>
+        _settingsHandler = (_, name) =>
         {
             if (RebuildTriggers.Contains(name, StringComparer.Ordinal))
             {
                 Rebuild();
             }
         };
+        settings.Changed += _settingsHandler;
         Rebuild();
     }
 

@@ -8,18 +8,18 @@ public static class TileIds
 }
 
 /// <summary>
-/// One tile. <paramref name="DefaultVisible"/> applies without stored settings; <paramref name="HasMenu"/> makes a click open a
-/// submenu instead of running a command.
+/// One tile. <paramref name="HasMenu"/> makes a click open a submenu instead of running a command. Every tile is visible until the user
+/// hides it (<see cref="GlobalSettings.SetTileVisible"/>); a tile that should start hidden would need a flag here and a reader in the settings.
 /// </summary>
-public sealed record TileItem(string Id, bool DefaultVisible, bool HasMenu);
+public sealed record TileItem(string Id, bool HasMenu);
 
 /// <summary>All tiles in their default order.</summary>
 public static class TileCatalog
 {
     public static IReadOnlyList<TileItem> All { get; } = new[]
     {
-        new TileItem(TileIds.NewBuilding, true, false),
-        new TileItem(TileIds.NewTrait, true, false),
+        new TileItem(TileIds.NewBuilding, false),
+        new TileItem(TileIds.NewTrait, false),
     };
 
     public static IReadOnlyList<string> DefaultOrder { get; } = All.Select(t => t.Id).ToList();
