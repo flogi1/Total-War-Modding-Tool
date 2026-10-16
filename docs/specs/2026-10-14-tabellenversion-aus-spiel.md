@@ -306,6 +306,24 @@ Spec an den genannten Stellen.
 4. Ein Pack aus dem Gebäude-Assistenten lädt im Spiel ohne manuelles Nacharbeiten.
 5. Nach einem echten Spiel-Patch erkennt der Fingerprint die Änderung und die Versionen werden neu gelesen.
 
+#### Ergebnisse des Echtdaten-Laufs (WH3, 2026-10-16)
+
+1. Annahme 1: Die Versionen aller 1603 Tabellen aus `db.pack` werden in 409 ms gelesen (Task 2); der Katalog-Lauf
+   über alle Quellen blieb ohne Problem.
+2. Annahme 2: `ShippedCategoryTests.Shipped_categories_and_wizards_match_the_game_versions` besteht. Jedes Feld der
+   Kategorie-Datei (`field`, Platzhalter der Muster) und die Felder von `wizards.json` (Gebäude-Assistent) gibt es in
+   `Current` mit den echten Spielversionen. Die `nameText`-Spalten sind Loc-Spalten, keine Tabellenfelder; für sie
+   wird nur die Tabelle geprüft.
+3. Annahme 3: Der Merge aller 1742 Schema-Tabellen (964521 Zeilen, 5,5 s) liefert 0 „older layout“-Zeilen aus
+   Nicht-Mod-Quellen (5 Zeilen stammen aus installierten Mods).
+4. Annahme 4: `Building_wizard_writes_building_levels_in_the_game_version` besteht: Die geplante Datei von
+   `building_levels_tables` trägt die Spielversion (3); alle geplanten Tabellen tragen die Version aus dem Spiel. Der
+   Spieltest (Abschnitt Task 8 Schritt 7) steht noch aus.
+5. Annahme 5: nicht im Echtdaten-Lauf geprüft; sie hängt an einem echten Spiel-Patch.
+6. Unabhängig vom Fix: `The_building_wizard_copies_barracks_3_as_a_stage_after_it` scheitert (Stufe erwartet 3,
+   erhalten 2). Der Test scheitert auch auf dem Stand vor diesem Branch (Commit 8e207d0), er ist also keine Folge
+   dieser Änderung.
+
 ## 11. Entscheidungen des Nutzers (2026-10-14)
 
 - Aktuelle Version einer Tabelle = Version in den Spieldateien statt höchster Schema-Version.

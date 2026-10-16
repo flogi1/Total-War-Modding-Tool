@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using TotalWarModTool.Editing;
 using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
@@ -16,7 +17,7 @@ public class ObjectsRealDataTests
 
     public ObjectsRealDataTests(ITestOutputHelper output) => _output = output;
 
-    private sealed record Context(GameSchema Schema, ReferenceGraph Graph, LoadOrder Order);
+    private sealed record Context(GameSchema Schema, ReferenceGraph Graph, LoadOrder Order, GameTableVersions Versions);
 
     private static readonly Lazy<Context> Shared = new(CreateContext);
 
@@ -30,7 +31,7 @@ public class ObjectsRealDataTests
         var versions = GameTableVersionsReader.Read(catalog.Packs, CancellationToken.None);
         Assert.NotNull(versions.Versions);
         Assert.Empty(versions.Problems);
-        return new Context(schema, ReferenceGraph.Build(schema, versions.Versions), order);
+        return new Context(schema, ReferenceGraph.Build(schema, versions.Versions), order, versions.Versions);
     }
 
     private static ObjectBuilder NewBuilder(Context context, long maxCacheBytes = TableStore.DefaultMaxCacheBytes, TableStore? store = null) =>
@@ -443,6 +444,40 @@ public class ObjectsRealDataTests
         Assert.DoesNotContain(composed.Notes, n => n.Table == run.Definition.LevelTable);
         Assert.DoesNotContain(composed.Notes, n => n.Kind == CopyNoteKind.NoChain);
         Assert.DoesNotContain(changes.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    [RealDataFact] public void Building_wizard_writes_building_levels_in_the_game_version()
+    {
+        var run = NewWizardRun();
+        var graph = run.Context.Graph;
+        var gameVersion = run.Context.Versions.VersionOf("building_levels_tables");
+        Assert.NotNull(gameVersion);
+        var chain = run.Catalog.ChainOf("wh_main_emp_barracks_1");
+        Assert.NotNull(chain);
+        var levelCopy = CopyLevel(run, "wh_main_emp_barracks_1", "twmt_test_barracks_1b");
+        var chainSource = run.Builder.Build(Id(run.Definition.ChainTable, chain), run.Context.Order, null, CancellationToken.None);
+        var chainCopy = ObjectCopy.Rename(chainSource, BuildingWizard.ChainIdFor(run.Definition, "twmt_test_barracks_1b"),
+            id => run.Builder.Build(id, run.Context.Order, null, CancellationToken.None), CategoryOf, graph, NoIntegerKey);
+        var composed = BuildingWizard.Compose(run.Definition, levelCopy, chainCopy, null, " (copy)");
+        var changes = ObjectCopy.Changes(composed, run.Context.Order, CategoryOf, graph, null);
+
+        var plan = ProjectWritePlan.Compute(changes, ProjectSnapshot.Empty, run.Context.Schema, graph, "TwmtVersionTest", WriteAnswers.None);
+
+        _output.WriteLine($"Plan: {plan.Files.Count} files, {plan.Errors.Count} errors, game version of building_levels_tables {gameVersion}");
+        Assert.Empty(plan.Errors);
+        Assert.Empty(plan.TargetQuestions);
+        var levels = Assert.Single(plan.Files, f => f.RelativeFile.Contains("building_levels_tables", StringComparison.Ordinal));
+        var read = TableTsv.Read(levels.NewText, run.Context.Schema);
+        Assert.NotNull(read.Table);
+        Assert.Equal(gameVersion, read.Table.Version);
+        foreach (var file in plan.Files)
+        {
+            var parsed = TableTsv.Read(file.NewText, run.Context.Schema);
+            if (parsed.Table is { } table)
+            {
+                Assert.Equal(run.Context.Versions.VersionOf(table.TableName) ?? table.Version, table.Version);
+            }
+        }
     }
 
     [RealDataFact] public void A_new_chain_of_a_template_never_holds_a_stage_of_the_template_chain()

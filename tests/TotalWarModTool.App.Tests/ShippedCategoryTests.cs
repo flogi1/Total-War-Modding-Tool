@@ -1,9 +1,12 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using TotalWarModTool.GameProfiles;
 using TotalWarModTool.Localization;
 using TotalWarModTool.Objects;
 using TotalWarModTool.Schema;
 using TotalWarModTool.Tables;
+using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App.Tests;
 
@@ -84,5 +87,72 @@ public class ShippedCategoryTests
             Assert.Matches("^#[0-9A-F]{6}$", token.Light);
             Assert.Matches("^#[0-9A-F]{6}$", token.Dark);
         }
+    }
+
+    [RealDataFact] public void Shipped_categories_and_wizards_match_the_game_versions()
+    {
+        var loaded = SchemaLoader.Load(Path.Combine(Repo, "schemas", "schema_wh3.ron"));
+        Assert.NotNull(loaded.Schema);
+        var profile = GameProfileLoader.LoadAll(Path.Combine(Repo, "profiles")).Profiles.Single(p => p.Id == "warhammer_3");
+        var catalog = PackCatalog.Scan(profile, RealData.Wh3Dir!, RealData.Wh3Workshop, null, CancellationToken.None);
+        var versions = GameTableVersionsReader.Read(catalog.Packs, CancellationToken.None);
+        Assert.NotNull(versions.Versions);
+        Assert.Empty(versions.Problems);
+        var graph = ReferenceGraph.Build(loaded.Schema, versions.Versions);
+
+        var pairs = new List<(string Source, string Table, string Field)>();
+        var categories = CategoryDefinitions.LoadAll(Path.Combine(Repo, "profiles", "warhammer_3", "objects"));
+        Assert.Empty(categories.Problems);
+        foreach (var category in categories.ByRootTable.Values)
+        {
+            foreach (var rule in category.Sections)
+            {
+                if (rule.FieldName is not null)
+                {
+                    pairs.Add(("category " + category.RootTable, rule.Table, rule.FieldName));
+                }
+
+                if (rule.Pattern is null)
+                {
+                    continue;
+                }
+
+                foreach (Match match in Regex.Matches(rule.Pattern, @"\{([^{}]+)\}"))
+                {
+                    pairs.Add(("category " + category.RootTable, rule.Table, match.Groups[1].Value));
+                }
+            }
+        }
+
+        using var wizards = JsonDocument.Parse(File.ReadAllText(Path.Combine(Repo, "profiles", "warhammer_3", "wizards.json")));
+        var building = wizards.RootElement.GetProperty("building");
+        string Text(string name) => building.GetProperty(name).GetString()!;
+        pairs.Add(("wizards building", Text("levelTable"), Text("chainField")));
+        pairs.Add(("wizards building", Text("levelTable"), Text("levelField")));
+        pairs.Add(("wizards building", Text("upgradeTable"), Text("upgradeFromField")));
+        pairs.Add(("wizards building", Text("upgradeTable"), Text("upgradeToField")));
+        pairs.Add(("wizards building", Text("variantTable"), Text("variantBuildingField")));
+        pairs.Add(("wizards building", Text("variantTable"), Text("variantCultureField")));
+        pairs.Add(("wizards building", Text("variantTable"), Text("variantSubcultureField")));
+        pairs.Add(("wizards building", Text("subcultureTable"), Text("subcultureCultureField")));
+        // The nameText columns are loc columns (loc keys), not fields of the table definition: only their tables are checked.
+        var tables = new HashSet<string>(pairs.Select(p => p.Table), StringComparer.Ordinal)
+        {
+            Text("chainTable"),
+            building.GetProperty("nameText").GetProperty("table").GetString()!,
+            wizards.RootElement.GetProperty("trait").GetProperty("nameText").GetProperty("table").GetString()!,
+            wizards.RootElement.GetProperty("trait").GetProperty("traitTable").GetString()!,
+        };
+        foreach (var table in tables)
+        {
+            Assert.NotNull(graph.Current(table));
+        }
+
+        var missing = pairs
+            .Where(p => graph.Current(p.Table)!.Fields.All(f => !string.Equals(f.Name, p.Field, StringComparison.Ordinal)))
+            .Select(p => $"{p.Source}: {p.Table}.{p.Field} (game version {versions.Versions.VersionOf(p.Table)})")
+            .Distinct()
+            .ToList();
+        Assert.True(missing.Count == 0, "Fields missing in the game version: " + string.Join("; ", missing));
     }
 }

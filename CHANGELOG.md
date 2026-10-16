@@ -38,3 +38,7 @@
 ### Geändert
 
 ### Behoben
+
+- Mods mit kopierten Gebäuden ließen das Spiel beim Start abstürzen, weil Tabellen in einer veralteten Version geschrieben wurden. Das Tool nutzt jetzt die Tabellenversionen des Spiels.
+- Bauen bricht mit einer Meldung ab, wenn eine Tabelle deines Projekts eine andere Version hat als im Spiel.
+- Übernehmen, „Ins Projekt übernehmen“ und der Import lehnen veraltete Tabellen ab.

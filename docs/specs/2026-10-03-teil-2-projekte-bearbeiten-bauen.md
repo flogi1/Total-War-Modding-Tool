@@ -622,6 +622,7 @@ die Umsetzung genauer oder anders entschieden hat.
 6. Neue Tabelle: leer, in der neuesten Version des Schemas, und nur für Tabellen, deren neueste Definition keinen
    nicht unterstützten Feldtyp und mindestens ein Feld hat (eine Tabelle ohne Spalten lässt sich nicht als TSV
    schreiben). Loc-Dateien liegen unter `text/db` (Konvention des Pack-Formats, Konstante `NewFiles.LocFolder`).
+   Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 7. „Ins Projekt übernehmen“: Regeln pro Eintrag wie beim Import (Tabelle und Loc als Text, wenn das verlustfrei
    geht, sonst unverändert; ein Pfad, der unter Windows nicht geht, wird abgelehnt). Ein Name, der dem des
    Quell-Eintrags gleicht, braucht die Bestätigung. Eine Tabelle oder Loc-Datei, die binär bleibt, wird mit Grund
@@ -848,6 +849,7 @@ Projekt kopiert, mit denselben Regeln pro Eintrag wie beim Import.
   Standardwert des Typs, überzählige entfallen. Eine kurze Meldung nennt beides.
 - Zeilen mit ungültigen Werten: Das ganze Einfügen wird mit Meldung abgelehnt.
 - Eine neue Tabelle entsteht in der neuesten Version des Schemas. Importierte behalten ihre Version.
+  Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 
 **Undo**
 

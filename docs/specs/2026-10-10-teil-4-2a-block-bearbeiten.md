@@ -459,6 +459,8 @@ jeder Task im selben Commit ergänzt):
 
 ### 5.4 Übernehmen: Zielregeln
 
+
+Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 `ProjectWritePlan.Compute(ObjectChanges, ProjectSnapshot, GameSchema, string projectName)` ordnet jede
 Änderung einer Projektdatei zu und berechnet den neuen Inhalt pro Datei. `ProjectSnapshot` ist der
 gelesene Stand der betroffenen Projektdateien (Pfad, Fingerprint, Zeilen) und die Liste aller
@@ -610,6 +612,8 @@ Der Objekt-Tab nutzt AvalonEdit:
 
 ### 5.8 Objekt kopieren und Assistenten
 
+
+Ersetzt durch `docs/specs/2026-10-14-tabellenversion-aus-spiel.md`: aktuelle Definition = Version im Spiel.
 `ObjectCopy.Rename(ObjectView source, ObjectId newId, Func<ObjectId, ObjectView> build)` liefert
 eine Liste von `ParsedObject` (das Objekt und seine kopierten Unterobjekte) plus Hinweise. Das
 Objekt wird unter neuem Schlüssel beschrieben: Wurzelfelder mit neuem Schlüsselwert, die kopierten
