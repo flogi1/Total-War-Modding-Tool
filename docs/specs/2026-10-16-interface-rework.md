@@ -419,3 +419,15 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
 - **Task 7, gemerkte Seite:** `SelectedCategory` liest und schreibt `GlobalSettings.SettingsCategory`. Ein Wert über der letzten Seite
   (heute 4, Werkzeugleiste) zeigt die erste Seite; die Obergrenze steigt mit den Seiten aus Plan 3 und 4. Das Häkchen „Sichtbar“ der
   Werkzeugleiste nutzt den Text `settings.tiles.visible`.
+- **Plan 1, Felder `PathBarVisible`, `FilterBarVisible`, `ColorizeWholeTab`:** kommen erst mit Plan 3, der sie nutzt (YAGNI); `GlobalSettings` hat sie
+  nach Plan 1 noch nicht. Die Liste „Neue Felder“ oben gilt für alle Pläne zusammen.
+- **Task 5, `MainWindow` und `GlobalSettings`:** Der Konstruktor bekommt zusätzlich `GlobalSettings` (Leisten und Seiten lesen und beobachten
+  sie); die Aufrufer in `MainWindowTests` übergeben `game.Settings`.
+- **Task 3, Zustand der Kacheln:** `TileBar.RefreshState()` (neu gegenüber PMT) setzt Aktivierung und Tooltip jeder Kachel neu, ohne die Zeile
+  umzubauen; das Fenster ruft sie bei den Grund-Properties des View-Models.
+- **Task 3, Kacheln mit Abzeichen und Untermenü:** `TileBar` hat die API aus PMT (`SetBadge`, `SetWarning`, Menü), aber keine Katalog-Kachel
+  nutzt sie; der Menüpfad ist ungetestet (Backlog).
+- **Task 4, Schlüssel `menu.tools.*`:** Der Menütitel „Werkzeuge“ entfällt; `menu.tools.newBuilding` und `menu.tools.newTrait` bleiben als
+  Kachelbeschriftungen.
+- **Changelog:** Der Eintrag zu Kachelzeile, Werkzeugleiste und Einstellungsseiten steht schon nach Plan 1 im Changelog (statt in Plan 4), weil
+  die Leisten ab hier nutzbar sind.
