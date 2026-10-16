@@ -1,6 +1,6 @@
-namespace TotalWarModTool.PackFiles.Tests;
+﻿namespace TotalWarModTool.PackFiles.Tests;
 
-public class PackReaderEntryRealDataTests
+public class PackReaderEntryRealDataTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     private static readonly string[] Relevant = [".loc", ".lua", ".xml", ".txt", ".json", ".csv", ".tsv"];
     private static bool IsRelevant(PackEntry e) =>
@@ -38,6 +38,21 @@ public class PackReaderEntryRealDataTests
         }
         Assert.Contains(CompressionFormat.Zstd, formats);
         Assert.Contains(CompressionFormat.Lz4, formats);
+    }
+
+    [RealDataFact] public void Prefix_of_every_db_pack_table_reads_a_header()
+    {
+        var index = PackReader.ReadIndex(Path.Combine(RealData.Wh3Data, "db.pack")).Index!;
+        var tables = index.Entries.Where(e => e.Path.StartsWith("db/", StringComparison.OrdinalIgnoreCase)).ToList();
+        Assert.NotEmpty(tables);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var e in tables)
+        {
+            var c = PackReader.ReadEntryPrefix(index, e, TotalWarModTool.Tables.DbTableDecoder.TableHeaderBytes, CancellationToken.None);
+            Assert.True(c.Problem == EntryProblem.None, $"{e.Path}: {c.Problem} {c.Detail}");
+            Assert.True(TotalWarModTool.Tables.DbTableDecoder.ReadHeader(c.Bytes) is not null, $"{e.Path}: no readable header");
+        }
+        output.WriteLine($"Read the header of {tables.Count} db.pack tables in {watch.ElapsedMilliseconds} ms.");
     }
 
     private const int MaxLz4Packs = 3;

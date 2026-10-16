@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TotalWarModTool.PackFiles\TotalWarModTool.PackFiles.csproj" />
+    <ProjectReference Include="..\..\src\TotalWarModTool.Tables\TotalWarModTool.Tables.csproj" />
   </ItemGroup>
 
 </Project>

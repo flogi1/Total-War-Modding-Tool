@@ -55,6 +55,19 @@ public static class PackReader
     }
 
     /// <summary>
+    /// Reads the first <paramref name="length"/> bytes of one entry (all of it when it is shorter). Uncompressed and zstd entries are
+    /// not read or decompressed beyond that; LZ4, LZMA and unknown formats fall back to <see cref="ReadEntry"/> and are cut.
+    /// Problems are reported as in <see cref="ReadEntry"/>; only <see cref="OperationCanceledException"/> and argument errors are thrown.
+    /// </summary>
+    public static EntryContent ReadEntryPrefix(PackIndex index, PackEntry entry, int length, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+        return EntryReader.ReadPrefix(index, entry, length, cancellationToken);
+    }
+
+    /// <summary>
     /// Reads at most 8 bytes of one entry: its format and uncompressed size. Same checks as <see cref="ReadEntry"/> up to the size
     /// probe. LZMA and unknown formats are reported in <see cref="EntryInfo.Format"/> without a problem. Only
     /// <see cref="OperationCanceledException"/> and argument errors are thrown.

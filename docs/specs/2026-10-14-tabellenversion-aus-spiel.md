@@ -296,6 +296,8 @@ Spec an den genannten Stellen.
 
 1. Der Kopf eines zstd-Eintrags lässt sich ohne volles Entpacken lesen; sonst bleibt es bei etwa 1,5 s pro
    Katalog-Änderung, durch den Cache einmal pro Patch.
+   Ergebnis Plan Task 2: `PackReader.ReadEntryPrefix` (256 Bytes, zstd per Stream, ohne volles Entpacken) liest
+   den Kopf aller 1603 Tabellen aus `db.pack` in 409 ms (Spike voll entpackt: 1,5 s).
 2. Mit der Spielversion als aktueller Definition passen die mitgelieferten Kategorie-Dateien und `wizards.json`
    weiter (Felder `chain`, `level` usw. gibt es in `building_levels_tables` v3; geprüft beim Spike für die
    Assistenten-Felder, nicht für alle Kategorie-Felder).
