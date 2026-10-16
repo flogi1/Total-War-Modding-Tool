@@ -10,6 +10,7 @@ public sealed class TabsViewModel : ObservableObject
 {
     private readonly RelayCommand _closeSelectedCommand;
     private TabViewModel? _selectedTab;
+    private RowCommandsViewModel? _rowCommands;
 
     // Set while the app itself moves the selection away from a tab that is going (closed without asking, replaced): CanLeave is not asked then.
     private bool _leaving;
@@ -50,6 +51,16 @@ public sealed class TabsViewModel : ObservableObject
                 Changed?.Invoke(this, EventArgs.Empty);
             }
         }
+    }
+
+    /// <summary>
+    /// The row commands the document bar above the grid of a table tab shows. Set by the composition root; null (no bar) while nobody has set
+    /// them. They follow the selected tab themselves.
+    /// </summary>
+    public RowCommandsViewModel? RowCommands
+    {
+        get => _rowCommands;
+        set => SetProperty(ref _rowCommands, value);
     }
 
     public ICommand CloseSelectedCommand => _closeSelectedCommand;

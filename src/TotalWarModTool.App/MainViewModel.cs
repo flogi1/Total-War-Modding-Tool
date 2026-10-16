@@ -71,6 +71,7 @@ public sealed class MainViewModel : ObservableObject
         Explorer = new ExplorerViewModel(workspace, texts, OpenEntryAsync, openGameSettings ?? openSettings, projects, projectCommands, OpenProjectFileAsync,
             projectFiles);
         RowCommands = new RowCommandsViewModel(Tabs, texts);
+        Tabs.RowCommands = RowCommands;
 
         // async void on purpose, as for every command that starts an operation: the controller handles its failures, a surprise reaches the global handler.
         // After the packs, the projects are read again (their files may have changed outside), and the open ones are listed again silently.
