@@ -6,6 +6,7 @@ using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.UndoRedo;
 using TotalWarModTool.Workspace;
 
@@ -121,7 +122,7 @@ public sealed class ProjectFilesController
         }
 
         // Not through RunAsync: a cancelled run has no list, whatever the work returned.
-        var outcome = await _runner.RunAsync(_texts.OperationPrepareTables, (_, _) => NewFiles.CreatableTables(schema));
+        var outcome = await _runner.RunAsync(_texts.OperationPrepareTables, (_, _) => NewFiles.CreatableTables(schema, GameTableVersions.Empty)); // Task 7 passes the real versions
         if (outcome.Status != OperationStatus.Completed || outcome.Value is not { } tables)
         {
             return null;
@@ -213,7 +214,7 @@ public sealed class ProjectFilesController
             return Fail(_texts.FileNoSchema);
         }
 
-        return await WriteNewFileAsync(state, _texts.OperationCreateFile(Shown(name)), Shown(name), _ => NewFiles.Table(schema, tableName, name));
+        return await WriteNewFileAsync(state, _texts.OperationCreateFile(Shown(name)), Shown(name), _ => NewFiles.Table(schema, GameTableVersions.Empty, tableName, name)); // Task 7 passes the real versions
     }
 
     /// <summary>Creates an empty loc file <c>text\db\&lt;name&gt;.loc.tsv</c>. Null when nothing can be started right now or the run was cancelled or failed.</summary>
@@ -266,7 +267,7 @@ public sealed class ProjectFilesController
 
         var schema = _projects.Schema?.Schema;
         var shownName = Shown(newName ?? entryPath[(entryPath.LastIndexOf('/') + 1)..]);
-        return await WriteNewFileAsync(state, _texts.OperationAddFile(shownName), shownName, _ => NewFiles.Adopt(entryPath, bytes, schema, newName));
+        return await WriteNewFileAsync(state, _texts.OperationAddFile(shownName), shownName, _ => NewFiles.Adopt(entryPath, bytes, schema, GameTableVersions.Empty, newName)); // Task 7 passes the real versions
     }
 
     /// <summary>

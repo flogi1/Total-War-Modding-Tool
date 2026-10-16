@@ -291,6 +291,7 @@ Spec an den genannten Stellen.
 #### Festlegungen aus dem Plan
 
 1. Regel `TableVersionRule.Current`, Typen `GameTableVersions`, `CurrentDefinition`; Kopf über `DbTableDecoder.ReadHeader`, 256 Bytes.
+2. „Ins Projekt übernehmen“ nimmt in der App genau einen Eintrag (`AdoptAsync`); der Fall „mehrere Einträge“ aus 5.7 kommt nicht vor. `Adopt` mit `gameVersions: null` prüft nicht; das nutzt nur der Snapshot-Leser, die Prüfung macht dort der Schreibplan.
 
 ## 10. Annahmen, die der erste echte Lauf prüft
 

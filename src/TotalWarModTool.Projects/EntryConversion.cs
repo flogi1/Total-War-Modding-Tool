@@ -8,8 +8,8 @@ namespace TotalWarModTool.Projects;
 /// <summary>Bytes is the content of the file in the project. Note says why a table or loc file stayed binary (null otherwise).</summary>
 public sealed record ProjectFileContent(ProjectFileKind Kind, byte[] Bytes, string? Note);
 
-/// <summary>Bytes is the pack entry, or null with a problem. Line is 1-based, 0 when the problem has no line.</summary>
-public sealed record PackEntryContent(byte[]? Bytes, int Line, string? Detail);
+/// <summary>Bytes is the pack entry, or null with a problem. Line is 1-based, 0 when the problem has no line. TableVersion is the version of a table entry (null for other entries).</summary>
+public sealed record PackEntryContent(byte[]? Bytes, int Line, string? Detail, int? TableVersion = null);
 
 /// <summary>
 /// Converts the bytes of a pack entry to the bytes of a project file and back. A table or loc entry becomes text only when the
@@ -250,7 +250,7 @@ public static class EntryConversion
         var guid = newGuid();
         try
         {
-            return new PackEntryContent(DbTableEncoder.Encode(table.Definition, table.Version, guid, table.Rows), 0, null);
+            return new PackEntryContent(DbTableEncoder.Encode(table.Definition, table.Version, guid, table.Rows), 0, null, table.Version);
         }
         catch (ArgumentException ex) when (ex.ParamName != "guid")
         {

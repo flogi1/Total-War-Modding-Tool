@@ -17,12 +17,12 @@ public class ProjectRealDataTests
         using var dir = new TempDir();
         var schema = SchemaLoader.Load(Path.Combine(RepoRoot.Find(), "schemas", "schema_wh3.ron")).Schema!;
         var request = new ImportRequest(source, Path.Combine(dir.Path, "project"), "Round Trip", "warhammer_3", "twmt_round_trip.pack", new HashSet<string>());
-        var report = PackImporter.Import(request, schema, null, CancellationToken.None);
+        var report = PackImporter.Import(request, schema, GameTableVersions.Empty, null, CancellationToken.None);
         Assert.Equal(ImportProblem.None, report.Problem);
         Assert.True(report.Tables > 0, "no table was imported as text");
 
         var folder = request.TargetFolder;
-        var plan = ProjectBuilder.ComputeBuild(folder, report.Project!, schema, () => Guid.NewGuid().ToString(), null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, report.Project!, schema, GameTableVersions.Empty, () => Guid.NewGuid().ToString(), null, CancellationToken.None);
         Assert.True(plan.Problems.Count == 0, string.Join("; ", plan.Problems.Take(5)));
         var built = ProjectBuilder.WriteBuild(folder, report.Project!, plan, DateTimeOffset.UnixEpoch, null, CancellationToken.None);
         Assert.Equal(BuildOutcome.Built, built.Outcome);

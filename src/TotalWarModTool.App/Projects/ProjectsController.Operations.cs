@@ -5,6 +5,7 @@ using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 using TotalWarModTool.Projects;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
@@ -112,7 +113,7 @@ public sealed partial class ProjectsController
         var request = new ImportRequest(sourcePack, fullTarget, name, _gameId!, packName, _vanilla);
         var schema = _workspace.Schema?.Schema;
         var outcome = await _runner.RunAsync(_texts.OperationImportPack(Path.GetFileName(sourcePack)),
-            (progress, ct) => PackImporter.Import(request, schema, progress, ct));
+            (progress, ct) => PackImporter.Import(request, schema, GameTableVersions.Empty, progress, ct)); // Task 7 passes the real versions
 
         // A value means the import really ran to its end, whatever the status says.
         if (outcome.Value is not { } report)
@@ -181,7 +182,8 @@ public sealed partial class ProjectsController
         var title = install ? _texts.OperationBuildAndInstall(name) : _texts.OperationBuild(name);
         var outcome = await _runner.RunAsync(title, (progress, ct) =>
         {
-            var plan = ProjectBuilder.ComputeBuild(folder, project, schema, () => Guid.NewGuid().ToString(), progress, ct);
+            // Task 7 passes the real versions
+            var plan = ProjectBuilder.ComputeBuild(folder, project, schema, GameTableVersions.Empty, () => Guid.NewGuid().ToString(), progress, ct);
             if (plan.Problems.Count > 0)
             {
                 return new BuildRun(plan, null, null, null);

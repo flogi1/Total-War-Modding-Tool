@@ -32,29 +32,66 @@ public class NewFilesTests
 
     [Fact] public void CreatableTables_leaves_out_tables_with_an_unsupported_field_in_the_newest_version()
     {
-        var tables = NewFiles.CreatableTables(Schema);
+        var tables = NewFiles.CreatableTables(Schema, GameTableVersions.Empty);
         Assert.Equal(["Mixed_Case_tables", "newest_tables", "old_unsupported_tables"], tables);
-        Assert.Equal(["units_tables"], NewFiles.CreatableTables(new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>> { ["units_tables"] = TestData.Schema.Tables["units_tables"] })));
-        Assert.Empty(NewFiles.CreatableTables(new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>>())));
+        Assert.Equal(["units_tables"], NewFiles.CreatableTables(new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>> { ["units_tables"] = TestData.Schema.Tables["units_tables"] }), GameTableVersions.Empty));
+        Assert.Empty(NewFiles.CreatableTables(new GameSchema(new Dictionary<string, IReadOnlyList<TableDefinition>>()), GameTableVersions.Empty));
     }
 
     [Fact] public void CreatableTables_only_lists_tables_that_Table_can_create()
     {
-        foreach (var name in NewFiles.CreatableTables(Schema))
+        foreach (var name in NewFiles.CreatableTables(Schema, GameTableVersions.Empty))
         {
-            Assert.NotNull(NewFiles.Table(Schema, name, "mine").File);
+            Assert.NotNull(NewFiles.Table(Schema, GameTableVersions.Empty, name, "mine").File);
         }
 
         foreach (var name in new[] { "unsupported_tables", "no_fields_tables", "no_definition_tables", "duplicate_tables", "semi;colon_tables", "slash/tables" })
         {
-            Assert.DoesNotContain(name, NewFiles.CreatableTables(Schema));
-            Assert.NotNull(NewFiles.Table(Schema, name, "mine").Reason);
+            Assert.DoesNotContain(name, NewFiles.CreatableTables(Schema, GameTableVersions.Empty));
+            Assert.NotNull(NewFiles.Table(Schema, GameTableVersions.Empty, name, "mine").Reason);
         }
     }
 
-    [Fact] public void Table_writes_an_empty_table_in_the_newest_version_that_reads_back()
+    private static GameTableVersions Game(string table, int version) => new(new Dictionary<string, int> { [table] = version });
+
+    [Fact] public void Table_writes_an_empty_table_in_the_game_version()
     {
-        var result = NewFiles.Table(Schema, "newest_tables", "my_mod");
+        var result = NewFiles.Table(Schema, Game("newest_tables", 1), "newest_tables", "my_mod");
+        Assert.Null(result.Reason);
+        Assert.Equal("key\n#newest_tables;1;db/newest_tables/my_mod\n", new UTF8Encoding(false).GetString(result.File!.Content));
+    }
+
+    [Fact] public void Table_with_a_game_version_the_schema_lacks_is_refused()
+    {
+        var result = NewFiles.Table(Schema, Game("newest_tables", 9), "newest_tables", "my_mod");
+        Assert.Null(result.File);
+        Assert.Equal("the schema does not know version 9 of this table, which the game uses; choose a newer schema in the settings", result.Reason);
+    }
+
+    [Fact] public void CreatableTables_leaves_out_tables_whose_game_version_the_schema_lacks()
+    {
+        Assert.DoesNotContain("newest_tables", NewFiles.CreatableTables(Schema, Game("newest_tables", 9)));
+        Assert.Contains("newest_tables", NewFiles.CreatableTables(Schema, Game("newest_tables", 2)));
+        Assert.Contains("newest_tables", NewFiles.CreatableTables(Schema, Game("other_tables", 9)));
+    }
+
+    [Fact] public void Adopt_refuses_an_entry_in_another_version_than_the_game()
+    {
+        var versions = Game("units_tables", 3);
+        var result = NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, versions, "my_mod");
+        Assert.Null(result.File);
+        Assert.Equal(TableVersionRule.MismatchDetail(versions, "units_tables", 2), result.Reason);
+        Assert.NotNull(NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, Game("units_tables", 2), "my_mod").File);
+    }
+
+    [Fact] public void Adopt_without_versions_does_not_check()
+    {
+        Assert.NotNull(NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, null, "my_mod").File);
+    }
+
+    [Fact] public void Table_without_game_version_writes_the_highest()
+    {
+        var result = NewFiles.Table(Schema, GameTableVersions.Empty, "newest_tables", "my_mod");
         Assert.Null(result.Reason);
         var file = result.File!;
         Assert.Equal((@"db\newest_tables\my_mod.tsv", ProjectFileKind.Table, null), (file.RelativeFile, file.Kind, file.Note));
@@ -67,18 +104,18 @@ public class NewFilesTests
         Assert.Equal(("newest_tables", 3, "db/newest_tables/my_mod", 0), (read.Table.TableName, read.Table.Version, read.Table.PackPath, read.Table.Rows.Count));
 
         // An older version is the newest one only when it has the highest number, whatever the order of the list.
-        Assert.Contains("#old_unsupported_tables;2;", new UTF8Encoding(false).GetString(NewFiles.Table(Schema, "old_unsupported_tables", "a").File!.Content));
+        Assert.Contains("#old_unsupported_tables;2;", new UTF8Encoding(false).GetString(NewFiles.Table(Schema, GameTableVersions.Empty, "old_unsupported_tables", "a").File!.Content));
     }
 
     [Fact] public void Table_takes_the_spelling_of_the_schema_key_and_refuses_another_spelling()
     {
-        var file = NewFiles.Table(Schema, "Mixed_Case_tables", "a").File!;
+        var file = NewFiles.Table(Schema, GameTableVersions.Empty, "Mixed_Case_tables", "a").File!;
         Assert.Equal(@"db\Mixed_Case_tables\a.tsv", file.RelativeFile);
         Assert.Contains("#Mixed_Case_tables;1;db/Mixed_Case_tables/a", Encoding.UTF8.GetString(file.Content));
 
-        Assert.NotNull(NewFiles.Table(Schema, "mixed_case_tables", "a").Reason);
-        Assert.NotNull(NewFiles.Table(Schema, "unknown_tables", "a").Reason);
-        Assert.Null(NewFiles.Table(Schema, "unknown_tables", "a").File);
+        Assert.NotNull(NewFiles.Table(Schema, GameTableVersions.Empty, "mixed_case_tables", "a").Reason);
+        Assert.NotNull(NewFiles.Table(Schema, GameTableVersions.Empty, "unknown_tables", "a").Reason);
+        Assert.Null(NewFiles.Table(Schema, GameTableVersions.Empty, "unknown_tables", "a").File);
     }
 
     [Fact] public void Loc_writes_an_empty_loc_file_that_reads_back()
@@ -99,13 +136,13 @@ public class NewFilesTests
     public void Every_bad_name_has_a_reason(string name)
     {
         Assert.False(string.IsNullOrWhiteSpace(NewFiles.NameProblem(name)));
-        var table = NewFiles.Table(Schema, "newest_tables", name);
+        var table = NewFiles.Table(Schema, GameTableVersions.Empty, "newest_tables", name);
         Assert.Null(table.File);
         Assert.False(string.IsNullOrWhiteSpace(table.Reason));
         var loc = NewFiles.Loc(name);
         Assert.Null(loc.File);
         Assert.False(string.IsNullOrWhiteSpace(loc.Reason));
-        Assert.Null(NewFiles.Adopt("db/units_tables/x", TestData.Units(("a", 1, 1f)), TestData.Schema, name).File);
+        Assert.Null(NewFiles.Adopt("db/units_tables/x", TestData.Units(("a", 1, 1f)), TestData.Schema, null, name).File);
     }
 
     [Fact] public void Good_names_have_no_problem()
@@ -195,14 +232,14 @@ public class NewFilesTests
 
     [Fact] public void Adopt_of_a_table_gets_the_new_name_in_the_path_and_in_the_meta_line()
     {
-        var result = NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, "my_mod");
+        var result = NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, null, "my_mod");
         Assert.Null(result.Reason);
         var file = result.File!;
         Assert.Equal((@"db\units_tables\my_mod.tsv", ProjectFileKind.Table, null), (file.RelativeFile, file.Kind, file.Note));
         var text = Encoding.UTF8.GetString(file.Content);
         Assert.Equal("key\tcost\tspeed\n#units_tables;2;db/units_tables/my_mod\t\t\na\t1\t1\n", text);
 
-        var kept = NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, null).File!;
+        var kept = NewFiles.Adopt("db/units_tables/data__", TestData.Units(("a", 1, 1f)), TestData.Schema, null, null).File!;
         Assert.Equal(@"db\units_tables\data__.tsv", kept.RelativeFile);
         Assert.Contains("#units_tables;2;db/units_tables/data__", Encoding.UTF8.GetString(kept.Content));
     }
@@ -210,23 +247,23 @@ public class NewFilesTests
     [Fact] public void Adopt_of_a_loc_file_keeps_its_folder_and_gets_the_new_name()
     {
         var bytes = TestData.Loc(("k1", "text"));
-        var file = NewFiles.Adopt("text/de/db/old.loc", bytes, null, "new").File!;
+        var file = NewFiles.Adopt("text/de/db/old.loc", bytes, null, null, "new").File!;
         Assert.Equal((@"text\de\db\new.loc.tsv", ProjectFileKind.Loc, null), (file.RelativeFile, file.Kind, file.Note));
         Assert.Contains("#Loc;1;text/de/db/new.loc", Encoding.UTF8.GetString(file.Content));
 
-        Assert.Equal(@"text\de\db\old.loc.tsv", NewFiles.Adopt("text/de/db/old.loc", bytes, null, null).File!.RelativeFile);
+        Assert.Equal(@"text\de\db\old.loc.tsv", NewFiles.Adopt("text/de/db/old.loc", bytes, null, null, null).File!.RelativeFile);
         // The extension keeps the spelling of the entry.
-        Assert.Equal(@"new.LOC.tsv", NewFiles.Adopt("old.LOC", bytes, null, "new").File!.RelativeFile);
+        Assert.Equal(@"new.LOC.tsv", NewFiles.Adopt("old.LOC", bytes, null, null, "new").File!.RelativeFile);
     }
 
     [Fact] public void Adopt_of_another_file_keeps_its_path_and_bytes_and_refuses_a_new_name()
     {
         var lua = TestData.Utf8("print('x')");
-        var file = NewFiles.Adopt("script/a.lua", lua, TestData.Schema, null).File!;
+        var file = NewFiles.Adopt("script/a.lua", lua, TestData.Schema, null, null).File!;
         Assert.Equal((@"script\a.lua", ProjectFileKind.Raw, null), (file.RelativeFile, file.Kind, file.Note));
         Assert.Equal(lua, file.Content);
 
-        var renamed = NewFiles.Adopt("script/a.lua", lua, TestData.Schema, "b");
+        var renamed = NewFiles.Adopt("script/a.lua", lua, TestData.Schema, null, "b");
         Assert.Null(renamed.File);
         Assert.False(string.IsNullOrWhiteSpace(renamed.Reason));
     }
@@ -234,12 +271,12 @@ public class NewFilesTests
     [Fact] public void An_entry_the_dialect_cannot_carry_is_adopted_as_a_binary_file_with_a_note()
     {
         var colours = DbTableEncoder.Encode(TestData.Schema.Find("colours_tables", 1)!, 1, TestData.HeaderGuid, [[257, 0, 0]]);
-        var refused = NewFiles.Adopt("db/colours_tables/x", colours, TestData.Schema, "y").File!;
+        var refused = NewFiles.Adopt("db/colours_tables/x", colours, TestData.Schema, null, "y").File!;
         Assert.Equal((@"db\colours_tables\y", ProjectFileKind.Raw, colours), (refused.RelativeFile, refused.Kind, refused.Content));
         Assert.False(string.IsNullOrWhiteSpace(refused.Note));
 
         var units = TestData.Units(("a", 1, 1f));
-        var noSchema = NewFiles.Adopt("db/units_tables/x", units, null, "y").File!;
+        var noSchema = NewFiles.Adopt("db/units_tables/x", units, null, null, "y").File!;
         Assert.Equal((@"db\units_tables\y", ProjectFileKind.Raw, units, "no schema"), (noSchema.RelativeFile, noSchema.Kind, noSchema.Content, noSchema.Note));
     }
 
@@ -248,17 +285,17 @@ public class NewFilesTests
         var units = TestData.Units(("a", 1, 1f));
         var lua = TestData.Utf8("x");
 
-        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("script/a:b.lua", lua, null, null).Reason));
-        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("script/../a.lua", lua, null, null).Reason));
-        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("db/units_tables/NUL", units, TestData.Schema, null).Reason));
+        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("script/a:b.lua", lua, null, null, null).Reason));
+        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("script/../a.lua", lua, null, null, null).Reason));
+        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("db/units_tables/NUL", units, TestData.Schema, null, null).Reason));
 
         // In the pack the entry is already called like a text file of the project: kept, it would be taken for a table or loc file.
-        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("db/units_tables/x.tsv", units, TestData.Schema, null).Reason));
-        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("text/a.loc.tsv", lua, null, null).Reason));
-        Assert.Null(NewFiles.Adopt("db/units_tables/x.tsv", units, TestData.Schema, null).File);
+        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("db/units_tables/x.tsv", units, TestData.Schema, null, null).Reason));
+        Assert.False(string.IsNullOrWhiteSpace(NewFiles.Adopt("text/a.loc.tsv", lua, null, null, null).Reason));
+        Assert.Null(NewFiles.Adopt("db/units_tables/x.tsv", units, TestData.Schema, null, null).File);
 
         // A new name gets it out of the collision.
-        Assert.Equal(@"db\units_tables\x.tsv", NewFiles.Adopt("db/units_tables/x.tsv", units, TestData.Schema, "x").File!.RelativeFile);
+        Assert.Equal(@"db\units_tables\x.tsv", NewFiles.Adopt("db/units_tables/x.tsv", units, TestData.Schema, null, "x").File!.RelativeFile);
     }
 
     [Fact] public void AdoptName_tells_whether_the_entry_gets_a_name_and_which()
@@ -275,21 +312,21 @@ public class NewFilesTests
         var lua = TestData.Utf8("x");
         foreach (var path in new[] { "script/a.bak", "script/a.tmp", "script/a~", "script/~$a.lua", "script/.~lock.a.lua#", "", "db/t/", "db//x" })
         {
-            var result = NewFiles.Adopt(path, lua, null, null);
+            var result = NewFiles.Adopt(path, lua, null, null, null);
             Assert.Null(result.File);
             Assert.False(string.IsNullOrWhiteSpace(result.Reason));
         }
 
-        Assert.Null(NewFiles.Adopt("script/a.lua", lua, null, null).Reason);
+        Assert.Null(NewFiles.Adopt("script/a.lua", lua, null, null, null).Reason);
     }
 
     [Fact] public void A_new_name_that_a_project_would_ignore_is_refused_everywhere()
     {
         Assert.Contains("ignores", NewFiles.NameProblem("~$x"));
-        Assert.Contains("ignores", NewFiles.Table(Schema, "newest_tables", "~$x").Reason);
+        Assert.Contains("ignores", NewFiles.Table(Schema, GameTableVersions.Empty, "newest_tables", "~$x").Reason);
         Assert.Contains("ignores", NewFiles.Loc("~$x").Reason);
-        Assert.Null(NewFiles.Adopt("db/units_tables/x", TestData.Units(("a", 1, 1f)), TestData.Schema, "~$x").File);
-        Assert.Null(NewFiles.Adopt("text/db/x.loc", TestData.Loc(("k", "v")), null, "~$x").File);
+        Assert.Null(NewFiles.Adopt("db/units_tables/x", TestData.Units(("a", 1, 1f)), TestData.Schema, null, "~$x").File);
+        Assert.Null(NewFiles.Adopt("text/db/x.loc", TestData.Loc(("k", "v")), null, null, "~$x").File);
     }
 
     [Fact] public void Every_file_that_is_offered_can_be_resolved_for_writing()
@@ -299,14 +336,14 @@ public class NewFilesTests
         var colours = DbTableEncoder.Encode(TestData.Schema.Find("colours_tables", 1)!, 1, TestData.HeaderGuid, [[257, 0, 0]]);
         var files = new[]
         {
-            NewFiles.Table(Schema, "newest_tables", "mine").File!,
-            NewFiles.Table(Schema, "newest_tables", new string('a', 100)).File!,
+            NewFiles.Table(Schema, GameTableVersions.Empty, "newest_tables", "mine").File!,
+            NewFiles.Table(Schema, GameTableVersions.Empty, "newest_tables", new string('a', 100)).File!,
             NewFiles.Loc("mine").File!,
             NewFiles.Loc(new string('a', 100)).File!,
-            NewFiles.Adopt("db/units_tables/old", units, TestData.Schema, "mine").File!,
-            NewFiles.Adopt("db/colours_tables/old", colours, TestData.Schema, "mine").File!,
-            NewFiles.Adopt("text/db/old.loc", TestData.Loc(("k", "v")), null, "mine").File!,
-            NewFiles.Adopt("script/a.lua", TestData.Utf8("x"), null, null).File!,
+            NewFiles.Adopt("db/units_tables/old", units, TestData.Schema, null, "mine").File!,
+            NewFiles.Adopt("db/colours_tables/old", colours, TestData.Schema, null, "mine").File!,
+            NewFiles.Adopt("text/db/old.loc", TestData.Loc(("k", "v")), null, null, "mine").File!,
+            NewFiles.Adopt("script/a.lua", TestData.Utf8("x"), null, null, null).File!,
         };
         foreach (var file in files)
         {
@@ -328,13 +365,13 @@ public class NewFilesTests
             [tooLong] = [new TableDefinition(1, [Key])],
         });
 
-        Assert.Equal([longest], NewFiles.CreatableTables(schema));
+        Assert.Equal([longest], NewFiles.CreatableTables(schema, GameTableVersions.Empty));
         using var dir = new TempDir();
-        var file = NewFiles.Table(schema, longest, new string('a', 100)).File!;
+        var file = NewFiles.Table(schema, GameTableVersions.Empty, longest, new string('a', 100)).File!;
         Assert.Equal(PackPathProblem.None, PackFolderPaths.ResolveForWrite(dir.Path, file.RelativeFile).Problem);
         // Not listed, because it would not take every allowed name; with a short name it still works, a name of 100 characters does not.
-        Assert.Null(NewFiles.Table(schema, tooLong, "a").Reason);
-        Assert.NotNull(NewFiles.Table(schema, tooLong, new string('a', 100)).Reason);
+        Assert.Null(NewFiles.Table(schema, GameTableVersions.Empty, tooLong, "a").Reason);
+        Assert.NotNull(NewFiles.Table(schema, GameTableVersions.Empty, tooLong, new string('a', 100)).Reason);
         Assert.Null(NewFiles.NameProblem(new string('a', 100)));
         Assert.NotNull(NewFiles.NameProblem(new string('a', 101)));
     }
@@ -342,19 +379,19 @@ public class NewFilesTests
     [Fact] public void What_Adopt_writes_builds_back_to_the_entry()
     {
         var units = TestData.Units(("unit_a", 100, 0.1f), ("ünit_b", -5, 2.0000002E-06f));
-        var table = NewFiles.Adopt("db/units_tables/old", units, TestData.Schema, "mine").File!;
+        var table = NewFiles.Adopt("db/units_tables/old", units, TestData.Schema, null, "mine").File!;
         var (packPath, kind) = ProjectLayout.FromRelativeFile(table.RelativeFile);
         Assert.Equal(("db/units_tables/mine", ProjectFileKind.Table), (packPath, kind));
         // The GUID of the header is new on every build; the tests give the one of the entry back.
         Assert.Equal(units, EntryConversion.ToPackEntry(kind, packPath, table.Content, TestData.Schema, () => TestData.HeaderGuid).Bytes);
 
         var loc = TestData.Loc(("k1", "Text\twith tab"), ("k2", ""));
-        var locFile = NewFiles.Adopt("text/db/old.loc", loc, null, "new").File!;
+        var locFile = NewFiles.Adopt("text/db/old.loc", loc, null, null, "new").File!;
         var (locPath, locKind) = ProjectLayout.FromRelativeFile(locFile.RelativeFile);
         Assert.Equal(loc, EntryConversion.ToPackEntry(locKind, locPath, locFile.Content, null, () => TestData.HeaderGuid).Bytes);
 
         // Also what Table and Loc create builds to a valid, empty entry.
-        var empty = NewFiles.Table(Schema, "newest_tables", "a").File!;
+        var empty = NewFiles.Table(Schema, GameTableVersions.Empty, "newest_tables", "a").File!;
         var (emptyPath, emptyKind) = ProjectLayout.FromRelativeFile(empty.RelativeFile);
         Assert.NotNull(EntryConversion.ToPackEntry(emptyKind, emptyPath, empty.Content, Schema, () => TestData.HeaderGuid).Bytes);
     }

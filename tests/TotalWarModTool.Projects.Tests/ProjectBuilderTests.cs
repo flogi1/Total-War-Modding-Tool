@@ -1,3 +1,4 @@
+using TotalWarModTool.Tables;
 using TotalWarModTool.Operations;
 using TotalWarModTool.PackFiles;
 
@@ -23,6 +24,53 @@ public class ProjectBuilderTests
 
     private const string UnitsTsv = "key\tcost\tspeed\n#units_tables;2;db/units_tables/my_mod\t\t\nunit_a\t100\t0.1\n";
 
+    private static GameTableVersions Game(int units) => new(new Dictionary<string, int> { ["units_tables"] = units });
+
+    [Fact] public void A_table_file_in_another_version_is_a_build_problem()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, Game(3), NewGuid, null, CancellationToken.None);
+        var problem = Assert.Single(plan.Problems);
+        Assert.Equal(@"db\units_tables\my_mod.tsv", problem.RelativeFile);
+        Assert.Equal("the table file has version 2, the game uses version 3; the game crashes on this file. Delete the file or create the table again.", problem.Detail);
+        Assert.Empty(plan.Entries);
+    }
+
+    [Fact] public void A_binary_table_in_another_version_is_a_build_problem()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"db\units_tables\my_mod", TestData.Units(("a", 1, 1f)));
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, Game(3), NewGuid, null, CancellationToken.None);
+        var problem = Assert.Single(plan.Problems);
+        Assert.Equal(@"db\units_tables\my_mod", problem.RelativeFile);
+        Assert.Contains("version 2, the game uses version 3", problem.Detail);
+    }
+
+    [Fact] public void A_table_file_in_the_game_version_builds()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
+        Put(folder, @"db\units_tables\binary", TestData.Units(("a", 1, 1f)));
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, Game(2), NewGuid, null, CancellationToken.None);
+        Assert.Empty(plan.Problems);
+        Assert.Equal(2, plan.Entries.Count);
+    }
+
+    [Fact] public void A_table_the_game_lacks_is_not_checked()
+    {
+        using var dir = new TempDir();
+        var (folder, project) = NewProject(dir);
+        Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
+        Put(folder, @"db\units_tables\binary", TestData.Units(("a", 1, 1f)));
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
+        Assert.Empty(plan.Problems);
+        Assert.Equal(2, plan.Entries.Count);
+    }
+
     [Fact] public void Builds_a_pack_from_text_and_raw_files()
     {
         using var dir = new TempDir();
@@ -34,7 +82,7 @@ public class ProjectBuilderTests
         Directory.CreateDirectory(Path.Combine(folder, "pack", "empty folder"));
 
         var seen = new List<OperationProgress>();
-        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, new SyncProgress(seen.Add), CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, new SyncProgress(seen.Add), CancellationToken.None);
         Assert.Empty(plan.Problems);
         Assert.Equal(4, plan.Entries.Count);
         Assert.Equal(4L, seen[^1].Done);
@@ -67,7 +115,7 @@ public class ProjectBuilderTests
         Directory.CreateDirectory(Path.Combine(folder, "build"));
         File.WriteAllBytes(Path.Combine(folder, "build", "my_mod.pack"), [9, 9]);
 
-        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
         Assert.Equal([(@"db\other_tables\wrong_folder.tsv", 2), (@"db\units_tables\bad_value.tsv", 3), (@"db\units_tables\not_utf8.tsv", 0), (@"db\units_tables\twice.tsv", 0), (@"text\broken.loc.tsv", 2)],
             plan.Problems.Select(p => (p.RelativeFile, p.Line)));
         Assert.All(plan.Problems, p => Assert.False(string.IsNullOrWhiteSpace(p.Detail)));
@@ -83,11 +131,11 @@ public class ProjectBuilderTests
     {
         using var dir = new TempDir();
         var (folder, project) = NewProject(dir);
-        Assert.Empty(ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None).Problems);
+        Assert.Empty(ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None).Problems);
         Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
-        Assert.Equal(@"db\units_tables\my_mod.tsv", Assert.Single(ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None).Problems).RelativeFile);
+        Assert.Equal(@"db\units_tables\my_mod.tsv", Assert.Single(ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None).Problems).RelativeFile);
         Directory.Delete(Path.Combine(folder, "pack"), recursive: true);
-        Assert.Equal("", Assert.Single(ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None).Problems).RelativeFile);
+        Assert.Equal("", Assert.Single(ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, null, CancellationToken.None).Problems).RelativeFile);
     }
 
     [Fact] public void A_failed_or_cancelled_write_keeps_the_old_pack_and_leaves_no_temp_file()
@@ -100,14 +148,14 @@ public class ProjectBuilderTests
         Directory.CreateDirectory(build);
         File.WriteAllBytes(Path.Combine(build, "my_mod.pack"), [9, 9]);
 
-        var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
         File.WriteAllBytes(Path.Combine(folder, "pack", "a.bin"), [1]);   // the file shrank after the plan was made
         var failed = ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None);
         Assert.Equal(BuildOutcome.WriteFailed, failed.Outcome);
         Assert.Contains("SourceChanged", failed.Detail);
 
         using var cts = new CancellationTokenSource();
-        var again = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+        var again = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
         Assert.ThrowsAny<OperationCanceledException>(() =>
             ProjectBuilder.WriteBuild(folder, project, again, BuildTime, new SyncProgress(_ => cts.Cancel()), cts.Token));
 
@@ -122,7 +170,7 @@ public class ProjectBuilderTests
         Put(folder, @"db\units_tables\Mixed.tsv", TestData.Utf8(UnitsTsv));
         Put(folder, @"db\units_tables\mixed", [1]);
 
-        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
         var problem = Assert.Single(plan.Problems);
         Assert.Equal(@"db\units_tables\mixed", problem.RelativeFile);
         Assert.Contains(@"db\units_tables\Mixed.tsv", problem.Detail);
@@ -147,7 +195,7 @@ public class ProjectBuilderTests
 
         try
         {
-            var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+            var plan = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
             var problem = Assert.Single(plan.Problems);
             Assert.Equal("linked", problem.RelativeFile);
             Assert.Contains("links to folders are not supported", problem.Detail);
@@ -178,7 +226,7 @@ public class ProjectBuilderTests
 
         try
         {
-            var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+            var plan = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
             Assert.Empty(plan.Problems);
             var result = ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None);
             Assert.Equal(BuildOutcome.WriteFailed, result.Outcome);
@@ -212,7 +260,7 @@ public class ProjectBuilderTests
 
         try
         {
-            var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+            var plan = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
             var problem = Assert.Single(plan.Problems);
             Assert.Equal("", problem.RelativeFile);
             Assert.Contains("links to folders are not supported", problem.Detail);
@@ -235,18 +283,18 @@ public class ProjectBuilderTests
         Put(folder, @"sub\a.bin", [1]);
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        Assert.ThrowsAny<OperationCanceledException>(() => ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, cts.Token));
+        Assert.ThrowsAny<OperationCanceledException>(() => ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, cts.Token));
     }
 
     [Fact] public void An_invalid_pack_name_is_rejected_before_the_disk_is_touched()
     {
         using var dir = new TempDir();
         var (folder, project) = NewProject(dir);
-        var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
         foreach (var name in new[] { "bad", @"..\x.pack", "" })
         {
             var broken = project with { PackName = name };
-            Assert.Throws<ArgumentException>(() => ProjectBuilder.ComputeBuild(folder, broken, null, NewGuid, null, CancellationToken.None));
+            Assert.Throws<ArgumentException>(() => ProjectBuilder.ComputeBuild(folder, broken, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None));
             Assert.Throws<ArgumentException>(() => ProjectBuilder.WriteBuild(folder, broken, plan, BuildTime, null, CancellationToken.None));
         }
 
@@ -263,7 +311,7 @@ public class ProjectBuilderTests
         File.WriteAllBytes(Path.Combine(build, "my_mod.pack.0123abcd.tmp"), [1]);
         File.WriteAllBytes(Path.Combine(build, "my_mod.pack.notes.tmp"), [2]);
 
-        var plan = ProjectBuilder.ComputeBuild(folder, project, null, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, null, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
         Assert.Equal(BuildOutcome.Built, ProjectBuilder.WriteBuild(folder, project, plan, BuildTime, null, CancellationToken.None).Outcome);
         Assert.Equal(["my_mod.pack", "my_mod.pack.notes.tmp"], Directory.EnumerateFileSystemEntries(build).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
     }
@@ -275,7 +323,7 @@ public class ProjectBuilderTests
         Put(folder, @"db\units_tables\my_mod.tsv", TestData.Utf8(UnitsTsv));
         Put(folder, @"db\units_tables\.~lock.my_mod.tsv#", TestData.Utf8("LibreOffice lock"));
 
-        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, NewGuid, null, CancellationToken.None);
+        var plan = ProjectBuilder.ComputeBuild(folder, project, TestData.Schema, GameTableVersions.Empty, NewGuid, null, CancellationToken.None);
 
         Assert.Empty(plan.Problems);
         Assert.Single(plan.Entries);

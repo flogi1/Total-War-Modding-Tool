@@ -348,7 +348,7 @@ public static class ProjectWritePlan
         {
             var name = NewFileName();
             var schemaName = _schema.Tables.Keys.FirstOrDefault(k => string.Equals(k, table, StringComparison.OrdinalIgnoreCase)) ?? table;
-            var created = NewFiles.Table(_schema, schemaName, name);
+            var created = NewFiles.Table(_schema, _graph.GameVersions, schemaName, name);
             if (created.File is null)
             {
                 Fail(WriteErrorKind.TableNotWritable, line, null, created.Reason ?? "the file cannot be created");
