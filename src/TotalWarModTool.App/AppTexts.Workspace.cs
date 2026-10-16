@@ -266,4 +266,11 @@ public sealed partial class AppTexts
         PackOrigin.Workshop => OriginWorkshop,
         _ => origin.ToString(),
     };
+
+    // Why the table versions of the game cannot be used now (spec 5.5): shown as the tool tip of every disabled entry that needs them.
+    public string TableVersionsReading => T("tableVersions.reading", "The game's table versions are still being read.");
+
+    public string TableVersionsIncomplete => T("tableVersions.incomplete", "The game's table versions could not be read completely. See the log.");
+
+    public string TableVersionsNoGame => T("tableVersions.noGame", "No game found. Building and new tables need the game's table versions.");
 }

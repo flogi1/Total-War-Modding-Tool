@@ -29,10 +29,14 @@ public sealed partial class ProjectsController
         : null;
 
     /// <summary>
-    /// The UI text that says why no project can be built (the workspace loaded no schema); null when building is possible. Before the
-    /// first load nothing is known yet, and the busy workspace stops a build anyway.
+    /// The UI text that says why no project can be built: the game's table versions are not read (yet) or incomplete, no game is found, or
+    /// the workspace loaded no schema; null when building is possible. The versions come first: the build check needs them (spec 5.5).
     /// </summary>
-    public string? BuildDisabledReason => _workspace.Schema is { Schema: null } ? _texts.BuildNoSchema : null;
+    public string? BuildDisabledReason =>
+        _workspace.TableVersionsMissingReason ?? (_workspace.Schema is { Schema: null } ? _texts.BuildNoSchema : null);
+
+    /// <summary>The UI text that says why no pack can be imported (the game's table versions are not usable, spec 5.5); null when importing is possible.</summary>
+    public string? ImportDisabledReason => _workspace.TableVersionsMissingReason;
 
     /// <summary>
     /// Reads the index of a pack and counts what an import would do. Null when nothing can be started right now or the run was cancelled
@@ -105,6 +109,11 @@ public sealed partial class ProjectsController
             return ImportFailed(_texts.ProjectAlreadyInList(listed.Path));
         }
 
+        if (ImportDisabledReason is { } noImport)
+        {
+            return ImportFailed(noImport);
+        }
+
         if (!CanStartOperation)
         {
             return null;
@@ -112,8 +121,9 @@ public sealed partial class ProjectsController
 
         var request = new ImportRequest(sourcePack, fullTarget, name, _gameId!, packName, _vanilla);
         var schema = _workspace.Schema?.Schema;
+        var gameVersions = _workspace.TableVersions!.Versions!;
         var outcome = await _runner.RunAsync(_texts.OperationImportPack(Path.GetFileName(sourcePack)),
-            (progress, ct) => PackImporter.Import(request, schema, GameTableVersions.Empty, progress, ct)); // Task 7 passes the real versions
+            (progress, ct) => PackImporter.Import(request, schema, gameVersions, progress, ct));
 
         // A value means the import really ran to its end, whatever the status says.
         if (outcome.Value is not { } report)
@@ -123,7 +133,7 @@ public sealed partial class ProjectsController
 
         if (report.Project is not { } project)
         {
-            return new ImportOutcome(false, MessageText.WithDetail(_texts.ImportProblemText(report.Problem), ShownDetail(report.Detail)), report, null);
+            return new ImportOutcome(false, MessageText.WithDetail(_texts.ImportProblemText(report.Problem), ImportDetail(report)), report, null);
         }
 
         var added = AddToList(project, fullTarget);
@@ -137,6 +147,25 @@ public sealed partial class ProjectsController
             report.Skipped.Count > 0 ? _texts.ImportSkipped(report.Skipped.Count) : null,
             report.DroppedDependencies.Count > 0 ? _texts.ImportDroppedDependencies(report.DroppedDependencies.Count) : null,
             added.Message), report, project.Id);
+    }
+
+    // The detail of a failed import. The outdated tables come as one line per entry: each line is shown on its own line (the lines are escaped
+    // one by one), at most MaxDetailLines of them; a plain detail is escaped and cut as everywhere.
+    private string? ImportDetail(ImportReport report)
+    {
+        if (report.Problem != ImportProblem.OutdatedTables || report.Detail is not { } detail)
+        {
+            return ShownDetail(report.Detail);
+        }
+
+        var lines = detail.Split('\n');
+        var shown = lines.Take(MaxDetailLines).Select(line => Shown(line)).ToList();
+        if (lines.Length > MaxDetailLines)
+        {
+            shown.Add("(" + _texts.TextShortened + ")");
+        }
+
+        return string.Join('\n', shown);
     }
 
     /// <summary>
@@ -174,6 +203,7 @@ public sealed partial class ProjectsController
 
         var folder = state.Folder;
         var schema = _workspace.Schema?.Schema;
+        var gameVersions = _workspace.TableVersions!.Versions!;
         var buildTime = _time.GetUtcNow();
         var dataFolder = install ? _workspace.Location!.DataPath : null;
         var recorded = state.Installed;
@@ -182,8 +212,7 @@ public sealed partial class ProjectsController
         var title = install ? _texts.OperationBuildAndInstall(name) : _texts.OperationBuild(name);
         var outcome = await _runner.RunAsync(title, (progress, ct) =>
         {
-            // Task 7 passes the real versions
-            var plan = ProjectBuilder.ComputeBuild(folder, project, schema, GameTableVersions.Empty, () => Guid.NewGuid().ToString(), progress, ct);
+            var plan = ProjectBuilder.ComputeBuild(folder, project, schema, gameVersions, () => Guid.NewGuid().ToString(), progress, ct);
             if (plan.Problems.Count > 0)
             {
                 return new BuildRun(plan, null, null, null);

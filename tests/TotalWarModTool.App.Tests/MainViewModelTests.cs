@@ -570,13 +570,16 @@ public class MainViewModelWorkspaceTests
         var texts = game.Texts;
         Assert.Equal((texts.ProjectNoneActive, texts.ProjectNoneActive), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
         game.NewProject(m.Projects, "Alpha");
-        Assert.Equal(((string?)null, texts.InstallNoGameFolder), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
+        // Without a game there are no table versions: the versions come before the install reasons (spec 5.5).
+        Assert.Equal((texts.TableVersionsNoGame, texts.TableVersionsNoGame), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
+        Assert.Equal(texts.TableVersionsNoGame, m.Main.ProjectImportToolTip);
     }
 
-    // The reason order of the build entries: the project first, then "busy"; nothing is disabled without a text.
-    [Fact] public async Task The_menu_tool_tips_say_busy_while_the_workspace_loads()
+    // The reason order of the build entries: the project first, then the game's table versions, then "busy"; nothing is disabled without a text.
+    [Fact] public async Task The_menu_tool_tips_say_reading_while_the_workspace_loads_and_busy_while_a_run_goes()
     {
         using var game = new TestGame();
+        game.EnsureTableVersions();
         var c = game.NewController(); var m = game.NewMain(c);
         game.NewProject(m.Projects, "Alpha");
         var texts = game.Texts;
@@ -584,15 +587,18 @@ public class MainViewModelWorkspaceTests
 
         var load = c.LoadAsync();                                                    // returns at its first await: the workspace is busy
         Assert.True(c.IsBusy);
-        Assert.Equal(texts.ProjectBusy, m.Main.ProjectBuildToolTip);
-        Assert.Equal(texts.ProjectBusy, m.Main.ProjectBuildAndInstallToolTip);
-        Assert.Equal(texts.ProjectBusy, m.Main.ProjectImportToolTip);
+        Assert.Equal(texts.TableVersionsReading, m.Main.ProjectBuildToolTip);
+        Assert.Equal(texts.TableVersionsReading, m.Main.ProjectBuildAndInstallToolTip);
+        Assert.Equal(texts.TableVersionsReading, m.Main.ProjectImportToolTip);
         Assert.Contains(nameof(MainViewModel.ProjectBuildToolTip), changed);
         Assert.Contains(nameof(MainViewModel.ProjectImportToolTip), changed);
 
         await load;
         Assert.Equal(((string?)null, (string?)null), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip));
         Assert.Null(m.Main.ProjectImportToolTip);
+
+        game.Runner.IsRunning = true;
+        Assert.Equal((texts.ProjectBusy, texts.ProjectBusy, texts.ProjectBusy), (m.Main.ProjectBuildToolTip, m.Main.ProjectBuildAndInstallToolTip, m.Main.ProjectImportToolTip));
     }
 
     [Fact] public void Without_a_game_profile_the_menu_tool_tips_name_the_profile()
@@ -648,6 +654,7 @@ public class MainViewModelWorkspaceTests
     [Fact] public async Task The_project_menu_has_new_table_and_new_loc_file()
     {
         using var game = new TestGame();
+        game.EnsureTableVersions();
         var c = game.NewController(); var m = game.NewMain(c, withFiles: true);
         await c.LoadAsync();
         var main = m.Main; var texts = game.Texts;

@@ -52,7 +52,7 @@
                 <!-- New files for the active project; only when the app has the file operations. -->
                 <MenuItem Header="{Binding Texts.FileNewTableTitle}" Command="{Binding NewTableCommand}"
                           Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}"
-                          ToolTip="{Binding ProjectNewFileToolTip}" ToolTipService.ShowOnDisabled="True" />
+                          ToolTip="{Binding ProjectNewTableToolTip}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.FileNewLocTitle}" Command="{Binding NewLocCommand}"
                           Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}"
                           ToolTip="{Binding ProjectNewFileToolTip}" ToolTipService.ShowOnDisabled="True" />

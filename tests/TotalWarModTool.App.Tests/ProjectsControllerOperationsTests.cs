@@ -20,6 +20,7 @@ public class ProjectsControllerOperationsTests
 
     private static async Task<WorkspaceController> LoadedAsync(TestGame game)
     {
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         return workspace;
@@ -181,7 +182,7 @@ public class ProjectsControllerOperationsTests
         Assert.Contains(game.Texts.BuildDone("my_mod.pack", 1), report.Message);
         Assert.Contains(game.Texts.BuildIgnored(1), report.Message);
         Assert.Equal(game.Texts.OperationBuild("My Mod"), Assert.Single(game.Runner.Titles));
-        Assert.Empty(Directory.EnumerateFiles(game.DataPath));
+        Assert.Equal(["data.pack"], Directory.EnumerateFiles(game.DataPath).Select(file => Path.GetFileName(file)));   // only the vanilla pack of the test game
     }
 
     [Fact] public async Task Build_problems_are_returned_and_nothing_is_written()
@@ -291,7 +292,7 @@ public class ProjectsControllerOperationsTests
         var uninstall = await projects.UninstallAsync(state.Id);
 
         Assert.Equal(game.Texts.InstallNoGameFolder, projects.InstallDisabledReason);
-        Assert.Equal((false, game.Texts.InstallNoGameFolder), (report!.Built, report.Message));
+        Assert.Equal((false, game.Texts.TableVersionsNoGame), (report!.Built, report.Message));   // the versions come before the install reasons
         Assert.Equal((false, game.Texts.InstallNoGameFolder), (uninstall!.Ok, uninstall.Message));
         Assert.False(Directory.Exists(Path.Combine(state.Folder, "build")));
         Assert.Empty(game.Runner.Titles);
@@ -502,7 +503,7 @@ public class ProjectsControllerOperationsTests
         Assert.False(report.Installed);
         Assert.Equal(game.Texts.BuildOldRemovedNewNotInstalled("a.pack", "b.pack"), report.Message);
         Assert.False(File.Exists(Path.Combine(game.DataPath, "a.pack")));
-        Assert.Empty(Directory.EnumerateFiles(game.DataPath));
+        Assert.Equal(["data.pack"], Directory.EnumerateFiles(game.DataPath).Select(file => Path.GetFileName(file)));   // only the vanilla pack of the test game
         Assert.Null(projects.Projects[0].Installed);
         Assert.Null(game.NewProjects(workspace).Projects[0].Installed);
         Assert.Equal(1, changes);
@@ -759,7 +760,7 @@ public class ProjectsControllerOperationsTests
     [Fact] public async Task Without_a_schema_nothing_is_built_and_the_reason_says_why()
     {
         using var game = new TestGame(withSchema: false);
-        Assert.Null(game.NewProjects(game.NewController()).BuildDisabledReason);   // before the first load nothing is known yet
+        Assert.Equal(game.Texts.TableVersionsReading, game.NewProjects(game.NewController()).BuildDisabledReason);   // before the first load the versions are not read yet
         var workspace = await LoadedAsync(game);
         var projects = game.NewProjects(workspace);
         var state = NewProject(game, projects);
@@ -796,5 +797,72 @@ public class ProjectsControllerOperationsTests
         var warning = Assert.Single(game.Log.Warnings);
         Assert.Contains(shown, warning);
         Assert.DoesNotContain("\n", warning);
+    }
+
+    // ---- the table versions of the game (spec 5.5, 5.6, 5.7) ---------------------------------------------------------------------
+
+    [Fact] public async Task Build_is_disabled_while_table_versions_are_incomplete()
+    {
+        using var game = new TestGame();
+        game.AddBrokenVanillaPack("data.pack");
+        var workspace = game.NewController();
+        await workspace.LoadAsync();
+        var projects = game.NewProjects(workspace);
+        var state = NewProject(game, projects);
+
+        Assert.Equal(game.Texts.TableVersionsIncomplete, projects.BuildDisabledReason);
+        Assert.Equal(game.Texts.TableVersionsIncomplete, projects.ImportDisabledReason);
+        var build = await projects.BuildAsync(state.Id, install: false);
+        var import = await projects.ImportAsync(SourcePack(game), Path.Combine(game.NewFolder("parent"), "imported"), "Imported", "imported.pack");
+
+        Assert.Equal((false, game.Texts.TableVersionsIncomplete), (build!.Built, build.Message));
+        Assert.Equal((false, game.Texts.TableVersionsIncomplete), (import!.Ok, import.Message));
+        Assert.Empty(game.Runner.Titles);                                          // neither started a run
+        Assert.False(Directory.Exists(Path.Combine(state.Folder, "build")));
+    }
+
+    [Fact] public async Task Build_checks_the_tables_against_the_versions_of_the_game()
+    {
+        using var game = new TestGame();
+        game.AddVanillaTables("data.pack", ("x_tables", 3));                       // the game uses version 3, the project file has version 0
+        var projects = game.NewProjects(await LoadedAsync(game));
+        var state = NewProject(game, projects);
+
+        var report = await projects.BuildAsync(state.Id, install: false);
+
+        Assert.False(report!.Built);
+        var problem = Assert.Single(report.Problems);
+        Assert.Contains("version 0", problem.Detail, StringComparison.Ordinal);
+        Assert.Contains("the game uses version 3", problem.Detail, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(state.Folder, "build")));
+    }
+
+    [Fact] public async Task Import_of_a_pack_with_an_outdated_table_reports_it()
+    {
+        using var game = new TestGame();
+        var projects = game.NewProjects(await LoadedAsync(game));                  // the game uses x_tables in version 0
+        var source = new PackBuilder()
+            .AddEntry(@"db\x_tables\old_a", TestGame.EmptyTableOfVersion(5))
+            .AddEntry(@"db\x_tables\old_b", TestGame.EmptyTableOfVersion(7))
+            .WriteTo(game.Root.File("outdated.pack"));
+        var target = Path.Combine(game.NewFolder("parent"), "imported");
+
+        var result = await projects.ImportAsync(source, target, "Imported", "imported.pack");
+
+        Assert.False(result!.Ok);
+        Assert.Equal(ImportProblem.OutdatedTables, result.Report!.Problem);
+        Assert.False(string.IsNullOrEmpty(game.Texts.ImportProblemText(ImportProblem.OutdatedTables)));
+        Assert.StartsWith(game.Texts.ImportProblemText(ImportProblem.OutdatedTables), result.Message, StringComparison.Ordinal);
+        Assert.Empty(projects.Projects);
+        Assert.False(Directory.Exists(target));
+
+        // One entry per line, not escaped into one line: both entries and both versions are readable.
+        var lines = result.Message!.Split('\n').Where(line => line.Contains("old_", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, lines.Count);
+        Assert.Contains("old_a", lines[0], StringComparison.Ordinal);
+        Assert.Contains("version 5", lines[0], StringComparison.Ordinal);
+        Assert.Contains("old_b", lines[1], StringComparison.Ordinal);
+        Assert.Contains("version 7", lines[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("u000A", result.Message, StringComparison.Ordinal);   // no escaped line breaks
     }
 }

@@ -42,6 +42,7 @@ public class MainWindowTests
     private static async Task<ProjectSetup> CreateWithProjects(bool withDocuments = true, bool withFiles = false)
     {
         var game = new TestGame();
+        game.EnsureTableVersions();
         var controller = game.NewController();
         var main = game.NewMain(controller, withDocuments: withDocuments, withFiles: withFiles);
         await controller.LoadAsync();

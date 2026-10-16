@@ -27,6 +27,7 @@ public class ProjectsViewModelTests
     private static async Task<Setup> CreateAsync(Action<TestGame>? arrange = null)
     {
         var game = new TestGame(); arrange?.Invoke(game);
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         return Wire(game, workspace);
@@ -642,10 +643,11 @@ public class ProjectsViewModelTests
         var setup = Wire(game, workspace);
         var state = NewProject(setup);
 
-        Assert.Null(setup.ViewModel.BuildDisabledReason(state.Id));
-        Assert.Equal(game.Texts.InstallNoGameFolder, setup.ViewModel.InstallDisabledReason(state.Id));
+        // Without a game there are no table versions either, so building is disabled as well (spec 5.5); the versions come first.
+        Assert.Equal(game.Texts.TableVersionsNoGame, setup.ViewModel.BuildDisabledReason(state.Id));
+        Assert.Equal(game.Texts.TableVersionsNoGame, setup.ViewModel.InstallDisabledReason(state.Id));
         Assert.Equal(game.Texts.InstallNoGameFolder, setup.ViewModel.UninstallDisabledReason(state.Id));
-        Assert.True(setup.ViewModel.BuildActiveCommand.CanExecute(null));
+        Assert.False(setup.ViewModel.BuildActiveCommand.CanExecute(null));
         Assert.False(setup.ViewModel.BuildAndInstallActiveCommand.CanExecute(null));
     }
 
@@ -764,6 +766,7 @@ public class ProjectsViewModelTests
         var store = new ProjectListStore(game.Paths.RoamingRoot, TestGame.Profile.Id);
         Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
         File.WriteAllText(store.FilePath, """{ "schemaVersion": 99, "projects": [] }""");          // a newer list: it is never saved
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         var setup = Wire(game, workspace);
@@ -884,6 +887,7 @@ public class ProjectsViewModelTests
     [Fact] public async Task The_import_command_waits_for_the_start_up_load_and_for_a_running_operation()
     {
         using var game = new TestGame();
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         var setup = Wire(game, workspace);
 
@@ -900,6 +904,7 @@ public class ProjectsViewModelTests
     [Fact] public async Task Building_is_disabled_without_a_schema()
     {
         using var game = new TestGame(withSchema: false);
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         var setup = Wire(game, workspace);

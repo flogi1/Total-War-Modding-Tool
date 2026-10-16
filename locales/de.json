@@ -505,5 +505,9 @@
   "objects.writeError.colourChannel": "Ein Farbkanal muss eine ganze Zahl von 0 bis 255 sein.",
   "objects.writeError.tableNotWritable": "Die Tabelle kann nicht als Text geschrieben werden.",
   "objects.writeError.noAnswer": "Es wurde keine Datei gewählt.",
-  "objects.writeError.outdatedTableVersion": "Die Tabellendatei hat eine andere Version, als das Spiel nutzt. Datei löschen oder die Tabelle neu anlegen."
+  "objects.writeError.outdatedTableVersion": "Die Tabellendatei hat eine andere Version, als das Spiel nutzt. Datei löschen oder die Tabelle neu anlegen.",
+  "tableVersions.reading": "Die Tabellenversionen des Spiels werden noch gelesen.",
+  "tableVersions.incomplete": "Die Tabellenversionen des Spiels konnten nicht vollständig gelesen werden. Siehe Log.",
+  "tableVersions.noGame": "Kein Spiel gefunden. Bauen und neue Tabellen brauchen die Tabellenversionen des Spiels.",
+  "import.problem.outdatedTables": "Das Pack enthält Tabellen in einer anderen Version, als das Spiel nutzt (veraltete Mod). Es wurde nichts importiert."
 }

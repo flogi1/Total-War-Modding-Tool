@@ -368,6 +368,7 @@ public class ExplorerViewModelTests
         bool inSteamLibrary = false, bool withFiles = false, Action<Guid, string>? whenOpened = null)
     {
         var game = new TestGame(inSteamLibrary: inSteamLibrary); arrange?.Invoke(game);
+        game.EnsureTableVersions();
         var c = game.NewController();
         var p = game.NewProjects(c);
         projects?.Invoke(game, p);
@@ -609,7 +610,7 @@ public class ExplorerViewModelTests
         setup.Game.AddPack("b.pack");
         await setup.C.RefreshAsync();
         Assert.Same(group, setup.Vm.Groups[0]);
-        Assert.Equal(2, setup.Vm.Groups.Count);
+        Assert.Equal(3, setup.Vm.Groups.Count);                                          // projects, the mod packs and the vanilla pack of the test game
         Assert.Same(node, Assert.Single(group.Children));
         Assert.Equal((true, true, 1), (group.IsExpanded, node.IsExpanded, node.Children.Count));
     }
@@ -640,8 +641,9 @@ public class ExplorerViewModelTests
     {
         using var setup = await CreateWithProjects(projects: (g, p) => g.NewProject(p, "Alpha"), inSteamLibrary: true);
         var actions = setup.NodeOf("Alpha").Actions;
-        Assert.Equal(setup.Texts.InstallNoGameFolder, actions[2].DisabledReason);
-        Assert.Null(actions[1].DisabledReason);
+        // Without a game there are no table versions: build and install say that first (spec 5.5), only the uninstall says the folder.
+        Assert.Equal(setup.Texts.TableVersionsNoGame, actions[2].DisabledReason);
+        Assert.Equal(setup.Texts.TableVersionsNoGame, actions[1].DisabledReason);
         Assert.Equal(setup.Texts.InstallNoGameFolder, actions[3].DisabledReason);
     }
 
@@ -653,6 +655,7 @@ public class ExplorerViewModelTests
         var p = game.NewProjects(c);
         game.NewProject(p, "Alpha");
         game.AddPack("a.pack");
+        game.EnsureTableVersions();
         var commands = new ProjectsViewModel(p, new FakeProjectDialogs(), game.Texts);
         var vm = new ExplorerViewModel(c, game.Texts, (_, _) => Task.CompletedTask, () => { }, p, commands, (_, _) => Task.CompletedTask);
         var texts = game.Texts;
@@ -663,8 +666,8 @@ public class ExplorerViewModelTests
         var actions = node.Actions;
         Assert.Equal(((string?)null, true), (actions[0].DisabledReason, actions[0].Command.CanExecute(null)));        // set as active
         Assert.Equal(((string?)null, true), (actions[4].DisabledReason, actions[4].Command.CanExecute(null)));        // remove from list
-        Assert.Equal((texts.ProjectBusy, false), (actions[1].DisabledReason, actions[1].Command.CanExecute(null)));   // build
-        Assert.Equal(texts.ProjectBusy, actions[2].DisabledReason);                  // build and install
+        Assert.Equal((texts.TableVersionsReading, false), (actions[1].DisabledReason, actions[1].Command.CanExecute(null)));   // build: the versions are not read yet
+        Assert.Equal(texts.TableVersionsReading, actions[2].DisabledReason);         // build and install
         Assert.Equal((texts.UninstallNothing, false), (actions[3].DisabledReason, actions[3].Command.CanExecute(null)));   // the reason of the project comes before "busy"
 
         await load;

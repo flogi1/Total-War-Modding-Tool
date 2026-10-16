@@ -63,6 +63,9 @@ public sealed partial class AppTexts
     public string ImportProblemTargetUnwritable => T("import.problem.targetUnwritable",
         "The project folder cannot be written. Check the folder and your permissions, then try again.");
 
+    public string ImportProblemOutdatedTables => T("import.problem.outdatedTables",
+        "The pack contains tables in another version than the game uses (outdated mod). Nothing was imported.");
+
     public string InstallProblemInvalidPackName => T("install.problem.invalidPackName",
         "The pack name of the project cannot be used. Change it in the project and build again.");
 
@@ -292,6 +295,7 @@ public sealed partial class AppTexts
         ImportProblem.InvalidPackName => ImportProblemInvalidPackName,
         ImportProblem.TargetNotEmpty => ImportProblemTargetNotEmpty,
         ImportProblem.TargetUnwritable => ImportProblemTargetUnwritable,
+        ImportProblem.OutdatedTables => ImportProblemOutdatedTables,
         _ => string.Empty,
     };
 

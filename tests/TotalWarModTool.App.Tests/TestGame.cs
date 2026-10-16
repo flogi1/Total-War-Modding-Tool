@@ -111,6 +111,38 @@ internal sealed class TestGame : IDisposable
     public string AddVanillaPack(string name) =>
         new PackBuilder(packType: 1).AddEntry("db/x_tables/data__", TableBytes).WriteTo(Path.Combine(DataPath, name));
 
+    /// <summary>An empty table (no rows) with a version marker: the game or a mod uses exactly this version of the table.</summary>
+    public static byte[] EmptyTableOfVersion(int version) =>
+        [0xFC, 0xFD, 0xFE, 0xFF, .. BitConverter.GetBytes(version), 0x01, 0x00, 0x00, 0x00, 0x00];
+
+    /// <summary>Writes a vanilla pack (type release) into the data folder with one empty table <c>db/&lt;table&gt;/data__</c> per given table, each in its version.</summary>
+    public string AddVanillaTables(string name, params (string Table, int Version)[] tables)
+    {
+        var builder = new PackBuilder(packType: 1);
+        foreach (var (table, version) in tables)
+        {
+            builder.AddEntry($"db/{table}/data__", EmptyTableOfVersion(version));
+        }
+
+        return builder.WriteTo(Path.Combine(DataPath, name));
+    }
+
+    /// <summary>A vanilla pack whose table entry has a cut-off header: the table versions of the game cannot be read completely.</summary>
+    public string AddBrokenVanillaPack(string name) =>
+        new PackBuilder(packType: 1).AddEntry("db/x_tables/data__", [0x01]).WriteTo(Path.Combine(DataPath, name));
+
+    /// <summary>
+    /// Makes sure the game has a vanilla pack with a readable table, so the table versions of the workspace are complete (x_tables in version 0).
+    /// Does nothing when <c>data.pack</c> exists already (the tests that add their own vanilla pack use that name).
+    /// </summary>
+    public void EnsureTableVersions()
+    {
+        if (!File.Exists(Path.Combine(DataPath, "data.pack")))
+        {
+            AddVanillaPack("data.pack");
+        }
+    }
+
     /// <summary>A project controller over the project list store of the test profile below the roaming root; loads the list as the app does at start.</summary>
     public ProjectsController NewProjects(WorkspaceController workspace, IOperationRunner? runner = null)
     {

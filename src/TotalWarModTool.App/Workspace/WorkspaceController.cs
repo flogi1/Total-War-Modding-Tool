@@ -94,8 +94,24 @@ public sealed class WorkspaceController
     /// <summary>Null until the first load ended and whenever the game is not found.</summary>
     public PackCatalogResult? Catalog { get; private set; }
 
-    /// <summary>Null until the first load ended.</summary>
+    /// <summary>Null until the first load ended and whenever the game is not found.</summary>
     public ResolvedSchema? Schema { get; private set; }
+
+    /// <summary>
+    /// The table versions of the game's vanilla packs, read after the catalog scan. Null until the first load ended and whenever the game is
+    /// not found. An incomplete result counts as "not read": use <see cref="TableVersionsMissingReason"/> to find out.
+    /// </summary>
+    public GameTableVersionsResult? TableVersions { get; private set; }
+
+    /// <summary>
+    /// The UI text that says why the game's table versions cannot be used now; null when <see cref="TableVersions"/> is complete.
+    /// Everything that writes a table in a version (new tables, build, import, adopt) and the object view wait for it.
+    /// </summary>
+    public string? TableVersionsMissingReason =>
+        Status != GameStatus.Found ? _texts.TableVersionsNoGame
+        : TableVersions is null ? _texts.TableVersionsReading
+        : !TableVersions.IsComplete ? _texts.TableVersionsIncomplete
+        : null;
 
     /// <summary>True during <see cref="LoadAsync"/> and <see cref="RestoreAsync"/>, the silent runs.</summary>
     public bool IsBusy { get; private set; }
@@ -511,8 +527,10 @@ public sealed class WorkspaceController
         ApplyPlace(loaded.Place);
         Catalog = loaded.Catalog;
         Schema = loaded.Schema;
+        TableVersions = loaded.TableVersions;
         LogCatalog(loaded.Catalog);
         LogSchema(loaded.Schema);
+        LogTableVersions(loaded.TableVersions);
     }
 
     // Drops the cached index of every pack that is gone or whose file differs from the one the index was read from.
@@ -724,6 +742,40 @@ public sealed class WorkspaceController
         }
     }
 
+    private void LogTableVersions(GameTableVersionsResult? result)
+    {
+        if (result is null)
+        {
+            return;
+        }
+
+        foreach (var problem in result.Problems)
+        {
+            var where = problem.EntryPath is null ? problem.PackPath : problem.PackPath + " / " + problem.EntryPath;
+            _log.Warn($"Table versions of the game: {DisplayText.Safe(where)} could not be read: {DisplayText.Safe(problem.Detail)}");
+        }
+
+        foreach (var conflict in result.Conflicts)
+        {
+            _log.Warn($"Table versions of the game: {DisplayText.Safe(conflict)}");
+        }
+
+        if (result.CacheWriteProblem is { } cacheProblem)
+        {
+            _log.Warn($"The table versions of the game could not be cached: {DisplayText.Safe(cacheProblem)}");
+        }
+
+        if (!result.IsComplete)
+        {
+            _log.Warn(result.Versions is null
+                ? "The game has no vanilla pack; its table versions are unknown."
+                : $"The table versions of the game were read incompletely ({result.Problems.Count} problems); building and new tables stay disabled.");
+            return;
+        }
+
+        _log.Info($"Table versions of the game: {result.Versions!.Versions.Count} tables, {(result.FromCache ? "from the cache" : "read from the packs")}.");
+    }
+
     private void LogSchema(ResolvedSchema? schema)
     {
         if (schema is null)
@@ -755,7 +807,7 @@ public sealed class WorkspaceController
 
     private sealed record Place(GameStatus Status, GameLocation? Location, bool ManualPathInvalid);
 
-    private sealed record Loaded(Place Place, PackCatalogResult? Catalog, ResolvedSchema? Schema);
+    private sealed record Loaded(Place Place, PackCatalogResult? Catalog, ResolvedSchema? Schema, GameTableVersionsResult? TableVersions);
 
     private sealed record IndexRead(PackIndexResult Result, PackContent? Content);
 
@@ -798,8 +850,16 @@ public sealed class WorkspaceController
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        GameTableVersionsResult? versions = null;
+        if (profile is not null && catalog is not null)
+        {
+            versions = GameTableVersionsCache.LoadOrRead(
+                Path.Combine(_paths.CacheDirectory, $"table_versions_{profile.Id}.json"), catalog.Packs, cancellationToken);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         var schema = profile is null ? null : SchemaSource.Resolve(_paths.SchemasDirectory, schemaFolder, profile.SchemaFile);
-        return new Loaded(place, catalog, schema);
+        return new Loaded(place, catalog, schema, versions);
     }
 
     private static IndexRead ReadContent(string packPath, CancellationToken cancellationToken)

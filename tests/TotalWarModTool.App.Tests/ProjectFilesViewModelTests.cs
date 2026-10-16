@@ -54,6 +54,7 @@ public class ProjectFilesViewModelTests
     private static async Task<Setup> CreateAsync(bool withSchema = true, string projectName = "Alpha", params (string RelativeFile, string Text)[] files)
     {
         var game = new TestGame(withSchema);
+        game.EnsureTableVersions();
         var workspace = game.NewController();
         await workspace.LoadAsync();
         var projects = game.NewProjects(workspace);

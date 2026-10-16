@@ -7,6 +7,7 @@ using TotalWarModTool.Logging;
 using TotalWarModTool.Objects;
 using TotalWarModTool.Operations;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Tables;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
@@ -144,7 +145,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
             return;
         }
 
-        var stores = _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath);
+        var stores = _stores ??= ObjectStores.Create(_workspace.Schema!, CurrentVersions(), context.InstallPath);
         var started = tab.Current;
         var category = _categories.GetValueOrDefault(started.Table);
         tab.SetCategoryProblem(_unreadableCategories.Contains(started.Table));
@@ -215,13 +216,27 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     private string? MissingReason()
     {
-        if (_workspace.Status != GameStatus.Found || _workspace.Catalog is null || _workspace.Location is null || _workspace.Profile is null)
+        if (_workspace.Status != GameStatus.Found || _workspace.Location is null || _workspace.Profile is null)
+        {
+            return _texts.ObjectsNoGame;
+        }
+
+        // Before the catalog: until the first load ended, the answer is "still being read", not "no game".
+        if (_workspace.TableVersionsMissingReason is { } versionsReason)
+        {
+            return versionsReason;
+        }
+
+        if (_workspace.Catalog is null)
         {
             return _texts.ObjectsNoGame;
         }
 
         return _workspace.Schema?.Schema is null ? _texts.ObjectsNoSchema : null;
     }
+
+    // The versions the stores are made for; only called after MissingReason() was null, which means they are complete.
+    private GameTableVersions CurrentVersions() => _workspace.TableVersions!.Versions!;
 
     private bool IsBusy => _runner.IsRunning || !_workspace.CanStartOperation;
 
@@ -230,7 +245,7 @@ public sealed partial class ObjectsController : IRowObjectOpener
 
     /// <summary>The stores of the current schema and game folder, made when missing; null without a game or a schema.</summary>
     internal ObjectStores? EnsureStores() =>
-        MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, context.InstallPath) : null;
+        MissingReason() is null && CurrentContext() is { } context ? _stores ??= ObjectStores.Create(_workspace.Schema!, CurrentVersions(), context.InstallPath) : null;
 
     /// <summary>
     /// The check while typing: parses the text of the tab against its result and diffs it, without reference checks (the apply checks those).
@@ -311,11 +326,12 @@ public sealed partial class ObjectsController : IRowObjectOpener
     {
         if (_stores is { } stores
             && (SchemaDiffers(stores.Schema, _workspace.Schema)
-                || !string.Equals(stores.InstallPath, _workspace.Location?.InstallPath, StringComparison.OrdinalIgnoreCase)))
+                || !string.Equals(stores.InstallPath, _workspace.Location?.InstallPath, StringComparison.OrdinalIgnoreCase)
+                || VersionsDiffer(stores.GameVersions, _workspace.TableVersions)))
         {
             stores.Clear();
             _stores = null;
-            _log.Info("The stores of the object view were discarded: the schema or the game folder changed.");
+            _log.Info("The stores of the object view were discarded: the schema, the game folder or the game's table versions changed.");
             foreach (var tab in ObjectTabs)
             {
                 tab.MarkSchemaStale();
@@ -331,6 +347,10 @@ public sealed partial class ObjectsController : IRowObjectOpener
             StartStaleCheck();
         }
     }
+
+    // Equal content read again (a refresh) is no change. A missing or incomplete result drops the stores: the object view is disabled then anyway.
+    private static bool VersionsDiffer(GameTableVersions before, GameTableVersionsResult? after) =>
+        after is not { IsComplete: true, Versions: { } versions } || !before.SameAs(versions);
 
     // As MainViewModel decides it: a reload that resolves the same file with the same date is no change.
     private static bool SchemaDiffers(ResolvedSchema before, ResolvedSchema? after) =>
