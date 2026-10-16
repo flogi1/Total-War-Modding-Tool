@@ -975,8 +975,11 @@ public class TabsViewTests
     {
         var tabs = new TabsViewModel(Texts);
         tabs.RowCommands = new RowCommandsViewModel(tabs, Texts);
+        tabs.Clipboard = new FakeClipboard();                                     // copy needs a clipboard and a selected row
         var setup = Create(tabs);
         tabs.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"]]), null);
+        var table = Assert.IsType<TableTabViewModel>(tabs.SelectedTab);
+        table.SelectedRows = [0];
         Pump(setup.Window);
 
         var bar = Descendants<WrapPanel>(setup.View).Single(p => p.Name == "RowCommandBar");
