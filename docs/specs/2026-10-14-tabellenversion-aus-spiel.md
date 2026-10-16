@@ -288,6 +288,10 @@ Projects und Editing (NewFiles, Bau-Check, WritePlan) → App (Zustand, Sperren,
 Spieltest. Die alten Specs (Kopf dieser Spec) bekommen im selben Commit wie die Umsetzung einen Verweis auf diese
 Spec an den genannten Stellen.
 
+#### Festlegungen aus dem Plan
+
+1. Regel `TableVersionRule.Current`, Typen `GameTableVersions`, `CurrentDefinition`; Kopf über `DbTableDecoder.ReadHeader`, 256 Bytes.
+
 ## 10. Annahmen, die der erste echte Lauf prüft
 
 1. Der Kopf eines zstd-Eintrags lässt sich ohne volles Entpacken lesen; sonst bleibt es bei etwa 1,5 s pro

@@ -7,6 +7,8 @@ namespace TotalWarModTool.Tables;
 /// Decodes the binary DB table format with a definition from the schema. Never throws for the data:
 /// a problem becomes a status with a detail text and no rows. Argument errors (null) still throw.
 /// </summary>
+public sealed record TableHeader(int Version, string? Guid);
+
 public static class DbTableDecoder
 {
     /// <summary>Upper bound for rows times fields. Far above every real table; stops decompressed zeros from becoming boxed cells.</summary>
@@ -21,6 +23,9 @@ public static class DbTableDecoder
     // Shared with DbTableEncoder so that reader and writer cannot drift.
     internal static ReadOnlySpan<byte> GuidMarker => [0xFD, 0xFE, 0xFC, 0xFF];
     internal static ReadOnlySpan<byte> VersionMarker => [0xFC, 0xFD, 0xFE, 0xFF];
+
+    /// <summary>Enough leading bytes of an entry to read its header: GUID block (max. 36 UTF-16 characters), version marker and row count.</summary>
+    public const int TableHeaderBytes = 256;
 
     public static DecodedTable Decode(byte[] data, string tableName, GameSchema schema) => Decode(data, tableName, schema, MaxCells);
 
@@ -37,6 +42,31 @@ public static class DbTableDecoder
 
         cursor.TryReadBytes(GuidMarker.Length, out _, out _);
         return cursor.TryReadStringU16(out var guid, out _) ? guid : null;
+    }
+
+    /// <summary>
+    /// Reads only the header (version and GUID); the first <see cref="TableHeaderBytes"/> bytes of an entry are enough.
+    /// Null when the header is broken or cut off (version marker or row count missing). Never throws for the data.
+    /// </summary>
+    public static TableHeader? ReadHeader(ReadOnlySpan<byte> data)
+    {
+        var cursor = new ByteCursor(data);
+        var version = 0;
+        var hasGuid = false;
+        if (!TryReadHeader(ref cursor, ref version, ref hasGuid, out _, out _))
+        {
+            return null;
+        }
+
+        string? guid = null;
+        if (hasGuid)
+        {
+            var guidCursor = new ByteCursor(data);
+            guidCursor.TryReadBytes(GuidMarker.Length, out _, out _);
+            guidCursor.TryReadStringU16(out guid, out _);
+        }
+
+        return new TableHeader(version, guid);
     }
 
     internal static DecodedTable Decode(byte[] data, string tableName, GameSchema schema, long maxCells)
