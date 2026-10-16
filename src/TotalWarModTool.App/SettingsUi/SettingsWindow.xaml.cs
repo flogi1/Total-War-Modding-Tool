@@ -12,6 +12,17 @@ public sealed partial class SettingsWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+
+        // The tile bar and toolbar pages are built in code; they listen to the settings, which outlive the window.
+        var tiles = BarSettingsPages.Tiles(viewModel);
+        var toolbar = BarSettingsPages.Toolbar(viewModel);
+        TilesHost.Content = tiles;
+        ToolbarHost.Content = toolbar;
+        Closed += (_, _) =>
+        {
+            tiles.Detach();
+            toolbar.Detach();
+        };
     }
 
     // A path box commits when it loses the focus (the binding does that) and now also on Enter. The view model decides what the input means.

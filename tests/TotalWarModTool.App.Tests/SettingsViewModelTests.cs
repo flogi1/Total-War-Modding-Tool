@@ -27,6 +27,63 @@ public class SettingsViewModelTests
         Assert.Equal(("en", ThemeChoice.Light), (settings.Language, settings.Theme));
     }
 
+    [Fact] public void SelectedCategory_is_stored_in_the_settings_and_read_back()
+    {
+        var settings = new GlobalSettings { SettingsCategory = SettingsViewModel.TilesCategory };
+        var vm = NewViewModel(settings, new AppTexts(new UiText(Locales)));
+        Assert.Equal(SettingsViewModel.TilesCategory, vm.SelectedCategory);
+
+        var changed = new List<string?>(); vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        vm.SelectedCategory = SettingsViewModel.ToolbarCategory;
+        Assert.Equal(SettingsViewModel.ToolbarCategory, settings.SettingsCategory);
+        Assert.Equal([nameof(SettingsViewModel.SelectedCategory)], changed);
+
+        // A list box that loses its selection writes -1, and a page that does not exist is no choice: both change nothing.
+        vm.SelectedCategory = -1;
+        vm.SelectedCategory = SettingsViewModel.ToolbarCategory + 1;
+        Assert.Equal(SettingsViewModel.ToolbarCategory, settings.SettingsCategory);
+
+        // A value from a hand-edited file that names no page shows the first page.
+        settings.SettingsCategory = 99;
+        Assert.Equal(0, vm.SelectedCategory);
+        Assert.Equal(0, NewViewModel(new GlobalSettings { SettingsCategory = 99 }, new AppTexts(new UiText(Locales))).SelectedCategory);
+    }
+
+    [Fact] public void Bar_properties_pass_the_settings_through_and_follow_them()
+    {
+        var settings = new GlobalSettings();
+        var vm = NewViewModel(settings, new AppTexts(new UiText(Locales)));
+        Assert.Same(settings, vm.Settings);
+
+        vm.ToolbarPosition = ToolbarPosition.Right; vm.ToolbarLabelsVisible = false; vm.TileBarVisible = false;
+        vm.TileSize = TileSize.Compact; vm.TileLabelsVisible = false;
+        Assert.Equal((ToolbarPosition.Right, false, false, TileSize.Compact, false),
+            (settings.ToolbarPosition, settings.ToolbarLabelsVisible, settings.TileBarVisible, settings.TileSize, settings.TileLabelsVisible));
+
+        var changed = new List<string?>(); vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        settings.ToolbarPosition = ToolbarPosition.Left; settings.TileSize = TileSize.Medium;
+        Assert.Equal([nameof(SettingsViewModel.ToolbarPosition), nameof(SettingsViewModel.TileSize)], changed);
+        Assert.Equal((ToolbarPosition.Left, TileSize.Medium), (vm.ToolbarPosition, vm.TileSize));
+    }
+
+    [Fact] public void The_next_separator_follows_the_highest_number_in_use()
+    {
+        Assert.Equal("sep:5", SettingsViewModel.NextSeparator(ToolbarCatalog.DefaultOrder));
+        Assert.Equal("sep:1", SettingsViewModel.NextSeparator([ToolbarItemIds.Save]));
+        Assert.Equal("sep:8", SettingsViewModel.NextSeparator([ToolbarCatalog.Separator(7), ToolbarItemIds.Save, ToolbarCatalog.Separator(2)]));
+
+        // A hand-edited file with the highest possible number: no overflow, the smallest free number instead.
+        Assert.Equal("sep:2", SettingsViewModel.NextSeparator([ToolbarCatalog.Separator(int.MaxValue), ToolbarCatalog.Separator(1)]));
+    }
+
+    [Fact] public void Adding_a_separator_after_the_highest_possible_number_still_adds_one()
+    {
+        var settings = new GlobalSettings { ToolbarOrder = [ToolbarItemIds.Save, ToolbarCatalog.Separator(int.MaxValue)] };
+        var vm = NewViewModel(settings, new AppTexts(new UiText(Locales)));
+        vm.AddToolbarSeparatorCommand.Execute(null);
+        Assert.Equal(ToolbarCatalog.Separator(1), settings.ToolbarOrder[^1]);
+    }
+
     [Fact] public void Theme_options_are_System_Light_Dark_with_translated_names()
     {
         var ui = new UiText(Locales);

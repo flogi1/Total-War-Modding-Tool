@@ -377,3 +377,57 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
 10. Einstellungen Tastenkürzel: Liste vollständig gegen Menü und Tooltips.
 11. Sprache auf Englisch: alle neuen Texte übersetzt, nichts leer.
 12. App schließen und starten: Leisten, Filter und Zuordnungen wie verlassen.
+
+## Änderungen beim Schreiben von Plan 1
+
+- **Task 2, Laden fehlender Reihenfolgen:** Fehlt `tileOrder` oder `toolbarOrder` in `settings.json` (oder ist `null`), bleibt die
+  Standardreihenfolge (`DefaultOrder`, bei der Werkzeugleiste mit den vier Trennlinien). Nur eine vorhandene Liste läuft durch den
+  normalisierenden Setter. Grund: `ReorderList.Complete([], ToolbarCatalog.All, …)` liefert die Katalog-Kennungen ohne Trennlinien;
+  ohne diese Unterscheidung hätte eine alte Datei die Trennlinien verloren. Eine vorhandene Liste ohne Trennlinien bekommt keine
+  erfundenen (Review Focus 2); fehlende Kennungen werden in Katalogreihenfolge hinten angehängt.
+- **Task 2, bestehender Wächtertest:** `SettingsFileMapTests.Sample` kennt jetzt auch Enums, `bool`, `int` und `IReadOnlyList<string>`,
+  damit der Round-Trip-Wächter die neuen Felder prüft.
+- **Task 5, Tooltip eines gesperrten Leisten-Knopfs:** Erste Zeile immer Name und Kürzel („Bauen (Ctrl+B)“), bei einem Sperrgrund
+  folgt er als zweite Zeile. Grund: Links und rechts zeigt die Leiste nur Icons; ein Tooltip nur mit dem Grund würde den Knopf nicht
+  benennen (6.3 „Tooltips nennen Name und Kürzel“). Der Plan sah den Grund statt des Namens vor.
+- **Task 5, `ToolbarBinding`:** trägt den Sperrgrund als `Func<string?>? Reason` statt als Property-Pfad (`ToolTipPath`). Eine
+  Tabelle im `MainViewModel`, kein Auflösen von Pfad-Strings. Das Fenster liest `MainViewModel.ToolbarToolTip(id)` bei jedem
+  `PropertyChanged` des View-Models und bei Sprachwechsel neu.
+- **Task 5, Trennlinien im Menü Projekt:** Die Trennlinie nach „Neue Loc-Datei“ ist nur mit den Datei-Operationen sichtbar, die vor
+  „Bauen“ nur mit den Dokumenten, damit nie zwei Trennlinien aufeinander folgen.
+- **Task 5, Rahmen der Werkzeugleiste:** PMT hat keine Fenster-Verdrahtung als Vorlage. Die Leiste hat eine 1-px-Linie
+  (`Theme.Separator`) zur Arbeitsfläche hin: oben unten, unten oben, links rechts, rechts links.
+- **Task 5, Wizards:** Der Composition Root setzt `MainViewModel.Wizards` vor dem Fenster. Das Fenster übernimmt den Wert im
+  Konstruktor und folgt zusätzlich `PropertyChanged("Wizards")` (alte Befehle abmelden, Kachelzeile neu bauen).
+- **Review Tasks 1–5, `TileItem.DefaultVisible`:** entfällt. Kein Code hat das Feld gelesen (jede Kachel ist sichtbar, bis der Nutzer sie
+  ausblendet); eine Kachel, die ausgeblendet startet, bekommt das Feld erst mit dem Werkzeug, das es braucht.
+- **Review Tasks 1–5, Kachel-Zuordnung:** Welche Befehle und Sperrgründe eine Kachel hat, liefert `MainViewModel.TileBindingFor(id)`
+  (wie `ToolbarBindingFor`, gemeinsamer Record `EntryBinding`); das Fenster verdrahtet nur noch. Die Tooltips der Werkzeugleiste
+  liest das Fenster nur bei den sechs Grund-Properties des View-Models neu, nicht bei jedem `PropertyChanged`.
+- **Task 7, Ziehgriff der `ReorderListBox`:** ohne eigenen Tooltip. `ReorderTexts` trägt nur die drei Knopftexte (Nach oben, Nach unten,
+  Entfernen); das Ziehen erklärt der Hinweis über der Liste.
+- **Task 7, neue Trennlinie:** `sep:n` mit n = höchste vorhandene Nummer + 1 (Standard: `sep:5`), hinten angehängt. Eine Nummer, die durch
+  Entfernen frei wurde, wird nicht wieder vergeben, außer sie war die höchste. Steht die höchste Nummer schon auf `int.MaxValue`
+  (handbearbeitete Datei), nimmt das Tool die kleinste freie Nummer, damit „Trennlinie hinzufügen“ nie still nichts tut.
+- **Task 7, Knöpfe der Seiten:** „Standard wiederherstellen“, „Trennlinie hinzufügen“ und das Entfernen einer Trennlinie sind Befehle bzw.
+  Methoden des `SettingsViewModel` (`ResetTilesCommand`, `AddToolbarSeparatorCommand`, `ResetToolbarCommand`, `RemoveToolbarSeparator`);
+  `BarSettingsPages` verdrahtet nur. „Standard wiederherstellen“ ändert keine Sichtbarkeit: Kacheln bekommen die Standardreihenfolge und
+  verlieren „Nur Symbol“, die Werkzeugleiste bekommt die Standardreihenfolge mit den vier Trennlinien.
+- **Task 7, Lebensdauer der Seiten:** Jedes Öffnen baut ein neues Fenster, die Settings leben weiter. Die Code-Seiten (`BarSettingsPage`)
+  melden sich beim Schließen des Fensters von `GlobalSettings.Changed` und `AppTexts.PropertyChanged` ab. Ein Sprachwechsel baut die Seite
+  neu (Hinweis, Knöpfe, Zeilen und Knopf-Tooltips).
+- **Task 7, gemerkte Seite:** `SelectedCategory` liest und schreibt `GlobalSettings.SettingsCategory`. Ein Wert über der letzten Seite
+  (heute 4, Werkzeugleiste) zeigt die erste Seite; die Obergrenze steigt mit den Seiten aus Plan 3 und 4. Das Häkchen „Sichtbar“ der
+  Werkzeugleiste nutzt den Text `settings.tiles.visible`.
+- **Plan 1, Felder `PathBarVisible`, `FilterBarVisible`, `ColorizeWholeTab`:** kommen erst mit Plan 3, der sie nutzt (YAGNI); `GlobalSettings` hat sie
+  nach Plan 1 noch nicht. Die Liste „Neue Felder“ oben gilt für alle Pläne zusammen.
+- **Task 5, `MainWindow` und `GlobalSettings`:** Der Konstruktor bekommt zusätzlich `GlobalSettings` (Leisten und Seiten lesen und beobachten
+  sie); die Aufrufer in `MainWindowTests` übergeben `game.Settings`.
+- **Task 3, Zustand der Kacheln:** `TileBar.RefreshState()` (neu gegenüber PMT) setzt Aktivierung und Tooltip jeder Kachel neu, ohne die Zeile
+  umzubauen; das Fenster ruft sie bei den Grund-Properties des View-Models.
+- **Task 3, Kacheln mit Abzeichen und Untermenü:** `TileBar` hat die API aus PMT (`SetBadge`, `SetWarning`, Menü), aber keine Katalog-Kachel
+  nutzt sie; der Menüpfad ist ungetestet (Backlog).
+- **Task 4, Schlüssel `menu.tools.*`:** Der Menütitel „Werkzeuge“ entfällt; `menu.tools.newBuilding` und `menu.tools.newTrait` bleiben als
+  Kachelbeschriftungen.
+- **Changelog:** Der Eintrag zu Kachelzeile, Werkzeugleiste und Einstellungsseiten steht schon nach Plan 1 im Changelog (statt in Plan 4), weil
+  die Leisten ab hier nutzbar sind.

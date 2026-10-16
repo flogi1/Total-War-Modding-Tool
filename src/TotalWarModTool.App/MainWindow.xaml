@@ -1,6 +1,7 @@
 <Window x:Class="TotalWarModTool.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:TotalWarModTool.App.Shell"
         Title="{Binding Texts.AppTitle}"
         Width="1200" Height="800" MinWidth="400" MinHeight="300"
         WindowStartupLocation="CenterScreen"
@@ -22,25 +23,6 @@
     </Window.Resources>
     <DockPanel>
         <Menu DockPanel.Dock="Top">
-            <MenuItem Header="{Binding Texts.MenuTools}">
-                <MenuItem Header="{Binding Texts.OperationRefreshPacks}" Command="{Binding RefreshCommand}" />
-                <!-- The wizards; only when the composition root set them. A disabled entry says why in its tool tip. -->
-                <MenuItem Header="{Binding Texts.MenuToolsNewBuilding}" Command="{Binding Wizards.NewBuildingCommand}"
-                          Visibility="{Binding HasWizards, Converter={StaticResource BoolToVisibility}}"
-                          ToolTip="{Binding Wizards.NewBuildingDisabledReason}" ToolTipService.ShowOnDisabled="True" />
-                <MenuItem Header="{Binding Texts.MenuToolsNewTrait}" Command="{Binding Wizards.NewTraitCommand}"
-                          Visibility="{Binding HasWizards, Converter={StaticResource BoolToVisibility}}"
-                          ToolTip="{Binding Wizards.NewTraitDisabledReason}" ToolTipService.ShowOnDisabled="True" />
-                <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
-                <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
-            </MenuItem>
-            <!-- Undo and redo across the editable tabs; only when the app has documents. A text box with the focus keeps its own Ctrl+Z. -->
-            <MenuItem Header="{Binding Texts.MenuEdit}" Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}">
-                <MenuItem Header="{Binding Texts.MenuEditUndo}" Command="{Binding Documents.UndoCommand}"
-                          InputGestureText="{Binding Texts.MenuEditUndoGesture}" />
-                <MenuItem Header="{Binding Texts.MenuEditRedo}" Command="{Binding Documents.RedoCommand}"
-                          InputGestureText="{Binding Texts.MenuEditRedoGesture}" />
-            </MenuItem>
             <!-- The mod projects; only when the app has projects. A disabled entry says why in its tool tip. -->
             <MenuItem Header="{Binding Texts.ProjectMessageTitle}" Visibility="{Binding HasProjects, Converter={StaticResource BoolToVisibility}}">
                 <MenuItem Header="{Binding Texts.ProjectNewTitle}" Command="{Binding Projects.NewProjectCommand}"
@@ -49,13 +31,15 @@
                           ToolTip="{Binding Projects.ProjectsDisabledReason}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.MenuProjectImport}" Command="{Binding Projects.ImportPackCommand}"
                           ToolTip="{Binding ProjectImportToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <!-- New files for the active project; only when the app has the file operations. -->
+                <Separator />
+                <!-- New files for the active project; only when the app has the file operations. Their separator goes with them. -->
                 <MenuItem Header="{Binding Texts.FileNewTableTitle}" Command="{Binding NewTableCommand}"
                           Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}"
                           ToolTip="{Binding ProjectNewTableToolTip}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.FileNewLocTitle}" Command="{Binding NewLocCommand}"
                           Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}"
                           ToolTip="{Binding ProjectNewFileToolTip}" ToolTipService.ShowOnDisabled="True" />
+                <Separator Visibility="{Binding HasProjectFiles, Converter={StaticResource BoolToVisibility}}" />
                 <!-- Saving needs the editable documents. Nothing to save needs no explanation; only a running operation gets a tool tip. -->
                 <MenuItem Header="{Binding Texts.MenuProjectSave}" Command="{Binding Documents.SaveCommand}"
                           Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}"
@@ -65,13 +49,25 @@
                           Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}"
                           InputGestureText="{Binding Texts.MenuProjectSaveAllGesture}"
                           ToolTip="{Binding ProjectSaveToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Separator />
+                <Separator Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}" />
                 <MenuItem Header="{Binding Texts.BuildMessageTitle}" Command="{Binding Projects.BuildActiveCommand}"
                           InputGestureText="{Binding Texts.MenuProjectBuildGesture}"
                           ToolTip="{Binding ProjectBuildToolTip}" ToolTipService.ShowOnDisabled="True" />
                 <MenuItem Header="{Binding Texts.ProjectActionBuildAndInstall}" Command="{Binding Projects.BuildAndInstallActiveCommand}"
                           InputGestureText="{Binding Texts.MenuProjectBuildAndInstallGesture}"
                           ToolTip="{Binding ProjectBuildAndInstallToolTip}" ToolTipService.ShowOnDisabled="True" />
+            </MenuItem>
+            <!-- Undo and redo across the editable tabs; only when the app has documents. A text box with the focus keeps its own Ctrl+Z. -->
+            <MenuItem Header="{Binding Texts.MenuEdit}" Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}">
+                <MenuItem Header="{Binding Texts.MenuEditUndo}" Command="{Binding Documents.UndoCommand}"
+                          InputGestureText="{Binding Texts.MenuEditUndoGesture}" />
+                <MenuItem Header="{Binding Texts.MenuEditRedo}" Command="{Binding Documents.RedoCommand}"
+                          InputGestureText="{Binding Texts.MenuEditRedoGesture}" />
+            </MenuItem>
+            <!-- Opens the settings window directly; no submenu. -->
+            <MenuItem Header="{Binding Texts.MenuSettings}" Command="{Binding OpenSettingsCommand}" />
+            <MenuItem Header="{Binding Texts.MenuHelp}">
+                <MenuItem Header="{Binding Texts.MenuOpenLogFolder}" Command="{Binding OpenLogFolderCommand}" />
             </MenuItem>
             <!-- Only in the debug build: IsDebugBuild is false in a release build, so the menu is collapsed there. -->
             <MenuItem Header="{Binding Texts.MenuDebug}" Visibility="{Binding IsDebugBuild, Converter={StaticResource BoolToVisibility}}">
@@ -81,38 +77,8 @@
             </MenuItem>
         </Menu>
 
-        <!--
-            The commands of the menu and of the grid as buttons, so that they are found without a right click; only when the app has documents.
-            A plain row of buttons, no ToolBar (no overflow menu): it wraps when the window is narrow. The buttons cannot take the focus, so the
-            grid keeps its selection and its keys after a click. The row buttons act on the selected tab and say in their tool tip why they are off.
-        -->
-        <Border x:Name="Toolbar" DockPanel.Dock="Top" Padding="4,2" BorderThickness="0,0,0,1"
-                Background="{DynamicResource Theme.WindowBackground}" BorderBrush="{DynamicResource Theme.Separator}"
-                Visibility="{Binding HasDocuments, Converter={StaticResource BoolToVisibility}}">
-            <WrapPanel Orientation="Horizontal">
-                <Button Content="{Binding Texts.MenuProjectSave}" Command="{Binding Documents.SaveCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding Texts.ToolbarSaveToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Button Content="{Binding Texts.MenuProjectSaveAll}" Command="{Binding Documents.SaveAllCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding Texts.ToolbarSaveAllToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Separator Margin="4,0" Width="1" Height="16" VerticalAlignment="Center" />
-                <Button Content="{Binding Texts.MenuEditUndo}" Command="{Binding Documents.UndoCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding Texts.ToolbarUndoToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Button Content="{Binding Texts.MenuEditRedo}" Command="{Binding Documents.RedoCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding Texts.ToolbarRedoToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Separator Margin="4,0" Width="1" Height="16" VerticalAlignment="Center" />
-                <Button Content="{Binding Texts.GridInsertRow}" Command="{Binding RowCommands.InsertRowCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding RowCommands.InsertRowToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Button Content="{Binding Texts.GridDuplicateRows}" Command="{Binding RowCommands.DuplicateRowsCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding RowCommands.DuplicateRowsToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Button Content="{Binding Texts.GridDeleteRows}" Command="{Binding RowCommands.DeleteRowsCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding RowCommands.DeleteRowsToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Separator Margin="4,0" Width="1" Height="16" VerticalAlignment="Center" />
-                <Button Content="{Binding Texts.GridCopy}" Command="{Binding RowCommands.CopyCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding RowCommands.CopyToolTip}" ToolTipService.ShowOnDisabled="True" />
-                <Button Content="{Binding Texts.GridPaste}" Command="{Binding RowCommands.PasteCommand}" Padding="8,2" Margin="0,0,2,0"
-                        Focusable="False" ToolTip="{Binding RowCommands.PasteToolTip}" ToolTipService.ShowOnDisabled="True" />
-            </WrapPanel>
-        </Border>
+        <!-- The wizards as tiles. The code-behind binds it to the settings and the wizards (MainWindow.Shell.cs). -->
+        <shell:TileBar x:Name="TileBarControl" DockPanel.Dock="Top" />
 
         <!-- Game, schema and the first hint. The hint is in the colour of a warning and hidden when there is none. -->
         <StatusBar DockPanel.Dock="Bottom">
@@ -133,6 +99,12 @@
                 <TextBlock Text="{Binding ProjectStatusLine}" ToolTip="{Binding ProjectStatusToolTip}" />
             </StatusBarItem>
         </StatusBar>
+
+        <!--
+            The small toolbar, built in code from the toolbar catalog and the settings (MainWindow.Shell.cs). It stands after the status bar, so at
+            the left, the right or the bottom it sits between the tile bar and the status bar; the code-behind sets its dock and its border.
+        -->
+        <Border x:Name="ToolbarHost" Background="{DynamicResource Theme.WindowBackground}" BorderBrush="{DynamicResource Theme.Separator}" />
 
         <!-- Explorer, splitter, tabs. The views need their view models, so the code-behind creates them and puts them into the hosts. -->
         <Grid x:Name="Layout">

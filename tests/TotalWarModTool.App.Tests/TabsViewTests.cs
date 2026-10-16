@@ -946,4 +946,63 @@ public class TabsViewTests
             setup.Window.Close();
         }
     });
+
+    // The document bar above the grid shows the row commands of the selected tab; the buttons are those of the RowCommandsViewModel.
+    [Fact] public void An_editable_tab_shows_the_row_command_bar_bound_to_the_row_commands() => Sta.Run(() =>
+    {
+        var tabs = new TabsViewModel(Texts);
+        var rowCommands = new RowCommandsViewModel(tabs, Texts);
+        tabs.RowCommands = rowCommands;
+        var setup = Create(tabs);
+        var document = TotalWarModTool.Editing.RowsDocument.ForLoc("text/db/a.loc", [new LocRow("k", "Text", false)]);
+        var rows = new EditableRowsTabViewModel(TabSource.ForProject(Guid.NewGuid(), "Project"), "text/db/a.loc.tsv", Texts, tabs.Close, document,
+            new TotalWarModTool.UndoRedo.ActionHistory());
+        tabs.Tabs.Add(rows);
+        tabs.SelectedTab = rows;
+        Pump(setup.Window);
+
+        var bar = Descendants<WrapPanel>(setup.View).Single(p => p.Name == "RowCommandBar");
+        var buttons = bar.Children.OfType<Button>().ToList();
+        Assert.Equal([Texts.GridInsertRow, Texts.GridDuplicateRows, Texts.GridDeleteRows, Texts.GridCopy, Texts.GridPaste], buttons.Select(b => b.Content));
+        Assert.Same(rowCommands.DeleteRowsCommand, buttons[2].Command);
+        Assert.Equal(Texts.ToolbarSelectRows, buttons[2].ToolTip);
+        Assert.All(buttons, b => Assert.False(b.Focusable));
+        Assert.Equal(Visibility.Visible, bar.Visibility);
+        setup.Window.Close();
+    });
+
+    [Fact] public void A_read_only_vanilla_table_shows_the_bar_with_copy_enabled_only() => Sta.Run(() =>
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.RowCommands = new RowCommandsViewModel(tabs, Texts);
+        tabs.Clipboard = new FakeClipboard();                                     // copy needs a clipboard and a selected row
+        var setup = Create(tabs);
+        tabs.Add(Pack, TableEntry(["unit_key", "cost"], [["a", "1"]]), null);
+        var table = Assert.IsType<TableTabViewModel>(tabs.SelectedTab);
+        Pump(setup.Window);
+        // The selection comes from the grid: once loaded it hands its own (empty) selection to the tab, so the row is selected in the grid.
+        setup.Grid.SelectedItems.Add(setup.Grid.Items[0]);
+        Pump(setup.Window);
+        Assert.Equal([0], table.SelectedRows);
+
+        var bar = Descendants<WrapPanel>(setup.View).Single(p => p.Name == "RowCommandBar");
+        var buttons = bar.Children.OfType<Button>().ToList();
+        Assert.Equal([false, false, false, true, false], buttons.Select(b => b.IsEnabled));
+        Assert.Equal(Texts.ToolbarReadOnly, buttons[2].ToolTip);
+        setup.Window.Close();
+    });
+
+    [Fact] public void An_object_tab_has_no_row_command_bar() => Sta.Run(() =>
+    {
+        var tabs = new TabsViewModel(Texts);
+        tabs.RowCommands = new RowCommandsViewModel(tabs, Texts);
+        var setup = Create(tabs);
+        var tab = new ObjectTabViewModel(Texts, tabs.Close, [new ObjectRef("units_tables", ["a"], null)], 0, key => key);
+        tabs.Tabs.Add(tab);
+        tabs.SelectedTab = tab;
+        Pump(setup.Window);
+
+        Assert.DoesNotContain(Descendants<WrapPanel>(setup.View), p => p.Name == "RowCommandBar");
+        setup.Window.Close();
+    });
 }

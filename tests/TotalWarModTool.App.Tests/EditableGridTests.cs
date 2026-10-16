@@ -90,22 +90,7 @@ public class EditableGridTests
         return Task.CompletedTask;
     });
 
-    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is T match)
-            {
-                yield return match;
-            }
-
-            foreach (var nested in Descendants<T>(child))
-            {
-                yield return nested;
-            }
-        }
-    }
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject => Tree.VisualDescendants<T>(root);
 
     // Puts a cell into edit mode, as a double click or F2 does.
     private static FrameworkElement BeginEdit(Setup setup, int row, int column)

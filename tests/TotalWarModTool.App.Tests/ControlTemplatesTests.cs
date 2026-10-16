@@ -86,22 +86,7 @@ public class ControlTemplatesTests
         ];
     }
 
-    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is T match)
-            {
-                yield return match;
-            }
-
-            foreach (var nested in VisualDescendants<T>(child))
-            {
-                yield return nested;
-            }
-        }
-    }
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root) where T : DependencyObject => Tree.VisualDescendants<T>(root);
 
     private static Color ColorOf(object? brush) => ((SolidColorBrush)brush!).Color;
 

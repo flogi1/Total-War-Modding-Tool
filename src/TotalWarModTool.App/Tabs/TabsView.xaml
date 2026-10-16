@@ -28,6 +28,47 @@
         </DataTemplate>
 
         <!--
+            The document bar above the grid of a table or loc tab: insert, duplicate, delete, copy and paste. The buttons are those of the row
+            commands of the view model (they follow the selected tab and give the reason in the tool tip while a command cannot run). Without
+            row commands the bar is hidden. DataContext is the tab.
+        -->
+        <DataTemplate x:Key="RowCommandBar">
+            <WrapPanel x:Name="RowCommandBar" Margin="6,4,6,0">
+                <WrapPanel.Style>
+                    <Style TargetType="WrapPanel">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.RowCommands, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                                         Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </WrapPanel.Style>
+                <Button Padding="8,2" Focusable="False" ToolTipService.ShowOnDisabled="True"
+                        Content="{Binding DataContext.Texts.GridInsertRow, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        Command="{Binding DataContext.RowCommands.InsertRowCommand, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        ToolTip="{Binding DataContext.RowCommands.InsertRowToolTip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                <Button Padding="8,2" Margin="2,0,0,0" Focusable="False" ToolTipService.ShowOnDisabled="True"
+                        Content="{Binding DataContext.Texts.GridDuplicateRows, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        Command="{Binding DataContext.RowCommands.DuplicateRowsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        ToolTip="{Binding DataContext.RowCommands.DuplicateRowsToolTip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                <Button Padding="8,2" Margin="2,0,0,0" Focusable="False" ToolTipService.ShowOnDisabled="True"
+                        Content="{Binding DataContext.Texts.GridDeleteRows, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        Command="{Binding DataContext.RowCommands.DeleteRowsCommand, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        ToolTip="{Binding DataContext.RowCommands.DeleteRowsToolTip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                <Rectangle Width="1" Margin="6,2" VerticalAlignment="Stretch" Fill="{DynamicResource Theme.Separator}" />
+                <Button Padding="8,2" Margin="2,0,0,0" Focusable="False" ToolTipService.ShowOnDisabled="True"
+                        Content="{Binding DataContext.Texts.GridCopy, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        Command="{Binding DataContext.RowCommands.CopyCommand, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        ToolTip="{Binding DataContext.RowCommands.CopyToolTip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+                <Button Padding="8,2" Margin="2,0,0,0" Focusable="False" ToolTipService.ShowOnDisabled="True"
+                        Content="{Binding DataContext.Texts.GridPaste, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        Command="{Binding DataContext.RowCommands.PasteCommand, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}"
+                        ToolTip="{Binding DataContext.RowCommands.PasteToolTip, RelativeSource={RelativeSource AncestorType={x:Type local:TabsView}}}" />
+            </WrapPanel>
+        </DataTemplate>
+
+        <!--
             The line of a project tab whose file was changed or deleted outside: what happened (the same text as the tool tip of the mark) and the
             button that reads the file again. The button shows only while the tab has no changes of its own (CanReload). DataContext is the tab.
         -->
@@ -63,6 +104,7 @@
         -->
         <DataTemplate DataType="{x:Type local:EditableRowsTabViewModel}">
             <DockPanel>
+                <ContentPresenter x:Name="RowCommandBarHost" DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource RowCommandBar}" />
                 <ContentPresenter x:Name="OutsideChange" DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource OutsideChangeBar}"
                                   Visibility="{Binding IsStaleOutside, Converter={StaticResource BoolToVisibility}}" />
                 <DockPanel DockPanel.Dock="Top">
@@ -113,6 +155,7 @@
         <!-- A table: the line above the grid with the switch beside it, the notice (only in the text view), then the grid or the text. The grid builds its columns from the names. -->
         <DataTemplate DataType="{x:Type local:TableTabViewModel}">
             <DockPanel>
+                <ContentPresenter x:Name="RowCommandBarHost" DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource RowCommandBar}" />
                 <DockPanel DockPanel.Dock="Top">
                     <ContentPresenter DockPanel.Dock="Right" Margin="6,2" Content="{Binding}" ContentTemplate="{StaticResource ViewSwitch}" />
                     <TextBlock Text="{Binding Header}" Margin="6,4" VerticalAlignment="Center" />
@@ -155,6 +198,7 @@
         <!-- A loc file: three fixed columns, or the text. The headers are elements so that they can read the texts of the view. -->
         <DataTemplate DataType="{x:Type local:LocTabViewModel}">
             <DockPanel>
+                <ContentPresenter x:Name="RowCommandBarHost" DockPanel.Dock="Top" Content="{Binding}" ContentTemplate="{StaticResource RowCommandBar}" />
                 <DockPanel DockPanel.Dock="Top">
                     <ContentPresenter DockPanel.Dock="Right" Margin="6,2" Content="{Binding}" ContentTemplate="{StaticResource ViewSwitch}" />
                     <TextBlock Text="{Binding Header}" Margin="6,4" VerticalAlignment="Center" />

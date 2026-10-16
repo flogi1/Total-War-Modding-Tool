@@ -425,6 +425,11 @@ Release-Tool und Self-Update (frühe eigene Specs, weil öffentlich)
 - `ApplyEnvironmentReason` kennt `MissingReason` nicht: Die Tooltips sagen „veraltet“, nachdem die Versionen unvollständig geworden sind
 - Der Cache der anlegbaren Tabellen im `ProjectFilesController` vergleicht die Versionen mit `ReferenceEquals` und läuft nach jedem Aktualisieren neu; `SameAs` nutzen
 
+== Aus Interface-Umbau Plan 1 (Leisten) zurückgestellt ==
+
+- Einstellungsseiten Kachelzeile/Werkzeugleiste: Ein Häkchen in der `ReorderListBox` baut die Liste neu, der Tastaturfokus geht dabei verloren; Fokus nach dem Neuaufbau auf das Häkchen derselben Zeile setzen (wie die Pfeilknöpfe mit `FocusLater`)
+- Kacheln mit Abzeichen und Untermenü haben noch keinen Nutzer (API aus PMT übernommen, Menüpfad der `TileBar` ungetestet)
+
 == Wartet auf ein öffentliches Remote ==
 
 - Remote für das lokale Repo festlegen (bisher nur lokal)

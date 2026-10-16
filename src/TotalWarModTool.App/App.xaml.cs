@@ -206,7 +206,7 @@ public partial class App : Application
         objects.CopyHandler = objectApply.CopyAsync;
         objectApply.FilesChanged += (_, projectId) => projectFilesController.NotifyFilesChanged(projectId);
 
-        // The wizards of the menu Tools write through the copy path of the apply controller.
+        // The wizards of the tile bar write through the copy path of the apply controller.
         viewModel.Wizards = new ObjectWizardController(objects, objectApply, projects, progressRunner, objectDialogs, log, texts);
 
         SessionCoordinator? session = null;
@@ -218,7 +218,7 @@ public partial class App : Application
             _sessionSaver = saver;
         }
 
-        var window = new MainWindow(viewModel);
+        var window = new MainWindow(viewModel, settings);
         mainWindow = window;
 
         // Unsaved changes: a close that the controller does not allow now is cancelled; the controller asks and, when the answer is "go on", has the
