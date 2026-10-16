@@ -728,9 +728,39 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
   Schlüssel der Vorlage-Kette und `_` (zum Beispiel Kette `foo_chain`, Stufen `foo_chain_1` bis `_n`), macht Regel 3 der
   Kopierregel sie zu Unterobjekten der Ketten-Kopie. `BuildingWizard.Compose` übernimmt im Zweig „Neue Kette“ deshalb nur
   die Objekte der Ketten-Kopie, deren Tabelle nicht die Stufentabelle ist; die neue Kette beginnt mit der einen neuen
-  Stufe. Echtdaten (`A_new_chain_of_a_template_never_holds_a_stage_of_the_template_chain`, je bis zu 30 Vorlagen von
+  Stufe. Echtdaten (`A_new_chain_of_a_template_never_holds_or_points_at_a_stage_of_the_template_chain`, je bis zu 30 Vorlagen von
   `wh_main_sc_emp_empire`, `filter_all` und `wh2_main_rogue`): von 90 geprüften Vorlagen trug die Ketten-Kopie bei 69 ein
   Unterobjekt der Stufentabelle, nach `Compose` bleibt genau ein Objekt der Stufentabelle.
+- **Neue Kette: Verweise auf Stufen und Kette der Vorlage (Nachtrag 2026-10-14, nach dem ersten Spielstart):** Die Kopierregel
+  schreibt in kopierten Zeilen nur Schlüsselfelder um, die genau den alten Wurzelschlüssel tragen. Die Ketten-Kopie kennt die neue Stufe
+  nicht, die Stufen-Kopie nicht die neue Kette. Im Testpack (Vorlage `wh_main_emp_barracks_1`, Kette `..._copy_chain`) zeigten deshalb
+  `cai_construction_system_synergies.potential_building_level_inclusive_start/end` noch auf `wh_main_emp_barracks_1`, und die Zeile in
+  `cai_construction_system_unblocking_buildings` lief von der neuen Stufe bis `wh_main_emp_barracks_3` (zwei Ketten). Das Spiel startet
+  damit, die AI-Daten sind aber falsch. Regel: `BuildingWizard.Compose` ruft im Zweig „Neue Kette“ nach dem Zusammensetzen
+  `ObjectCopy.RetargetReferences` für alle Objekte beider Kopien auf.
+  - In jeder Abschnittszeile bekommt jedes Feld, dessen Schema-Referenz (neueste Definition der Abschnittstabelle, Zieltabelle über
+    `ResolveTableName`) auf die Stufentabelle zeigt und das die Vorlage-Stufe trägt, den neuen Stufenschlüssel. Ebenso bekommt jedes Feld
+    mit Referenz auf die Kettentabelle und dem Wert der Vorlage-Kette die neue Kette. Maßgeblich ist die Referenz, nicht der Feldname;
+    Schlüsselfelder und andere Felder gleich, Werte ordinal.
+  - Zeigt danach noch ein Feld der Zeile mit Referenz auf die Stufentabelle auf eine andere Stufe der Vorlage-Kette, entfällt die Zeile
+    mit dem Hinweis `ForeignKeyRows` auf ihre Tabelle. Die neue Kette hat nur die eine neue Stufe; eine Zeile über andere Stufen gehört
+    nicht zu ihr. Leere Werte und Stufen anderer Ketten bleiben.
+  - Wurzelfelder werden nicht umgeschrieben (die Felder der neuen Stufe setzt `Compose`). Ein Abschnitt ohne Zeilen entfällt.
+  - `Compose` bekommt dafür den Referenzgraphen und `TemplateChain` (Vorlage-Stufe, Vorlage-Kette, Stufenschlüssel der Kette aus
+    `BuildingCatalog.StagesOf`); `TemplateChain` ist Pflicht, wenn eine Ketten-Kopie übergeben wird.
+  - „Stufe in bestehender Kette“ und „Kopieren als“ bleiben unverändert (dort liegt die Kopie in derselben Kette wie die übrigen Stufen;
+    Backlog).
+- **Stufenbereiche werden nicht gekappt (verworfen nach Spike):** Die Idee „ein Bereich, der die Vorlage enthält, wird zu neue Stufe bis
+  neue Stufe“ widerlegt der Spike vom 2026-10-14: Schema und Stufennummer unterscheiden einen Bereich (`building_start`/`building_end`) nicht
+  von einer Beziehung (`building_downgrade_junctions.from`/`to`); dieselbe Regel machte aus 16 Abstufungen Schleifen der neuen Stufe auf
+  sich selbst. Preis der Verwerfen-Regel: von 183 verworfenen Zeilen in 400 Vorlagen waren 20 Bereiche, die die Vorlage enthielten
+  (14 `cai_construction_system_building_values`, 4 `cai_construction_system_unblocking_buildings`, 2
+  `cai_construction_system_blocking_buildings`), darunter die Zeile aus dem Testpack. Bereichsfelder als Daten im Profil: Backlog.
+- **Gleiche Inserts einer Kopie nur einmal (Nachtrag 2026-10-14):** `ObjectCopy.Changes` lässt einen Insert weg, dessen Tabelle (ohne
+  Beachtung der Groß-/Kleinschreibung) und Zellen (ordinal) einem früheren Insert der Kopie gleichen. Eine Zeile, die auf Vorlage-Stufe und Vorlage-Kette zugleich zeigt
+  (`cai_construction_system_building_values`), steht in beiden Kopien und ist nach dem Umschreiben gleich; eine Zeile, die die Vorlage
+  zweimal nennt (`building_downgrade_junctions` von und nach der Vorlage), steht in zwei Abschnitten. Ohne Entdopplung meldet `TakenKeys`
+  sie als belegt, und der Assistent bricht ab. Zeilen mit gleichem Schlüssel und anderen Zellen bleiben ein belegter Schlüssel.
 - **Alle Kultur-Varianten der Vorlage werden kopiert:** Auch Varianten anderer Völker (Regel 2 der
   Kopierregel); der Assistent filtert nicht. Die Spieltexte `name` aller kopierten Varianten bekommen den
   Zusatz `nameSuffix`.
@@ -1001,6 +1031,10 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
     für neue Dateien.
 - `UndoRedo`: `FileContentsStep` Undo/Redo mit Temp-Dateien; Fingerprint-Abweichung lässt den
   Schritt stehen; neue Datei wandert in den Papierkorb und zurück.
+- `ObjectCopy.RetargetReferences` und `BuildingWizard.Compose` (Nachtrag 2026-10-14): Umschreiben nach Schema-Referenz in
+  Schlüssel- und Nicht-Schlüsselfeldern, gleicher Wert in einem Feld ohne Referenz bleibt, Zeile mit anderer Stufe entfällt mit Hinweis,
+  leere Werte und fremde Stufen bleiben; `ObjectCopy.Changes` entdoppelt gleiche Inserts, ungleiche Zellen bleiben; Echtdaten: keine kopierte Zeile zeigt
+  auf eine Stufe der Vorlage-Kette, die nicht kopiert wurde.
 - Echtdaten (übersprungen ohne `TWMT_WH3_DIR`): Round-Trip für `wh_main_emp_barracks_2`,
   `wh_main_emp_empire` und einen Trait; `ObjectCopy` der Kaserne kopiert die Junction-Zeilen und die
   Kultur-Variante, nicht die 3 Zeilen aus `technologies` (eigener Schlüssel), und nennt diese im
@@ -1036,7 +1070,7 @@ Ketten- und Stufenlogik oben. Die Felder und Tabellen kommen aus Schema und Date
 | 4 | Kein Feldwert endet auf Leerzeichen, kein Loc-Text braucht mehr als `\"` und `\n`. | Plan 1 Echtdaten-Round-Trip über alle Tabellen und Loc der Ladereihenfolge (`No_value_holds_a_control_character_or_the_dialect_escape`, wie 4.1 Annahme 6). Ergebnis Plan 1: in der ersten Fassung widerlegt, Regeln angepasst, siehe unten. |
 | 5 | Die History mit vorherigen Dateiinhalten bleibt unter 200 MB in einer Sitzung. | Messung in der Abnahme von Plan 3a (2026-10-10, zehn Dateikopien großer Tabellen, Speicher beobachtet): **bestätigt**, unter 200 MB (Angabe des Nutzers, ohne genaue Zahl). Plan 2 hält `Previous` und `Next` im Schritt; ein Auslagern in den Papierkorb ist nicht nötig. |
 | 6 | AvalonEdit baut mit `TreatWarningsAsErrors`, Central Package Management und `net8.0-windows` ohne Sonderbehandlung. | Spike vor Plan 3 (2026-10-10): bestätigt, siehe unten. Plan 3, erste Task, übernimmt Paket und Notiz in `THIRD-PARTY-NOTICES.md`. |
-| 7 | Eine Kette aus „Neue Kette“ bringt die 16 `cai_construction_system_synergies`-Zeilen und die `cai_construction_system_building_values`-Zeile der Vorlage-Kette mit (Spike vor Plan 4). Ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette. Das Spiel startet damit ohne Fehler, und die AI baut nicht offensichtlich falsch. | Abnahme Plan 4 mit Spielstart. Widerlegt: Kategorie-Datei für Ketten mit versteckten `cai_*`-Abschnitten (Backlog). |
+| 7 | Eine Kette aus „Neue Kette“ bringt die 16 `cai_construction_system_synergies`-Zeilen und die `cai_construction_system_building_values`-Zeile der Vorlage-Kette mit (Spike vor Plan 4). Ihre Stufenbereiche zeigen auf Stufen der Vorlage-Kette. Das Spiel startet damit ohne Fehler, und die AI baut nicht offensichtlich falsch. | Abnahme Plan 4 mit Spielstart. Widerlegt: Kategorie-Datei für Ketten mit versteckten `cai_*`-Abschnitten (Backlog). Spielstart 2026-10-14 (Angabe des Nutzers): das Spiel startet, aber die Stufenbereiche zeigten auf die Vorlage-Kette (falsche AI-Daten). Seither schreibt „Neue Kette“ die Verweise auf die neue Stufe und Kette um und verwirft Zeilen über andere Stufen der Vorlage-Kette (5.8, Nachtrag 2026-10-14). Offen: AI baut die neue Kette sinnvoll. |
 | 8 | Kopierte Junction-Zeilen, die ein Vanilla-Objekt an die Kopie binden (`technology_required_building_levels_junctions`: die Technologien `wh_main_tech_emp_barracks_4` bis `_6` nennen danach auch die Kopie), ändern das Verhalten der Vanilla-Objekte nicht (das Spiel liest mehrere geforderte Stufen als „eine davon“). | Abnahme Plan 4 mit Spielstart: die Technologien bleiben wie vorher erforschbar. Nach „Kopieren als“ von `wh_main_emp_barracks_2` zusätzlich prüfen, dass die Vanilla-Kaserne `wh_main_emp_barracks_1` die Kopie nicht als zusätzlichen Ausbauzweig anbietet und die Gebäudesets sich verhalten wie vorher („Kopieren als“ kopiert die Zeilen der Upgrade- und der Set-Junction; der Assistent entfernt die Upgrade-Zeilen, „Kopieren als“ nicht). Widerlegt: Regel für solche Junctions (nicht kopieren oder Hinweis), Entscheidung mit dem Nutzer. |
 
 ### Ergebnisse des Echtdaten-Laufs von Plan 1 (2026-10-10, WH3 Vanilla, schreibt nichts)
@@ -1104,6 +1138,26 @@ mit der Ladereihenfolge). Der Test ist wieder entfernt.
   144 Stufen haben mehr als ein `upgrades to` (Verzweigung). Die „höchste Stufe“ ist also nicht immer eindeutig.
 - **Kultur-Varianten:** 5858 Zeilen, 133 Stufen haben mehrere Varianten; `culture` gesetzt bei 2908, `subculture` bei 427,
   `faction` bei 858. 33 Subkulturen. Vorlagen für `wh_main_sc_emp_empire` (Variante mit der Subkultur oder ihrer Kultur): 107.
+
+### Ergebnis des Spikes zu Stufenverweisen der neuen Kette (2026-10-14, WH3 Vanilla und aktive Mods, schreibt nichts)
+
+Wegwerf-Test über `ObjectCopy.Rename` beider Kopien, `BuildingWizard.Compose` (Stand vor dem Nachtrag), `ObjectCopy.Changes` und
+`TakenKeys`; die ersten 400 von 2775 Vorlagen (alle Subkulturen, Reihenfolge der Liste), alle mit Kette. Der Test ist wieder entfernt.
+
+- **Felder mit Referenz auf die Stufentabelle in kopierten Zeilen:** 1273 leer; Vorlage-Stufe in `building_downgrade_junctions.from`/`to`
+  (je 90), `cai_construction_system_building_values` (Bereichsanfang und -ende je 72) und `cai_construction_system_synergies` (je 2);
+  andere Stufe der Vorlage-Kette in `building_values` (je 150), `synergies` (je 7), `building_downgrade_junctions` (je 8),
+  `unblocking_buildings` (Anfang 3, Ende 1), `blocking_buildings` (je 1); Stufen anderer Ketten in `synergies.potential_*` (je 34) und
+  `building_level_required_buildings` (je 6).
+- **Verweise auf die Vorlage-Kette in der Stufen-Kopie:** 74 in `cai_construction_system_building_values.building_chain`.
+- **Mit der Regel aus 5.8 (Nachtrag):** verworfen werden 154 Zeilen in `building_values`, 16 in `building_downgrade_junctions`, 7 in
+  `synergies`, 4 in `unblocking_buildings` und 2 in `blocking_buildings`. Keine kopierte Zeile zeigt danach auf eine nicht kopierte Stufe
+  der Vorlage-Kette. Die Zahl der Spieltexte bleibt gleich (971).
+- **Belegte Schlüssel:** Vor dem Nachtrag meldete `TakenKeys` bei 94 Vorlagen doppelte Inserts innerhalb der Kopie, danach bei keiner.
+  Gegen die Ladereihenfolge bleiben 141 von 400 Vorlagen mit belegtem Schlüssel (vorher 160), nur in
+  `building_level_armed_citizenry_junctions` (Zahlschlüssel der Vorlage unverändert kopiert) und
+  `campaign_settlement_display_building_ids`. Beides bestand schon vorher und ist nicht Teil des Nachtrags (Backlog); der Assistent bricht
+  für diese Vorlagen mit der Meldung über belegte Schlüssel ab.
 
 ### Ergebnis des Spikes zu Annahme 6 (2026-10-10, AvalonEdit)
 

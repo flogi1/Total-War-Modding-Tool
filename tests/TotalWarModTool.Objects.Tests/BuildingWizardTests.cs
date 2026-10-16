@@ -17,7 +17,15 @@ public class BuildingWizardTests
         ("variants_tables", 1, [Field("building", key: true, reference: ("levels", "level_name")), Field("culture", key: true), Field("subculture", key: true),
             Field("faction", key: true)]),
         ("subcultures_tables", 1, [Field("subculture", key: true), Field("culture")]),
-        ("upgrades_tables", 1, [Field("from", key: true, reference: ("levels", "level_name")), Field("to", key: true, reference: ("levels", "level_name"))]));
+        ("upgrades_tables", 1, [Field("from", key: true, reference: ("levels", "level_name")), Field("to", key: true, reference: ("levels", "level_name"))]),
+        ("ranges_tables", 1,
+            [Field("chain", key: true, reference: ("chains", "key")), Field("start", key: true, reference: ("levels", "level_name")),
+                Field("end", key: true, reference: ("levels", "level_name"))]));
+
+    private static readonly ReferenceGraph Graph = ReferenceGraph.Build(Schema, GameTableVersions.Empty);
+
+    /// <summary>The template "template_l" in the chain "template_chain" with the stages template_l and l2.</summary>
+    private static readonly TemplateChain Template = new("template_l", "template_chain", ["template_l", "l2"]);
 
     private static object?[] R(params object?[] cells) => cells;
 
@@ -185,7 +193,7 @@ public class BuildingWizardTests
     [Fact]
     public void A_new_chain_points_the_level_at_the_copied_chain_at_level_zero_and_drops_the_upgrades()
     {
-        var result = BuildingWizard.Compose(Definition, LevelCopy(), ChainCopy(), null, " (copy)");
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), ChainCopy(), null, " (copy)", Graph, Template);
 
         Assert.Equal(["levels_tables", "sub_tables", "chains_tables"], result.Objects.Select(o => o.Id.Table));
         var level = result.Objects[0];
@@ -208,7 +216,7 @@ public class BuildingWizardTests
         ],
         []);
 
-        var result = BuildingWizard.Compose(Definition, LevelCopy(), chainCopy, null, " (copy)");
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), chainCopy, null, " (copy)", Graph, Template);
 
         var levels = result.Objects.Where(o => o.Id.Table == "levels_tables").ToList();
         Assert.Equal("new_l", Assert.Single(levels).Id.KeyValues[0]);
@@ -221,7 +229,7 @@ public class BuildingWizardTests
     {
         var chainCopy = ChainCopy(new CopyNote(CopyNoteKind.ForeignKeyRows, "levels_tables", 3), new CopyNote(CopyNoteKind.ForeignKeyRows, "other", 1));
 
-        var result = BuildingWizard.Compose(Definition, LevelCopy(), chainCopy, null, " (copy)");
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), chainCopy, null, " (copy)", Graph, Template);
 
         Assert.Equal(new CopyNote(CopyNoteKind.ForeignKeyRows, "other", 1), Assert.Single(result.Notes));
     }
@@ -232,7 +240,7 @@ public class BuildingWizardTests
         var levelCopy = LevelCopy(new CopyNote(CopyNoteKind.ForeignKeyRows, "other", 2), new CopyNote(CopyNoteKind.HiddenSection, "h", 1));
         var chainCopy = ChainCopy(new CopyNote(CopyNoteKind.ForeignKeyRows, "other", 1));
 
-        var result = BuildingWizard.Compose(Definition, levelCopy, chainCopy, null, " (copy)");
+        var result = BuildingWizard.Compose(Definition, levelCopy, chainCopy, null, " (copy)", Graph, Template);
 
         Assert.Equal([new CopyNote(CopyNoteKind.ForeignKeyRows, "other", 3), new CopyNote(CopyNoteKind.HiddenSection, "h", 1)], result.Notes);
     }
@@ -240,7 +248,7 @@ public class BuildingWizardTests
     [Fact]
     public void A_template_without_chain_gets_no_chain_and_a_note()
     {
-        var result = BuildingWizard.Compose(Definition, LevelCopy(), null, null, " (copy)");
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), null, null, " (copy)", Graph, null);
 
         Assert.Equal(["levels_tables", "sub_tables"], result.Objects.Select(o => o.Id.Table));
         Assert.Equal("template_chain", RootField(result.Objects[0], "chain"));
@@ -252,7 +260,7 @@ public class BuildingWizardTests
     [Fact]
     public void A_stage_in_an_existing_chain_follows_the_chosen_stage()
     {
-        var result = BuildingWizard.Compose(Definition, LevelCopy(), null, new BuildingStage("l3", 2, null), " (copy)");
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), null, new BuildingStage("l3", 2, null), " (copy)", Graph, null);
 
         var level = Assert.Single(result.Objects, o => o.Id.Table == "levels_tables");
         Assert.Equal("3", RootField(level, "level"));
@@ -268,7 +276,7 @@ public class BuildingWizardTests
     [Fact]
     public void The_name_texts_get_the_suffix()
     {
-        var result = BuildingWizard.Compose(Definition, LevelCopy(), ChainCopy(), null, " (copy)");
+        var result = BuildingWizard.Compose(Definition, LevelCopy(), ChainCopy(), null, " (copy)", Graph, Template);
 
         var variants = Assert.Single(result.Objects[0].Sections, s => s.SourceTable == "variants_tables");
         Assert.Equal("Barracks (copy)", Assert.Single(Assert.Single(variants.Rows).Texts).Text);
@@ -280,7 +288,78 @@ public class BuildingWizardTests
     {
         var level = Level([]) with { Root = [new ParsedField("level_name", "new_l", 0)] };
 
-        Assert.Throws<InvalidOperationException>(() => BuildingWizard.Compose(Definition, new CopyResult([level], []), null, null, ""));
+        Assert.Throws<InvalidOperationException>(() => BuildingWizard.Compose(Definition, new CopyResult([level], []), null, null, "", Graph, null));
+    }
+
+    private static ParsedRow RangeRow(params (string Name, string Text)[] fields) =>
+        new(fields.Select(f => new ParsedField(f.Name, f.Text, 0)).ToList(), [], 0);
+
+    private static (string Name, string Text)[] RowFields(ParsedSection section) => Assert.Single(section.Rows).Fields.Select(f => (f.Name, f.Text)).ToArray();
+
+    [Fact]
+    public void A_new_chain_points_the_copied_rows_at_the_new_stage_and_chain_and_drops_rows_of_other_stages()
+    {
+        // The level copy reaches the range through "start"; the chain copy through "chain" (ObjectCopy left the other fields as they were).
+        var levelCopy = LevelCopy();
+        levelCopy = levelCopy with
+        {
+            Objects =
+            [
+                levelCopy.Objects[0] with
+                {
+                    Sections =
+                    [
+                        .. levelCopy.Objects[0].Sections,
+                        new ParsedSection("ranges_tables", "start",
+                            [RangeRow(("chain", "template_chain"), ("end", "template_l")), RangeRow(("chain", "template_chain"), ("end", "l2"))], 0),
+                    ],
+                },
+                .. levelCopy.Objects.Skip(1),
+            ],
+        };
+        var chainCopy = ChainCopy() with
+        {
+            Objects =
+            [
+                ChainCopy().Objects[0] with
+                {
+                    Sections =
+                    [
+                        new ParsedSection("ranges_tables", "chain",
+                            [RangeRow(("start", "template_l"), ("end", "template_l")), RangeRow(("start", "l2"), ("end", "l2")), RangeRow(("start", "x1"), ("end", "x1"))], 0),
+                    ],
+                },
+            ],
+        };
+
+        var result = BuildingWizard.Compose(Definition, levelCopy, chainCopy, null, " (copy)", Graph, Template);
+
+        Assert.Equal([("chain", "new_l_chain"), ("end", "new_l")], RowFields(Assert.Single(result.Objects[0].Sections, s => s.SourceTable == "ranges_tables")));
+        var chainRanges = Assert.Single(result.Objects[2].Sections);
+        Assert.Equal([[("start", "new_l"), ("end", "new_l")], [("start", "x1"), ("end", "x1")]],
+            chainRanges.Rows.Select(r => r.Fields.Select(f => (f.Name, f.Text)).ToArray()).ToArray());
+        Assert.Equal(new CopyNote(CopyNoteKind.ForeignKeyRows, "ranges_tables", 2), Assert.Single(result.Notes));
+    }
+
+    [Fact]
+    public void A_stage_in_an_existing_chain_keeps_the_references_of_the_template()
+    {
+        var levelCopy = LevelCopy();
+        levelCopy = levelCopy with
+        {
+            Objects = [levelCopy.Objects[0] with { Sections = [new ParsedSection("ranges_tables", "start", [RangeRow(("chain", "template_chain"), ("end", "l2"))], 0)] }],
+        };
+
+        var result = BuildingWizard.Compose(Definition, levelCopy, null, new BuildingStage("l2", 1, null), " (copy)", Graph, null);
+
+        Assert.Equal([("chain", "template_chain"), ("end", "l2")], RowFields(Assert.Single(result.Objects[0].Sections, s => s.SourceTable == "ranges_tables")));
+        Assert.Empty(result.Notes);
+    }
+
+    [Fact]
+    public void A_chain_copy_needs_the_template_chain()
+    {
+        Assert.Throws<ArgumentException>(() => BuildingWizard.Compose(Definition, LevelCopy(), ChainCopy(), null, " (copy)", Graph, null));
     }
 
     [Fact]

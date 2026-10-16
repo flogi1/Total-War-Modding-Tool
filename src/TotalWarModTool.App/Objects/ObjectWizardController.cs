@@ -179,6 +179,9 @@ public sealed class ObjectWizardController : ObservableObject
 
         // Taken on this thread: the catalog says whether the template has a chain to copy.
         var templateChain = answer.After is null ? catalog.ChainOf(answer.Template) : null;
+        var template = templateChain is null
+            ? null
+            : new TemplateChain(answer.Template, templateChain, catalog.StagesOf(templateChain).Select(stage => stage.LevelKey).ToList());
         var levelId = new ObjectId(definition.LevelTable, [answer.Template]);
         var newId = new ObjectId(definition.LevelTable, [answer.Key]);
         var description = "New building: " + DisplayText.Safe(answer.Key);
@@ -193,7 +196,7 @@ public sealed class ObjectWizardController : ObservableObject
                     ? null
                     : ObjectCopy.Rename(Build(new ObjectId(definition.ChainTable, [templateChain])), BuildingWizard.ChainIdFor(definition, answer.Key), Build,
                         _objects.CategoryOf, s.Graph, integerKeys);
-                return BuildingWizard.Compose(definition, levelCopy, chainCopy, answer.After, wizards.NameSuffix);
+                return BuildingWizard.Compose(definition, levelCopy, chainCopy, answer.After, wizards.NameSuffix, s.Graph, template);
             },
             loaded.Order, project, stores, description, DisplayText.Safe(answer.Key), () => true);
         if (done is null)
