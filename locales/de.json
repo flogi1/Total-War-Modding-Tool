@@ -40,7 +40,7 @@
   "progress.count": "{0} / {1}",
   "progress.percent": "{0} %",
   "error.operationFailed.title": "Vorgang fehlgeschlagen",
-  "error.operationFailed.message": "„{0}“ konnte nicht abgeschlossen werden: {1} Details stehen im Log (Werkzeuge, Log-Ordner öffnen).",
+  "error.operationFailed.message": "„{0}“ konnte nicht abgeschlossen werden: {1} Details stehen im Log (Hilfe, Log-Ordner öffnen).",
   "crash.title": "Unerwarteter Fehler",
   "crash.message": "Total War Modding Tool ist auf einen unerwarteten Fehler gestoßen. Deine Einstellungen sind sicher. Du kannst weiterarbeiten, ein Neustart der App ist aber sicherer.",
   "crash.fatalMessage": "Total War Modding Tool ist auf einen unerwarteten Fehler gestoßen und muss beendet werden. Details stehen im Log.",

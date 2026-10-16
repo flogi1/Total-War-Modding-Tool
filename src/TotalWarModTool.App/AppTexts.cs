@@ -29,7 +29,7 @@ public sealed partial class AppTexts(UiText ui) : TextsBase(ui)
     /// <param name="operation">Title of the operation that failed.</param>
     /// <param name="reason">Message of the exception.</param>
     public string OperationFailedMessage(string operation, string reason) =>
-        F("error.operationFailed.message", "\"{0}\" could not be completed: {1} The log contains details (Tools, Open log folder).", operation, reason);
+        F("error.operationFailed.message", "\"{0}\" could not be completed: {1} The log contains details (Help, Open log folder).", operation, reason);
 
     public string CrashTitle => T("crash.title", "Unexpected error");
 

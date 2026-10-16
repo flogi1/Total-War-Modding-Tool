@@ -387,3 +387,15 @@ Jeder Plan erst, wenn die Interfaces des vorigen existieren.
   erfundenen (Review Focus 2); fehlende Kennungen werden in Katalogreihenfolge hinten angehängt.
 - **Task 2, bestehender Wächtertest:** `SettingsFileMapTests.Sample` kennt jetzt auch Enums, `bool`, `int` und `IReadOnlyList<string>`,
   damit der Round-Trip-Wächter die neuen Felder prüft.
+- **Task 5, Tooltip eines gesperrten Leisten-Knopfs:** Erste Zeile immer Name und Kürzel („Bauen (Ctrl+B)“), bei einem Sperrgrund
+  folgt er als zweite Zeile. Grund: Links und rechts zeigt die Leiste nur Icons; ein Tooltip nur mit dem Grund würde den Knopf nicht
+  benennen (6.3 „Tooltips nennen Name und Kürzel“). Der Plan sah den Grund statt des Namens vor.
+- **Task 5, `ToolbarBinding`:** trägt den Sperrgrund als `Func<string?>? Reason` statt als Property-Pfad (`ToolTipPath`). Eine
+  Tabelle im `MainViewModel`, kein Auflösen von Pfad-Strings. Das Fenster liest `MainViewModel.ToolbarToolTip(id)` bei jedem
+  `PropertyChanged` des View-Models und bei Sprachwechsel neu.
+- **Task 5, Trennlinien im Menü Projekt:** Die Trennlinie nach „Neue Loc-Datei“ ist nur mit den Datei-Operationen sichtbar, die vor
+  „Bauen“ nur mit den Dokumenten, damit nie zwei Trennlinien aufeinander folgen.
+- **Task 5, Rahmen der Werkzeugleiste:** PMT hat keine Fenster-Verdrahtung als Vorlage. Die Leiste hat eine 1-px-Linie
+  (`Theme.Separator`) zur Arbeitsfläche hin: oben unten, unten oben, links rechts, rechts links.
+- **Task 5, Wizards:** Der Composition Root setzt `MainViewModel.Wizards` vor dem Fenster. Das Fenster übernimmt den Wert im
+  Konstruktor und folgt zusätzlich `PropertyChanged("Wizards")` (alte Befehle abmelden, Kachelzeile neu bauen).

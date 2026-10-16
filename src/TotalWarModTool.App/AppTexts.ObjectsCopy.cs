@@ -1,7 +1,7 @@
 namespace TotalWarModTool.App;
 
 // Texts of "Copy as" on an object tab (ObjectApplyController, ObjectTabViewModel, ObjectDialogs, the editor's context menu) and of the wizards
-// (ObjectWizardController, NewBuildingWindow, the menu Tools).
+// (ObjectWizardController, NewBuildingWindow, the tile bar).
 public sealed partial class AppTexts
 {
     public string ObjectsCopyAs => T("objects.copyAs", "Copy as");
@@ -47,7 +47,7 @@ public sealed partial class AppTexts
 
     public string ObjectsEditorPaste => T("objects.editor.paste", "Paste");
 
-    // The wizards: the entry of the menu Tools, the dialogs of the new building and the new trait and why the wizard is disabled.
+    // The wizards: the tiles of the tile bar, the dialogs of the new building and the new trait and why the wizard is disabled.
     public string MenuToolsNewBuilding => T("menu.tools.newBuilding", "New building");
 
     public string MenuToolsNewTrait => T("menu.tools.newTrait", "New trait");

@@ -10,7 +10,7 @@ using TotalWarModTool.Operations;
 namespace TotalWarModTool.App;
 
 /// <summary>
-/// The wizards of the menu Tools (spec 5.8): "New building" and "New trait" load the templates of their wizard through the runner, ask the dialog
+/// The wizards of the tile bar (spec 5.8): "New building" and "New trait" load the templates of their wizard through the runner, ask the dialog
 /// and write the composed copy through the write path of the copy (<see cref="ObjectApplyController.WriteCopyAsync"/>, one undo step), then open
 /// the new object in a new tab. Lives on the UI thread; created by the composition root after the <see cref="ObjectApplyController"/>.
 /// The log gets fixed English phrases (and raw table and field names), never the localized texts of the dialogs.

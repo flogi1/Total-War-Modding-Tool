@@ -104,6 +104,36 @@ public class MainViewModelTests
         Assert.False(window.IsVisible);
     });
 
+    // Parity of the toolbar catalog and the commands: with projects, documents and files every id has a binding; without them only the
+    // refresh of the packs, and nothing throws (review focus 3).
+    [Fact] public void ToolbarBindingFor_maps_every_catalog_id_and_returns_null_for_missing_parts()
+    {
+        using var game = new TestGame();
+        var main = game.NewMain(game.NewController(), withFiles: true).Main;
+        foreach (var id in ToolbarCatalog.All)
+        {
+            var binding = main.ToolbarBindingFor(id);
+            Assert.NotNull(binding);
+            Assert.Equal(main.Texts.ToolbarLabel(id), binding.Label);
+        }
+
+        Assert.Same(main.Projects!.NewProjectCommand, main.ToolbarBindingFor(ToolbarItemIds.NewProject)!.Command);
+        Assert.Same(main.Projects.BuildAndInstallActiveCommand, main.ToolbarBindingFor(ToolbarItemIds.BuildAndInstall)!.Command);
+        Assert.Same(main.NewLocCommand, main.ToolbarBindingFor(ToolbarItemIds.NewLoc)!.Command);
+        Assert.Same(main.Documents!.RedoCommand, main.ToolbarBindingFor(ToolbarItemIds.Redo)!.Command);
+        Assert.Same(main.RefreshCommand, main.ToolbarBindingFor(ToolbarItemIds.RefreshPacks)!.Command);
+        Assert.Null(main.ToolbarBindingFor("unknown"));
+        Assert.Null(main.ToolbarBindingFor(ToolbarCatalog.Separator(1)));
+
+        // The tool tip: name and gesture, and the reason in a second line while there is one.
+        Assert.Equal("Build (Ctrl+B)\n" + main.Texts.ProjectNoneActive, main.ToolbarToolTip(ToolbarItemIds.Build));
+        Assert.Equal("Undo (Ctrl+Z)", main.ToolbarToolTip(ToolbarItemIds.Undo));
+
+        var bare = NewVm(_ => { });
+        Assert.Equal([ToolbarItemIds.RefreshPacks], ToolbarCatalog.All.Where(id => bare.ToolbarBindingFor(id) is not null));
+        Assert.Equal("Refresh pack list (F5)", bare.ToolbarToolTip(ToolbarItemIds.RefreshPacks));
+    }
+
     // For the commands that never start a run.
     private static MainViewModel NewVm(Action<string> openFolder, Action? openSettings = null)
     {

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows.Input;
 using TotalWarModTool.Operations;
 using TotalWarModTool.Schema;
+using TotalWarModTool.Settings;
 using TotalWarModTool.Workspace;
 
 namespace TotalWarModTool.App;
@@ -181,7 +182,10 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>The menu "Edit" is shown.</summary>
     public bool HasDocuments => Documents is not null;
 
-    /// <summary>The wizards of the menu Tools; set by the composition root after the object controllers exist, null before and in tests without them.</summary>
+    /// <summary>
+    /// The wizards of the tile bar; set by the composition root after the object controllers exist, null before and in tests without them. The
+    /// main window follows a change (it takes the commands of the new value and rebuilds the tile bar).
+    /// </summary>
     public ObjectWizardController? Wizards
     {
         get => _wizards;
@@ -194,7 +198,7 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    /// <summary>The wizard entries of the menu Tools are shown.</summary>
+    /// <summary>The wizard tiles are offered.</summary>
     public bool HasWizards => _wizards is not null;
 
     /// <summary>The first line of the result of the last project command, for the status bar; null when there is none.</summary>
@@ -348,6 +352,42 @@ public sealed class MainViewModel : ObservableObject
                 Tabs.Add(source, opened, _workspace.Schema);
             }
         }
+    }
+
+    /// <summary>
+    /// The command, label and reason of the toolbar entry <paramref name="id"/> (an id of <see cref="ToolbarCatalog"/>); null when this view
+    /// model has no command for it (no projects, no documents or no file operations) or the id is unknown.
+    /// </summary>
+    public ToolbarBinding? ToolbarBindingFor(string id)
+    {
+        ToolbarBinding Bind(ICommand command, Func<string?>? reason) => new(command, Texts.ToolbarLabel(id), reason);
+
+        return id switch
+        {
+            ToolbarItemIds.NewProject when Projects is { } projects => Bind(projects.NewProjectCommand, () => projects.ProjectsDisabledReason),
+            ToolbarItemIds.OpenProject when Projects is { } projects => Bind(projects.OpenProjectCommand, () => projects.ProjectsDisabledReason),
+            ToolbarItemIds.ImportPack when Projects is { } projects => Bind(projects.ImportPackCommand, () => ProjectImportToolTip),
+            ToolbarItemIds.NewTable when HasProjectFiles => Bind(NewTableCommand, () => ProjectNewTableToolTip),
+            ToolbarItemIds.NewLoc when HasProjectFiles => Bind(NewLocCommand, () => ProjectNewFileToolTip),
+            ToolbarItemIds.Save when Documents is { } documents => Bind(documents.SaveCommand, () => ProjectSaveToolTip),
+            ToolbarItemIds.SaveAll when Documents is { } documents => Bind(documents.SaveAllCommand, () => ProjectSaveToolTip),
+            ToolbarItemIds.Undo when Documents is { } documents => Bind(documents.UndoCommand, null),
+            ToolbarItemIds.Redo when Documents is { } documents => Bind(documents.RedoCommand, null),
+            ToolbarItemIds.RefreshPacks => Bind(RefreshCommand, null),
+            ToolbarItemIds.Build when Projects is { } projects => Bind(projects.BuildActiveCommand, () => ProjectBuildToolTip),
+            ToolbarItemIds.BuildAndInstall when Projects is { } projects => Bind(projects.BuildAndInstallActiveCommand, () => ProjectBuildAndInstallToolTip),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The tool tip of the toolbar entry <paramref name="id"/>: name and gesture (<see cref="AppTexts.ToolbarTip"/>), and the reason why it is
+    /// disabled as a second line while there is one. The name stays, because the vertical toolbar shows no labels.
+    /// </summary>
+    public string ToolbarToolTip(string id)
+    {
+        var tip = Texts.ToolbarTip(id);
+        return ToolbarBindingFor(id)?.Reason?.Invoke() is { Length: > 0 } reason ? tip + "\n" + reason : tip;
     }
 
     // The reason order of every entry that needs a free runner: no game profile, then what is wrong with the project (no active project,
